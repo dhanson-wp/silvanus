@@ -5,10 +5,11 @@ import SwiftUI
 /// Screenshot mode for agents.
 ///   APP_STORE=/tmp/Silvanus-test APP_SNAPSHOT=/tmp/shots \
 ///     ~/Library/Developer/Silvanus/Silvanus.app/Contents/MacOS/Silvanus -ApplePersistenceIgnoreState YES
-/// writes <page>-light.png and <page>-dark.png for every sidebar page, and
+/// writes <page>-light.png and <page>-dark.png for every sidebar page, the window frame at
+/// its default and minimum sizes and with the sidebar hidden (captureFrames), and
 /// settings-<tab>-light.png and settings-<tab>-dark.png for every Settings tab, then quits.
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
-/// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "settings" to include Settings.
+/// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "settings" for Settings.
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
 /// Add APP_ACCENT=<id> to see the pages in another accent.
 /// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
@@ -48,6 +49,9 @@ enum Snapshot {
                     capture(to: "\(dir)/\(page.rawValue)-\(mode).png")
                 }
             }
+            if only == nil || only?.contains("window") == true {
+                await captureFrames(model: model, to: dir)
+            }
             if only == nil || only?.contains("settings") == true {
                 let main = NSApp.windows.first { $0.canBecomeMain && !$0.isSheet }
                 openSettings()
@@ -70,6 +74,32 @@ enum Snapshot {
             for window in NSApp.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
             NSApp.terminate(nil)
         }
+    }
+
+    /// The window frame (DesignKit/Window) at the kit's sizes, for measuring the divider,
+    /// traffic lights, and header against design/KIT.md "Window":
+    ///   window-<mode>.png            910 × 600, the default and pixel-compare size
+    ///   window-min-<mode>.png        720 × 480, the minimum: nothing in the header overlaps
+    ///   window-collapsed-<mode>.png  910 × 600 with the sidebar hidden
+    @MainActor private static func captureFrames(model: AppModel, to dir: String) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        let frames: [(name: String, size: CGSize, sidebar: Bool)] = [
+            ("window", Metric.windowDefault, true),
+            ("window-min", Metric.windowMinimum, true),
+            ("window-collapsed", Metric.windowDefault, false),
+        ]
+        model.sidebar = .all
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            for frame in frames {
+                model.sidebarVisible = frame.sidebar
+                main.setContentSize(frame.size)
+                try? await Task.sleep(for: .seconds(0.8))
+                capture(to: "\(dir)/\(frame.name)-\(mode).png", window: main)
+            }
+        }
+        model.sidebarVisible = true
+        main.setContentSize(Metric.windowDefault)
     }
 
     /// The brand set: About in light and dark, and the menu bar glyphs (idle and

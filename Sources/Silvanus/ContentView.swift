@@ -1,35 +1,30 @@
 import SilvanusKit
 import SwiftUI
 
+/// The main window: the kit's frame (DesignKit/Window), with the meeting list in the
+/// sidebar and an empty canvas until the sidebar and canvas parts arrive.
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } content: {
+        PaneLayout(sidebarVisible: model.sidebarVisible) {
+            SidebarToggleButton(sidebarVisible: model.sidebarVisible, toggle: model.toggleSidebar)
+        } sidebar: {
             MeetingList(page: model.sidebar ?? .all)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 320)
-        } detail: {
-            MeetingDetail()
+        } header: {
+            EmptyView()
+        } canvas: {
+            Color.clear
         }
         .task {
             SelfTest.runIfRequested(model: model)
             Snapshot.runIfRequested(model: model, openSettings: openSettings)
         }
     }
-
-    private var sidebar: some View {
-        @Bindable var model = model
-        return List(SidebarItem.allCases, selection: $model.sidebar) { page in
-            Label(page.title, systemImage: page.symbol)
-                .tag(page)
-        }
-        .navigationSplitViewColumnWidth(min: 180, ideal: 212)
-    }
 }
 
+/// The sidebar's meeting list, in simple rows until the kit's sidebar parts replace it.
 struct MeetingList: View {
     @Environment(AppModel.self) private var model
     let page: SidebarItem
@@ -50,6 +45,7 @@ struct MeetingList: View {
             }
             .tag(meeting.id)
         }
+        .scrollContentBackground(.hidden)
         .overlay {
             if visible.isEmpty {
                 ContentUnavailableView(
@@ -58,22 +54,6 @@ struct MeetingList: View {
                     description: Text("Meetings you record show up here.")
                 )
             }
-        }
-        .navigationTitle(page.title)
-    }
-}
-
-struct MeetingDetail: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        if let id = model.selection, let meeting = model.meetings.first(where: { $0.id == id }) {
-            Text(meeting.displayTitle)
-                .font(.title)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ContentUnavailableView("No Meeting Selected", systemImage: "sidebar.right")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

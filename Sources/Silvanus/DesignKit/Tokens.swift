@@ -260,9 +260,21 @@ enum Ink {
 /// Sizes from design/KIT.md "Metric", in points.
 enum Metric {
     static let windowDefault = CGSize(width: 910, height: 600)
+    /// The smallest the window goes: the header controls still clear the traffic lights.
+    static let windowMinimum = CGSize(width: 720, height: 480)
     /// Header controls are `controlHeight` tall at y 9.
     static let headerHeight: CGFloat = 46
     static let controlHeight: CGFloat = 28
+    /// Header controls' top edge: centered in the 46 pt header.
+    static let controlY: CGFloat = 9
+    /// KIT.md "Window": the close button's center, from the window's top left; the others
+    /// follow `trafficLightPitch` apart on the same line.
+    static let trafficLightFirst = CGPoint(x: 19, y: 23)
+    static let trafficLightPitch: CGFloat = 23
+    /// KIT.md "Sidebar header row": the first icon button's center x (hide sidebar), then
+    /// one every `sidebarHeaderPitch`.
+    static let sidebarHeaderFirstX: CGFloat = 94
+    static let sidebarHeaderPitch: CGFloat = 28
     /// Then a `hairline` divider at x 208.
     static let sidebarWidth: CGFloat = 208
     static let canvasX: CGFloat = 209
@@ -281,6 +293,8 @@ enum Metric {
     static let iconButtonCorner: CGFloat = 7
     static let buttonCorner: CGFloat = 6
     static let hairline: CGFloat = 1
+    /// KIT.md "focused" states: a 2 pt ring.
+    static let focusRing: CGFloat = 2
     /// Dashed card dividers.
     static let dashedHairline: CGFloat = 0.5
 }

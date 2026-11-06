@@ -1,5 +1,6 @@
 import Foundation
 import SilvanusKit
+import SwiftUI
 
 /// The sidebar pages. Snapshot mode walks through every case.
 enum SidebarItem: String, CaseIterable, Identifiable {
@@ -35,6 +36,8 @@ final class AppModel {
     var sidebar: SidebarItem? = .all
     /// The selected meeting's id.
     var selection: String?
+    /// False when the sidebar is hidden (View > Hide Sidebar, ⌃⌘S, or the header button).
+    var sidebarVisible = true
     /// Settings reopens on the last tab. Test and snapshot runs use their own defaults.
     var settingsTab: SettingsTab = SettingsTab(rawValue: AppDefaults.shared.string(forKey: "settings.tab") ?? "") ?? .general {
         didSet { AppDefaults.shared.set(settingsTab.rawValue, forKey: "settings.tab") }
@@ -51,6 +54,11 @@ extension AppModel {
         self.init(library: library)
         SeedData.seedIfRequested(library: library)
         reload()
+    }
+
+    /// Hides or shows the sidebar, sliding the canvas with the kit's selection curve.
+    func toggleSidebar() {
+        withAnimation(Motion.select) { sidebarVisible.toggle() }
     }
 
     func reload() {

@@ -28,13 +28,14 @@ struct SilvanusApp: App {
                 .environment(model)
                 .themed()
                 .overlay { if GridOverlay.enabled { GridOverlay() } }
-                .frame(minWidth: 760, minHeight: 480)
+                .windowChrome()
         }
-        .defaultSize(width: 1100, height: 720)
-        .windowToolbarStyle(.unified)
+        // The kit draws the chrome (DesignKit/Window). Size with defaultSize, not a fixed
+        // frame: with a hidden title bar a fixed frame grows by the title bar's height.
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(Metric.windowDefault)
         .commands {
-            SidebarCommands()
-            ToolbarCommands()
+            SidebarCommand(model: model)
             AboutCommand()
         }
 
@@ -74,6 +75,18 @@ struct MenuBarMenu: View {
         }
         Button("Quit Silvanus") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
+    }
+}
+
+/// View > Hide Sidebar and Show Sidebar (⌃⌘S), for the kit's own sidebar.
+struct SidebarCommand: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(replacing: .sidebar) {
+            Button(model.sidebarVisible ? "Hide Sidebar" : "Show Sidebar", action: model.toggleSidebar)
+                .keyboardShortcut("s", modifiers: [.control, .command])
+        }
     }
 }
 

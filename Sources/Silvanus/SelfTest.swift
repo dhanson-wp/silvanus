@@ -67,9 +67,59 @@ enum SelfTest {
             check("the kit's Silvanus colors come from the brand palette",
                   InkToken.missingFromBrand.isEmpty, InkToken.missingFromBrand.joined(separator: ", "))
 
+            await checkWindowFrame(model: model)
+
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
         }
+    }
+
+    /// The window frame from design/KIT.md "Window": default and minimum sizes, the traffic
+    /// lights' centers, and View > Hide Sidebar (⌃⌘S) hiding and showing the sidebar.
+    private static func checkWindowFrame(model: AppModel) async {
+        guard let window = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else {
+            check("the main window is open", false)
+            return
+        }
+        check("the window opens at 910 × 600", window.frame.size == Metric.windowDefault, "\(window.frame.size)")
+        check("the window's minimum is 720 × 480", window.minSize == Metric.windowMinimum, "\(window.minSize)")
+        let centers = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> CGPoint? in
+            guard let button = window.standardWindowButton(type), let container = button.superview else { return nil }
+            let frame = container.convert(button.frame, to: nil)
+            return CGPoint(x: frame.midX, y: window.frame.height - frame.midY)
+        }
+        let expected = (0..<3).map {
+            CGPoint(x: Metric.trafficLightFirst.x + CGFloat($0) * Metric.trafficLightPitch, y: Metric.trafficLightFirst.y)
+        }
+        let placed = centers.count == 3 && zip(centers, expected).allSatisfy { abs($0.x - $1.x) <= 1 && abs($0.y - $1.y) <= 1 }
+        check("the traffic lights sit within 1 pt of KIT.md's centers", placed, "\(centers)")
+
+        let item = menuItem(key: "s", modifiers: [.control, .command], in: NSApp.mainMenu)
+        check("View has Hide Sidebar on ⌃⌘S", item?.title == "Hide Sidebar", item?.title ?? "missing")
+        guard let item, let menu = item.menu else { return }
+        menu.performActionForItem(at: menu.index(of: item))
+        try? await Task.sleep(for: .seconds(0.3))
+        // SwiftUI refreshes menu titles when the menu is about to open.
+        NSApp.mainMenu?.update()
+        menu.delegate?.menuNeedsUpdate?(menu)
+        try? await Task.sleep(for: .seconds(0.3))
+        let hidden = !model.sidebarVisible
+        let showTitle = menuItem(key: "s", modifiers: [.control, .command], in: NSApp.mainMenu)?.title
+        check("⌃⌘S hides the sidebar and the item turns to Show Sidebar", hidden && showTitle == "Show Sidebar",
+              "visible \(model.sidebarVisible), title \(showTitle ?? "missing")")
+        if let again = menuItem(key: "s", modifiers: [.control, .command], in: NSApp.mainMenu), let menu = again.menu {
+            menu.performActionForItem(at: menu.index(of: again))
+        }
+        try? await Task.sleep(for: .seconds(0.3))
+        check("⌃⌘S again shows the sidebar", model.sidebarVisible)
+    }
+
+    private static func menuItem(key: String, modifiers: NSEvent.ModifierFlags, in menu: NSMenu?) -> NSMenuItem? {
+        for item in menu?.items ?? [] {
+            if item.keyEquivalent == key, item.keyEquivalentModifierMask == modifiers { return item }
+            if let found = menuItem(key: key, modifiers: modifiers, in: item.submenu) { return found }
+        }
+        return nil
     }
 
     private static func check(_ name: String, _ ok: Bool, _ detail: String = "") {
