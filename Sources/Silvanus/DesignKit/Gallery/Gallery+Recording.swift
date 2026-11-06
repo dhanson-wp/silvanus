@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The recording family in the kit gallery: the floating recording pill in each state
-/// (recording, a warning on the line, stopping, failed), the live wave on its own and in the
+/// (recording, hovered, a warning dot, failed, a long call, stopping), the live wave on its own and in the
 /// view pill, the Transcribing… indicator at a few points, and the notice banner. Fictional
 /// words only.
 struct RecordingGallery: View {
@@ -17,20 +17,13 @@ struct RecordingGallery: View {
                 .foregroundStyle(Ink.textSecondary)
             HStack(alignment: .top, spacing: Space.xxl) {
                 VStack(alignment: .leading, spacing: Space.lg) {
-                    sample("Recording pill") {
-                        RecordingPill(status: .recording(since: since), line: "Acme kickoff", meter: Self.meter, open: {}, stop: {})
-                    }
-                    sample("With a warning") {
-                        RecordingPill(status: .recording(since: since), line: Recorder.silentCall, meter: Self.meter,
-                                      open: {}, stop: {})
-                    }
-                    sample("Stopping") {
-                        RecordingPill(status: .stopping, line: "Acme kickoff", meter: Self.meter, open: {}, stop: {})
-                    }
-                    sample("Failed") {
-                        RecordingPill(status: .failed("Couldn't write audio: The disk is full."), line: "Acme kickoff",
-                                      meter: Self.meter, open: {}, stop: {}, dismiss: {})
-                    }
+                    sample("Recording") { pill(.recording(since: since)) }
+                    sample("Idle hover") { pill(.recording(since: since), hover: true) }
+                    sample("Warning dot") { pill(.recording(since: since), warning: Recorder.silentCall) }
+                    sample("Failed") { pill(.failed(Self.failure)) }
+                    sample("Failed, hover") { pill(.failed(Self.failure), hover: true) }
+                    sample("Long elapsed time") { pill(.recording(since: Date().addingTimeInterval(-7199))) }
+                    sample("Stopping") { pill(.stopping) }
                 }
                 VStack(alignment: .leading, spacing: Space.lg) {
                     sample("Live wave") {
@@ -55,7 +48,7 @@ struct RecordingGallery: View {
                                          actionTitle: "Retry", action: {}, dismiss: {})
                             NoticeBanner(message: "Finished transcribing an interrupted recording", dismiss: {})
                         }
-                        .frame(width: Metric.recordingPillWidth + Space.section * 2)
+                        .frame(width: 360)
                     }
                 }
             }
@@ -63,6 +56,15 @@ struct RecordingGallery: View {
             .background(Ink.canvas, in: RoundedRectangle(cornerRadius: Metric.rowCorner))
             .overlay(RoundedRectangle(cornerRadius: Metric.rowCorner).strokeBorder(Ink.divider, lineWidth: Metric.hairline))
         }
+    }
+
+    private static let failure = "Couldn't write audio: The disk is full."
+
+    /// A pill with room around it for its shadow, which the panel's margin gives it in life.
+    private func pill(_ status: RecordingPill.Status, hover: Bool = false, warning: String? = nil) -> some View {
+        RecordingPill(status: status, title: "Acme kickoff", warning: warning, meter: Self.meter, forcedHover: hover,
+                      open: {}, stop: {}, dismiss: {})
+            .padding(Space.sm)
     }
 
     private func sample(_ title: String, @ViewBuilder content: () -> some View) -> some View {

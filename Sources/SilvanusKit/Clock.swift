@@ -17,4 +17,13 @@ public enum Clock {
         let parts = [part(s / 3600, "hour"), part(s % 3600 / 60, "minute"), part(s % 60, "second")].compactMap { $0 }
         return parts.isEmpty ? "0 seconds" : parts.joined(separator: " ")
     }
+
+    /// The time to the minute as VoiceOver reads it, rounding down: "less than a minute",
+    /// "12 minutes", "1 hour 5 minutes".
+    public static func spokenMinutes(_ t: TimeInterval) -> String {
+        let minutes = max(0, Int(t.rounded(.down))) / 60
+        if minutes == 0 { return "less than a minute" }
+        func part(_ n: Int, _ unit: String) -> String? { n == 0 ? nil : "\(n) \(unit)\(n == 1 ? "" : "s")" }
+        return [part(minutes / 60, "hour"), part(minutes % 60, "minute")].compactMap { $0 }.joined(separator: " ")
+    }
 }

@@ -7,7 +7,7 @@ is folders of plain files (Markdown and JSON), one folder per meeting.
 
 ## Layout
 
-- `Sources/Silvanus/` the app. `App.swift` has the window, menus, and where the data lives (`Store`).
+- `Sources/Silvanus/` the app. `App.swift` has the window, menus, and where the data lives (`Store`: `~/Silvanus/library`, from the home directory at runtime; `APP_STORE` overrides). `meetings/`, `recovered/`, and imports all sit under that root.
 - `Sources/Silvanus/AppDefaults.swift` the one place the app reads and writes defaults.
 - `Sources/SilvanusKit/` rules and data logic with no SwiftUI. Tests in `Tests/SilvanusKitTests/`.
 - `Package.swift` a Swift package. FluidAudio (speech recognition) is pinned exactly and linked to the app target only.

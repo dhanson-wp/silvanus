@@ -532,13 +532,25 @@ final class Recorder {
 
 /// The floating recording pill's window: a small always-on-top panel, shown while a
 /// meeting records and the main window isn't the key window. It never takes focus from
-/// the app in front.
+/// the app in front. It joins every Space, drags by the pill's body, and remembers where it
+/// was left (`PillPlacement`). Hovering widens the window leftward to fit the expanded
+/// capsule, then narrows it again once the pill has shrunk back.
 @MainActor
 final class RecordingPanel {
     private let recorder: Recorder
     private weak var model: AppModel?
     private var panel: NSPanel?
     private var observers: [NSObjectProtocol] = []
+    /// The capsule's top trailing corner, in screen points.
+    private(set) var anchor = NSPoint.zero
+    private var hovering = false
+    private var shrinkTask: Task<Void, Never>?
+    private var dragStart: (mouse: NSPoint, anchor: NSPoint)?
+    /// The window around the capsule, collapsed and expanded, measured from the pill at its
+    /// widest (an hour into the call).
+    private var collapsedSize = NSSize.zero
+    private var expandedSize = NSSize.zero
+    private let margin = Space.md
 
     init(recorder: Recorder, model: AppModel) {
         self.recorder = recorder
@@ -551,8 +563,22 @@ final class RecordingPanel {
                 MainActor.assumeIsolated { self?.update() }
             })
         }
+        // An unplugged display must never strand the pill off every screen.
+        observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
+                                            queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.screensChanged() }
+        })
         track()
         update()
+    }
+
+    /// Puts the pill back on a screen if the one it was on has gone, then re-places it.
+    func screensChanged() {
+        guard let panel else { return }
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        let main = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        anchor = PillPlacement.resolve(saved: anchor, screens: screens, main: main)
+        place(size: panel.frame.width >= expandedSize.width ? expandedSize : collapsedSize)
     }
 
     /// Updates when the recorder's phase or warning changes.
@@ -587,58 +613,132 @@ final class RecordingPanel {
     }
 
     var isShowing: Bool { panel != nil }
+    /// The pill's window, for the checks and for telling it from the other floating panels.
+    var window: NSWindow? { panel }
+    static let windowID = NSUserInterfaceItemIdentifier("silvanus.recordingPill")
+    var frame: NSRect? { panel?.frame }
+    var isExpanded: Bool { panel.map { $0.frame.width >= expandedSize.width } ?? false }
 
     private func show() {
         guard panel == nil, let model else { return }
-        let view = RecordingPillHost(recorder: recorder, model: model)
-            .padding(Space.md)
-        let host = NSHostingView(rootView: view)
-        let size = host.fittingSize
-        host.setFrameSize(size)
-        let p = NSPanel(contentRect: NSRect(origin: .zero, size: size),
+        measure()
+        let view = RecordingPillHost(recorder: recorder, model: model, panel: self)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .padding(margin)
+        let host = PillHostingView(rootView: view)
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        let main = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        anchor = PillPlacement.resolve(saved: PillPlacement.saved(), screens: screens, main: main)
+        hovering = false
+        let p = NSPanel(contentRect: NSRect(origin: .zero, size: collapsedSize),
                         styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
         p.contentView = host
+        p.identifier = Self.windowID
         p.isFloatingPanel = true
         p.becomesKeyOnlyIfNeeded = true
         p.level = .floating
         p.backgroundColor = .clear
         p.isOpaque = false
         p.hasShadow = false
-        p.isMovableByWindowBackground = true
+        // The pill's body drags the window itself (a click there opens the meeting), so the
+        // window doesn't move by its background.
+        p.isMovableByWindowBackground = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
-        if let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
-            p.setFrameOrigin(NSPoint(x: screen.maxX - size.width - Space.md, y: screen.maxY - size.height - Space.md))
-        }
-        p.orderFrontRegardless()
         panel = p
+        place(size: collapsedSize)
+        p.orderFrontRegardless()
     }
 
     private func hide() {
+        shrinkTask?.cancel()
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
+        dragStart = nil
+    }
+
+    /// The window sizes that fit the pill at rest and hovered, at its widest.
+    private func measure() {
+        guard collapsedSize == .zero else { return }
+        let meter = LevelMeter()
+        let since = Date().addingTimeInterval(-7199)
+        func size(_ hover: Bool) -> NSSize {
+            let fit = NSHostingView(rootView: RecordingPill(status: .recording(since: since), warning: "x", meter: meter,
+                                                            forcedHover: hover).padding(margin)).fittingSize
+            return NSSize(width: fit.width.rounded(.up), height: fit.height.rounded(.up))
+        }
+        collapsedSize = size(false)
+        expandedSize = size(true)
+    }
+
+    private func place(size: NSSize) {
+        guard let panel else { return }
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        let visible = screens.first { $0.insetBy(dx: -1, dy: -1).contains(anchor) }
+        panel.setFrame(PillPlacement.frame(anchor: anchor, size: size, inset: margin, visible: visible), display: true)
+    }
+
+    /// The pointer entered or left the capsule. The window widens at once, so the capsule
+    /// has room to grow; it narrows after the capsule's shrink has played.
+    func hoverChanged(_ inside: Bool) {
+        hovering = inside
+        shrinkTask?.cancel()
+        if inside {
+            place(size: expandedSize)
+        } else {
+            shrinkTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(400))
+                guard let self, !Task.isCancelled, !self.hovering else { return }
+                self.place(size: self.collapsedSize)
+            }
+        }
+    }
+
+    /// Moves the window with the pointer while the body is dragged; the end saves the spot.
+    func drag(_ phase: PillDrag, mouse: NSPoint = NSEvent.mouseLocation) {
+        switch phase {
+        case .began:
+            dragStart = (mouse, anchor)
+        case .moved:
+            guard let start = dragStart, let panel else { return }
+            anchor = NSPoint(x: start.anchor.x + mouse.x - start.mouse.x, y: start.anchor.y + mouse.y - start.mouse.y)
+            place(size: panel.frame.width >= expandedSize.width ? expandedSize : collapsedSize)
+        case .ended:
+            dragStart = nil
+            if panel != nil { PillPlacement.save(anchor) }
+        }
     }
 }
 
-/// The pill with the recorder's values: the meeting's title (or the warning), the elapsed
-/// time, Stop, and the live button that brings the main window forward.
+/// Lets the first click act on the pill though the panel never becomes key.
+final class PillHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// The pill with the recorder's values: the meeting's title, any warning, the elapsed time,
+/// Stop, and the body that brings the main window forward on the recording meeting.
 struct RecordingPillHost: View {
     let recorder: Recorder
     let model: AppModel
-    @Environment(\.openWindow) private var openWindow
+    let panel: RecordingPanel
 
     var body: some View {
-        RecordingPill(status: status, line: line, meter: recorder.meter,
-                      open: {
-                          NSApp.activate()
-                          if let main = NSApp.windows.first(where: { $0.canBecomeMain && !($0 is NSPanel) }) {
-                              main.makeKeyAndOrderFront(nil)
-                          }
-                      },
+        RecordingPill(status: status, title: title, warning: recorder.warning, meter: recorder.meter,
+                      open: openMeeting,
                       stop: recorder.stop,
-                      dismiss: recorder.dismissNotice)
+                      dismiss: recorder.dismissNotice,
+                      drag: { panel.drag($0) },
+                      hoverChanged: { panel.hoverChanged($0) })
+    }
+
+    private func openMeeting() {
+        if let id = recorder.meetingID, model.meetings.contains(where: { $0.id == id }) { model.selection = id }
+        NSApp.activate()
+        if let main = NSApp.windows.first(where: { $0.canBecomeMain && !($0 is NSPanel) }) {
+            main.makeKeyAndOrderFront(nil)
+        }
     }
 
     private var status: RecordingPill.Status {
@@ -650,9 +750,7 @@ struct RecordingPillHost: View {
         }
     }
 
-    private var line: String {
-        if let warning = recorder.warning { return warning }
-        let title = recorder.meetingID.flatMap { id in model.meetings.first { $0.id == id }?.displayTitle }
-        return title ?? "Recording"
+    private var title: String {
+        recorder.meetingID.flatMap { id in model.meetings.first { $0.id == id }?.displayTitle } ?? "Recording"
     }
 }

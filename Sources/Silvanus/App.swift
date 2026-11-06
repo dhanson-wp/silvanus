@@ -239,12 +239,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// Where the data lives. Meetings are folders of plain files under
 /// `<root>/meetings/` (SilvanusKit's `MeetingLibrary`).
 enum Store {
-    /// APP_STORE when set (tests and snapshots), else ~/Silvanus, resolved at runtime.
+    /// APP_STORE when set (tests and snapshots), else ~/Silvanus/library, resolved at runtime.
     static var root: URL {
         if let path = ProcessInfo.processInfo.environment["APP_STORE"], !path.isEmpty {
             return URL(fileURLWithPath: path)
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appending(path: "Silvanus")
+        return FileManager.default.homeDirectoryForCurrentUser.appending(path: "Silvanus").appending(path: "library")
     }
 
     /// True when APP_STORE points somewhere else (tests and snapshots).

@@ -47,6 +47,8 @@ enum KitPalette {
     static let recordRed: UInt32 = 0xB42318
     /// Recording text on dark surfaces. Ours: 6.84:1 on raisedMidnight.
     static let recordRedLight: UInt32 = 0xFF8A80
+    /// The recording pill's warning dot. Ours: 8.9:1 on midnight.
+    static let warnAmber: UInt32 = 0xF2B134
 
     // The brand's theme tokens, light and dark.
     static let background = theme("background", light: ivory, dark: midnight)
@@ -143,6 +145,7 @@ enum InkToken: String, CaseIterable {
     case pillTrack, pillSegment, accent, accentText, focus, primaryControl, onPrimary
     case controlHover
     case recording, onRecording, recordingText
+    case pillGround, onPillGround, warning, recordingOnPill
 
     /// The light and dark value in a set.
     func pair(_ set: ColorSet) -> InkPair {
@@ -191,6 +194,12 @@ enum InkToken: String, CaseIterable {
         case .onRecording: InkPair(P.ivory)
         // recordRed is 2.38:1 on raisedMidnight, so dark uses recordRedLight.
         case .recordingText: InkPair(light: P.recordRed, dark: P.recordRedLight)
+        // The floating pill is dark in both themes, so it reads over any window behind it.
+        case .pillGround: InkPair(P.midnight)
+        case .onPillGround: InkPair(P.ivory)
+        case .warning: InkPair(P.warnAmber)
+        // recordRed on midnight is 2.5:1; the light red clears 3:1 for the wave and the failure dot.
+        case .recordingOnPill: InkPair(P.recordRedLight)
         }
     }
 
@@ -210,12 +219,18 @@ enum InkToken: String, CaseIterable {
         case .accentText: P.refSpeaker
         case .primaryControl: P.refControlOn
         case .onPrimary: P.refControlKnob
-        case .focus, .recording, .onRecording, .recordingText: nil
+        case .recordingOnPill: InkPair(P.recordRedLight)
+        case .focus, .recording, .onRecording, .recordingText, .pillGround, .onPillGround, .warning: nil
         }
     }
 
     /// Silvanus colors that fell back to the KIT.md value because the brand file lacked them.
     static var missingFromBrand: [String] { KitPalette.missingFromBrand }
+
+    /// Every pair KIT.md uses as a graphic (not text) on a surface; each must read at 3:1.
+    static let graphicPairs: [(graphic: InkToken, on: InkToken)] = [
+        (.recordingOnPill, .pillGround), (.warning, .pillGround), (.onPillGround, .pillGround),
+    ]
 
     /// Every pair KIT.md uses as text on a surface. Each must read at 4.5:1 in the Silvanus
     /// set, light and dark (the self-test checks). textTertiary is left out: it colors icons
@@ -230,6 +245,7 @@ enum InkToken: String, CaseIterable {
         pairs.append((.text, .pillSegment))
         pairs.append((.onPrimary, .primaryControl))
         pairs.append((.onRecording, .recording))
+        pairs.append((.onPillGround, .pillGround))
         return pairs
     }()
 }
@@ -258,6 +274,13 @@ enum Ink {
     static let recording = InkToken.recording.color
     static let onRecording = InkToken.onRecording.color
     static let recordingText = InkToken.recordingText.color
+    /// The floating recording pill's fill, and what's drawn on it.
+    static let pillGround = InkToken.pillGround.color
+    static let onPillGround = InkToken.onPillGround.color
+    /// The pill's warning dot. Fill only.
+    static let warning = InkToken.warning.color
+    /// The wave and the failure dot on the dark pill. Fill only.
+    static let recordingOnPill = InkToken.recordingOnPill.color
 }
 
 extension Ink {
