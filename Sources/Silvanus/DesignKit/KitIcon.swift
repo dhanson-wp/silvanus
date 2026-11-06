@@ -14,6 +14,9 @@ enum KitIcon: String, CaseIterable {
     case date, attendees, back
     /// The settings list.
     case settingsGeneral, settingsAppearance, settingsAudio, settingsMicrophone
+    /// The sidebar: the "All meetings" row and the Folders section's collapse chevron
+    /// (drawn pointing right, turned down when the section is open).
+    case allMeetings, disclosure
 
     var symbol: String {
         switch self {
@@ -36,6 +39,8 @@ enum KitIcon: String, CaseIterable {
         case .back: "chevron.left"
         case .settingsGeneral: "gearshape"
         case .settingsAppearance: "paintbrush"
+        case .allMeetings: "tray"
+        case .disclosure: "chevron.right"
         }
     }
 
@@ -45,10 +50,10 @@ enum KitIcon: String, CaseIterable {
         case .hideSidebar, .transcriptTab, .folderHeader, .attendees: 15
         case .search, .newNote, .filter, .date, .folderChip: 13
         case .myNotesTab, .record, .pause, .stop: 12
-        case .summaryTab, .folderLine, .more: 11
+        case .summaryTab, .folderLine, .more, .disclosure: 11
         case .play: 9
         case .folderRow, .quickNoteMic, .back, .settingsGeneral, .settingsAppearance,
-             .settingsAudio, .settingsMicrophone: 14
+             .settingsAudio, .settingsMicrophone, .allMeetings: 14
         }
     }
 

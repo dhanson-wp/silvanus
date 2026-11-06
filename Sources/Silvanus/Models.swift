@@ -36,6 +36,8 @@ final class AppModel {
     var sidebar: SidebarItem? = .all
     /// The selected meeting's id.
     var selection: String?
+    /// The sidebar folder the meeting list shows; nil is All meetings.
+    var folder: String?
     /// False when the sidebar is hidden (View > Hide Sidebar, ⌃⌘S, or the header button).
     var sidebarVisible = true
     /// Settings reopens on the last tab. Test and snapshot runs use their own defaults.
@@ -65,5 +67,19 @@ extension AppModel {
         let loaded = library.loadAll()
         meetings = loaded.meetings
         unreadable = loaded.unreadable
+        // A folder that no longer holds a meeting is gone from the sidebar, so stop showing it.
+        if let folder, !folders.contains(where: { $0.name == folder }) { self.folder = nil }
+    }
+
+    /// The sidebar's folders, sorted, with their meeting counts.
+    var folders: [(name: String, count: Int)] { SidebarFolders.list(meetings) }
+
+    /// The meetings the sidebar lists: the chosen folder's, or every one.
+    var visibleMeetings: [Meeting] { SidebarFolders.filter(meetings, folder: folder) }
+
+    /// Opens a meeting: a click on its row, or Return on the selected one. The canvas shows
+    /// the selected meeting; once it has a text view it takes keyboard focus here too.
+    func open(_ id: String) {
+        selection = id
     }
 }

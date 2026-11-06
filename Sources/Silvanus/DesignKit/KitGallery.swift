@@ -31,6 +31,7 @@ struct KitGallery: View {
                     ForEach(KitIcon.allCases, id: \.self) { iconRow($0) }
                 }
             }
+            SidebarGallery()
         }
         .padding(Space.xxl)
         .background(Ink.background)

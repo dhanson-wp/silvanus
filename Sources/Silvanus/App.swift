@@ -26,6 +26,7 @@ struct SilvanusApp: App {
                 if KitGallery.enabled { KitGalleryPage() } else { ContentView() }
             }
                 .environment(model)
+                .noInitialFocus()
                 .themed()
                 .overlay { if GridOverlay.enabled { GridOverlay() } }
                 .windowChrome()

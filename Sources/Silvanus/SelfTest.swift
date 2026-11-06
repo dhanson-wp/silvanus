@@ -42,6 +42,28 @@ enum SelfTest {
             check("a trashed meeting is gone from the list", model.meetings.isEmpty)
             check("All Meetings is selected", model.sidebar == .all)
 
+            // The sidebar's folders: listed once each, sorted; choosing one filters the list.
+            let filed = [("Weekly sync", "Team"), ("Acme kickoff", "Clients"), ("Budget review", "Team"), ("Design review", nil)]
+                .enumerated().map { index, item in
+                    Meeting(info: MeetingInfo(title: item.0, start: Date(timeIntervalSince1970: 1_793_975_400 - Double(index) * 3_600),
+                                              folder: item.1))
+                }
+            for meeting in filed { _ = try? model.library.save(meeting) }
+            model.reload()
+            check("the sidebar lists each folder once, sorted, with counts",
+                  model.folders.map { "\($0.name) \($0.count)" } == ["Clients 1", "Team 2"],
+                  model.folders.map(\.name).joined(separator: ", "))
+            model.folder = "Team"
+            check("choosing a folder shows only its meetings",
+                  model.visibleMeetings.map(\.displayTitle) == ["Weekly sync", "Budget review"],
+                  model.visibleMeetings.map(\.displayTitle).joined(separator: ", "))
+            model.folder = nil
+            check("All meetings shows every meeting", model.visibleMeetings.count == filed.count)
+            model.folder = "Clients"
+            for meeting in filed { try? model.library.moveToTrash(meeting.id) }
+            model.reload()
+            check("a folder with no meetings left stops filtering the list", model.folder == nil && model.folders.isEmpty)
+
             let saved = UserDefaults.standard.string(forKey: "settings.tab")
             model.settingsTab = .appearance
             check("the Settings tab is saved to the test defaults",

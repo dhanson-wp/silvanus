@@ -37,6 +37,8 @@ enum Snapshot {
             return
         }
         let only = env["APP_SNAPSHOT_PAGES"].map { Set($0.split(separator: ",").map(String.init)) }
+        // A selected row, so the pages show the sidebar's selection.
+        if model.selection == nil { model.selection = model.meetings.first?.id }
         Task {
             keepDisplayAwake()
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)

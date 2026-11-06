@@ -26,4 +26,5 @@ Every word Silvanus puts on screen. One name per idea.
 | Timestamp | The time a note line or transcript block starts, from the start of the meeting | time code |
 | Microphone access / System audio access | The two macOS permissions Silvanus needs | Mic permission, Screen Recording |
 | Folder | A group of meetings the user makes | Project, Space, Tag |
+| All meetings | The sidebar's list with no folder chosen: every meeting | All Notes, Everything, Inbox |
 | Move to Trash | Remove a meeting so it can be restored from the Trash | Delete (unless it can't come back) |
