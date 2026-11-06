@@ -63,8 +63,8 @@ final class CallDetector {
     var meetingEnded: () -> Void = {}
     /// A call app's name, by bundle id, read at runtime. The self-test fakes it.
     var displayName: @MainActor (String) -> String? = CallDetector.liveDisplayName
-    /// After each poll: whether a call app is in a call. The recorder's call-audio warning
-    /// reads it.
+    /// After each poll: whether a call app is in a call (using the microphone; our own
+    /// process never counts). The recorder's Stop when the call ends reads it.
     var callAppsChanged: (Bool) -> Void = { _ in }
 
     private(set) var state: CallDetection.State = .armed

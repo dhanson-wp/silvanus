@@ -23,7 +23,7 @@ UX:
 - Words: title "Silvanus needs two permissions"; "Microphone access: so your side of the call is in the transcript."; "System audio access: so the other people on the call are in the transcript."; buttons "Allow Microphone Access", "Allow System Audio Access", "Continue"
 - Access: Tab moves between the buttons; status is read as words, not only by checkmark color
 Status: done
-Note: macOS has no public API for the system audio permission, so the screen shows "Asked" rather than "Allowed"; the recording bar warns when call audio stays silent.
+Note: macOS has no public API for the system audio permission, so the screen shows "Asked" rather than "Allowed". Silence is normal, so the recording bar never warns about it.
 
 ### S-002 Start and stop a recording from the menu bar
 As the user, I click the menu bar item and choose Start recording, then Stop.
@@ -73,7 +73,7 @@ Acceptance:
 UX:
 - Flow: recording runs -> the recording bar shows the latest draft line -> Transcript shows the full draft at the end -> nothing to do
 - Surface: inline (the recording bar at the bottom of the meeting)
-- States: before anyone speaks, "Listening…"; draft model still downloading, "Draft starts when the speech model is ready (240 MB of 470 MB)"; call audio silent for 30 seconds during a call, "Nobody on the call is audible yet. Check System Audio access in Settings."
+- States: before anyone speaks, "Listening…"; draft model still downloading, "Draft starts when the speech model is ready (240 MB of 470 MB)". Silence on either side is normal and never warns
 - Words: "Draft" label in Transcript; Me shown as my name, Them as "Them"
 - Access: the bar's draft line is not announced on every change (VoiceOver would talk over the call); Pause and Stop have labels "Pause recording", "Stop recording"
 Status: todo
@@ -193,7 +193,7 @@ Depends: S-002
 Acceptance:
 - [self] Both tracks keep their alignment across the switch; the gap is filled with silence and noted in the sidecar.
 - [snap] The bar briefly shows which microphone is now in use.
-- [self] A silent call track for 30 seconds while the mic is active shows a warning in the bar.
+- [self] A silent call track or microphone never shows a warning: silence is normal (design/KIT.md "Recording controls").
 Status: todo
 
 ### S-012 Record a 2-hour call without trouble
@@ -300,6 +300,21 @@ Acceptance:
 - [self] Zoom, Meet in a browser, Slack huddles, Teams, and FaceTime are detected.
 - [self] "Never ask for this app" is remembered per app.
 Status: todo
+
+### S-022a Stop recording when the call ends
+As the user, when I hang up, the recording stops on its own, so I don't have to remember Stop.
+Screens: recording-controls
+Depends: S-022
+Acceptance:
+- [unit] A recording started while a call app was using the microphone counts down once no call app has used the microphone for 15 seconds; call input coming back cancels; Keep recording holds until a new call starts; no countdown while paused or for Quick Note; at 0 it stops exactly like Stop (`CallEndStop`).
+- [self] With the fake call probe: the countdown note shows and is announced, Keep recording, Pause, Quick Note, and the setting off never stop, and at 0 the meeting is closed and transcribed.
+- [snap] The note above the bar reads "Call ended. Stopping in 10 seconds." with Keep recording.
+- [manual] On a real Meet or Zoom call, hanging up stops the recording about 25 seconds later; talking alone in the call never warns.
+UX:
+- Signal: a call app's process stops using audio input (Silvanus's own never counts), never how loud anything is. The call app may stay open after hanging up.
+- Words: "Call ended. Stopping in 10 seconds." … "Stopping in 1 second."; button "Keep recording"; Settings > General "Stop when the call ends" (on), "When the call app lets go of the microphone, stop recording after a short countdown."
+- Access: the countdown is announced once to VoiceOver; the seconds aren't.
+Status: done
 
 ### S-023 Title a meeting from the calendar
 As the user, a recording during a calendar event gets the event's title and attendees.

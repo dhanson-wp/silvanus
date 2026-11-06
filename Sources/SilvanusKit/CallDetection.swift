@@ -123,24 +123,3 @@ public enum CallDetection {
         }
     }
 }
-
-/// When the call-audio warning ("Nobody on the call is audible yet…") may show. Quick Note
-/// is a voice note, never a call; and a recording with no call app using audio input at its
-/// start, and none now, has no call to hear (an in-person meeting with a browser open). The microphone-silence warning shows for every
-/// recording.
-public enum CallAudioWarning {
-    public static let text = "Nobody on the call is audible yet. Check System Audio access in Settings."
-
-    public static func applies(quickNote: Bool, callAppAtStart: Bool, callAppNow: Bool) -> Bool {
-        !quickNote && (callAppAtStart || callAppNow)
-    }
-
-    /// The warning to show now, or nil: call audio silent for `silentFor` seconds, past
-    /// `threshold`, in a recording the warning applies to.
-    public static func warning(quickNote: Bool, callAppAtStart: Bool, callAppNow: Bool,
-                               silentFor: TimeInterval, threshold: TimeInterval) -> String? {
-        guard applies(quickNote: quickNote, callAppAtStart: callAppAtStart, callAppNow: callAppNow),
-              silentFor > threshold else { return nil }
-        return text
-    }
-}

@@ -308,8 +308,8 @@ enum Snapshot {
         model.selection = nil
     }
 
-    /// The recording controls in their states (recording, mic only, paused, audio lost,
-    /// quiet, a long call), and the permissions sheet, drawn straight from the views like the
+    /// The recording controls in their states (recording, mic only, call ended counting
+    /// down, paused, audio lost, quiet, a long call), and the permissions sheet, drawn straight from the views like the
     /// brand set: recording-controls-<mode>.png and permissions-<mode>.png.
     @MainActor private static func renderRecordingParts(since: Date, levels: [Float], to dir: String) {
         let meter = LevelMeter(levels: levels)
@@ -319,6 +319,8 @@ enum Snapshot {
             let controls = VStack(alignment: .leading, spacing: Space.lg) {
                 RecordingControls(status: .recording(since: since), meter: meter)
                 RecordingControls(status: .recording(since: since), callAudioDown: "The call audio device stopped.",
+                                  meter: meter)
+                RecordingControls(status: .recording(since: since), callEndStopAt: Date().addingTimeInterval(9.5),
                                   meter: meter)
                 RecordingControls(status: .paused(elapsed: 754), meter: meter)
                 RecordingControls(status: .lost(elapsed: 754, reason: "Couldn't restart the microphone."), meter: meter)

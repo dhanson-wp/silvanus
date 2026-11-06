@@ -1419,6 +1419,123 @@ enum SelfTest {
         await poll(timeout: 10) { !recorder.hasWork }
     }
 
+    /// Stop when the call ends, with the fake call probe driving the real detector: a
+    /// recording started during a call counts down once the call app has let go of the
+    /// microphone (shortened from 15 s and 10 s), Keep recording holds until a new call, call
+    /// input coming back cancels, Pause holds it off, Quick Note never stops, the setting
+    /// turns it off, and at 0 the meeting is closed and transcribed exactly as Stop does.
+    private static func checkStopWhenCallEnds(model: AppModel, calls: AfterCallCalls,
+                                              idle: () async -> Void) async {
+        let recorder = model.recorder
+        recorder.captures = CaptureFactory(mic: { FakeCapture(channels: 1, level: 0.3, mode: .tone) },
+                                           system: { FakeCapture(channels: 2, level: 0.5, mode: .tone) })
+        final class Fake { var inCall = false }
+        let fake = Fake()
+        let detector = model.makeDetector(probe: .init(callAppsUsingInput: { fake.inCall ? ["us.zoom.xos"] : [] },
+                                                       micInUseElsewhere: { fake.inCall },
+                                                       runningCallApps: { ["us.zoom.xos"] }))
+        let probe = detector.probe
+        recorder.callAppProbe = { probe.callInProgress(recording: false) }
+        let saved = (recorder.callEndQuiet, recorder.callEndCountdown)
+        recorder.callEndQuiet = 0.4
+        recorder.callEndCountdown = 0.8
+        defer {
+            recorder.callEndQuiet = saved.0
+            recorder.callEndCountdown = saved.1
+            recorder.callAppProbe = { false }
+            recorder.callAppRunning = false
+        }
+        check("Stop when the call ends starts on", model.stopWhenCallEnds && AppDefaults.stopWhenCallEnds)
+
+        // A recording started during a call; the call ends.
+        fake.inCall = true
+        detector.poll()
+        model.startRecording()
+        let call = recorder.meetingID
+        try? await Task.sleep(for: .milliseconds(700))
+        check("while the call app uses the microphone, there's no countdown",
+              recorder.isRecording && recorder.callEndStopAt == nil && recorder.callAppAtStart)
+        fake.inCall = false
+        detector.poll()
+        await poll { recorder.callEndStopAt != nil }
+        check("once the call app lets go of the microphone, the controls count down",
+              recorder.isRecording && recorder.callEndStopAt != nil)
+        await poll { model.controls?.lastAnnouncement?.hasPrefix(RecordingWords.callEnded) == true }
+        check("…saying \"Call ended. Stopping in 10 seconds.\" in the note above the bar, once to VoiceOver",
+              RecordingWords.callEndedNote(seconds: 10) == "Call ended. Stopping in 10 seconds."
+              && model.controls?.lastAnnouncement?.hasPrefix(RecordingWords.callEnded) == true,
+              model.controls?.lastAnnouncement ?? "none")
+        // The call comes back: the countdown goes.
+        fake.inCall = true
+        detector.poll()
+        await poll { recorder.callEndStopAt == nil }
+        check("call input coming back cancels the countdown", recorder.isRecording && recorder.callEndStopAt == nil)
+        // Pause: nothing counts.
+        fake.inCall = false
+        detector.poll()
+        recorder.pause()
+        try? await Task.sleep(for: .milliseconds(1_500))
+        check("while paused there's no countdown, and it never stops", recorder.mode == .paused
+              && recorder.callEndStopAt == nil)
+        recorder.resume()
+        await poll { recorder.callEndStopAt != nil }
+        // Keep recording: no countdown until a new call starts.
+        recorder.keepRecording()
+        try? await Task.sleep(for: .milliseconds(1_500))
+        check("Keep recording keeps it recording with no countdown", recorder.isRecording
+              && recorder.meetingID == call && recorder.callEndStopAt == nil)
+        fake.inCall = true
+        detector.poll()
+        try? await Task.sleep(for: .milliseconds(200))
+        fake.inCall = false
+        detector.poll()
+        let before = calls.ids.count
+        await poll(timeout: 4) { !recorder.isRecording }
+        check("…until a new call starts and ends: then at 0 it stops on its own",
+              !recorder.isRecording && recorder.callEndStopAt == nil, "\(recorder.phase)")
+        await idle()
+        let tracks = call.flatMap { model.library.audioURL(for: $0) }.map { Tracks.load(from: $0) }
+        let ended = call.flatMap { model.library.meeting(id: $0) }?.info.end
+        check("…and the meeting is closed and transcribed exactly as Stop does",
+              calls.ids.count == before + 1 && calls.ids.last == call && (tracks?.mic?.seconds ?? 0) > 0 && ended != nil,
+              "calls \(calls.ids.count - before), \(String(describing: tracks))")
+
+        // Quick Note during a call never stops on its own.
+        fake.inCall = true
+        detector.poll()
+        model.quickNote()
+        fake.inCall = false
+        detector.poll()
+        try? await Task.sleep(for: .milliseconds(1_800))
+        check("Quick Note never stops when a call ends", recorder.isRecording && recorder.callEndStopAt == nil)
+        model.startRecording()
+        await idle()
+
+        // No call at the start: never.
+        model.startRecording()
+        try? await Task.sleep(for: .milliseconds(1_800))
+        check("a recording with no call at its start never stops on its own", recorder.isRecording
+              && !recorder.callAppAtStart && recorder.callEndStopAt == nil)
+        model.startRecording()
+        await idle()
+
+        // The setting off: never.
+        model.stopWhenCallEnds = false
+        check("turning Stop when the call ends off is saved",
+              AppDefaults.shared.object(forKey: AppDefaults.stopWhenCallEndsKey) as? Bool == false)
+        fake.inCall = true
+        detector.poll()
+        model.startRecording()
+        fake.inCall = false
+        detector.poll()
+        try? await Task.sleep(for: .milliseconds(1_800))
+        check("with it off, a call that ends never stops the recording", recorder.isRecording
+              && recorder.callEndStopAt == nil)
+        model.startRecording()
+        await idle()
+        model.stopWhenCallEnds = true
+    }
+
     /// The call detector with a fake probe: "Meeting detected" once per call, naming the app
     /// only when it's known, never with no call app, never while recording, not when the
     /// setting is off, and gone when the call ends; Record Meeting in the menu bar meanwhile.
@@ -1601,9 +1718,10 @@ enum SelfTest {
     }
 
     /// What goes wrong live, acted out with fake captures: a microphone that won't start or
-    /// fails mid-call, call audio that fails, a microphone that changes or goes quiet, Stop
-    /// before any audio, Move to Trash while busy, the retry cap, ⌘Q while recording, and the
-    /// permissions sheet's Start.
+    /// fails mid-call, call audio that fails, a microphone that changes or goes quiet (never a
+    /// warning), Stop before any audio, Stop when the call ends (with the fake call probe),
+    /// Move to Trash while busy, the retry cap, ⌘Q while recording, and the permissions
+    /// sheet's Start.
     private static func checkRecordingFailures(model: AppModel, calls: AfterCallCalls) async {
         let recorder = model.recorder
         func captures(mic: FakeCapture.Mode = .tone, system: FakeCapture.Mode = .tone) {
@@ -1683,7 +1801,8 @@ enum SelfTest {
               "\(String(describing: micOnlyTracks)), system segments \(micOnlySystem)")
         await idle()
 
-        // 4. The microphone changes mid-call: a new segment in the same track. A quiet microphone warns.
+        // 4. The microphone changes mid-call: a new segment in the same track. A quiet
+        // microphone is normal: no warning.
         captures(mic: .changesDevice)
         model.quickNote()
         let changed = recorder.meetingID
@@ -1694,14 +1813,12 @@ enum SelfTest {
         check("a microphone that changes goes on in a new segment of the same track",
               micSegments >= 2 && micSeconds > 0.9, "segments \(micSegments), seconds \(micSeconds)")
         await idle()
-        recorder.silenceWarning = 0.3
         captures(mic: .silent)
         model.quickNote()
-        await poll { recorder.warning?.contains(Recorder.silentMic) == true }
-        check("a microphone that stays silent shows a warning", recorder.warning?.contains(Recorder.silentMic) == true,
+        try? await Task.sleep(for: .milliseconds(800))
+        check("a microphone that stays silent shows no warning (silence is normal)", recorder.warning == nil,
               recorder.warning ?? "none")
         check("…and silence is never \"Audio lost\"", recorder.mode == .recording, "\(recorder.mode)")
-        recorder.silenceWarning = 30
 
         // 5. Stop before any audio arrives: nothing to transcribe, and the banner says so.
         captures(mic: .silent, system: .silent)
@@ -1717,33 +1834,22 @@ enum SelfTest {
               "calls \(calls.ids.count - before), notice \(recorder.notice?.message ?? "none")")
         recorder.dismissNotice()
 
-        // 5b. Call audio that stays silent warns only during a call, never for Quick Note.
-        recorder.silenceWarning = 0.3
+        // 5b. Call audio that stays silent during a call is normal too: no warning.
         captures(system: .silent)
         recorder.callAppProbe = { true }
-        model.quickNote()
+        recorder.stopWhenCallEnds = { false }
+        model.startRecording()
         try? await Task.sleep(for: .milliseconds(800))
-        check("Quick Note never warns about call audio, even with a call app open",
-              recorder.isRecording && recorder.warning?.contains(Recorder.silentCall) != true, recorder.warning ?? "none")
-        model.startRecording()
-        await idle()
-        model.startRecording()
-        await poll { recorder.warning?.contains(Recorder.silentCall) == true }
-        check("during a call, silent call audio says \"Nobody on the call is audible yet. Check System Audio access in Settings.\"",
-              recorder.warning?.contains("Nobody on the call is audible yet. Check System Audio access in Settings.") == true,
+        check("silent call audio during a call shows no warning", recorder.isRecording && recorder.warning == nil,
               recorder.warning ?? "none")
-        check("…and the microphone warning isn't mixed in while the microphone is heard",
-              recorder.warning?.contains(Recorder.silentMic) != true, recorder.warning ?? "none")
         model.startRecording()
         await idle()
-        recorder.callAppProbe = { false }
-        model.startRecording()
-        try? await Task.sleep(for: .milliseconds(800))
-        check("with no call app at the start or since, silent call audio never warns",
-              recorder.isRecording && recorder.warning?.contains(Recorder.silentCall) != true, recorder.warning ?? "none")
-        model.startRecording()
-        await idle()
-        recorder.silenceWarning = 30
+        recorder.stopWhenCallEnds = { AppDefaults.stopWhenCallEnds }
+
+        // 5c. Stop when the call ends, with the fake call probe: the call app lets go of the
+        // microphone, the controls count down with Keep recording, and at 0 it stops like Stop.
+        await checkStopWhenCallEnds(model: model, calls: calls, idle: idle)
+        captures()
 
         // 6. Move to Trash is off for the recording meeting and the one transcribing.
         captures()

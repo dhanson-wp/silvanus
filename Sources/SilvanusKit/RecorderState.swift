@@ -192,3 +192,93 @@ public enum RecordingRules {
         !hasTranscript && hasSegments(audioFiles)
     }
 }
+
+/// Stop when the call ends (Settings > General): a recording started while a call app was
+/// using the microphone stops on its own once the call is over. The signal is the call app
+/// letting go of the microphone (no call app process using audio input; Silvanus's own
+/// process never counts), never how loud anything is: silence is normal.
+///
+/// After `quietAfter` seconds of no call input while capturing, a `countdown` starts ("Call
+/// ended. Stopping in 10 seconds.", with Keep recording); at 0 the recording stops as if Stop
+/// were pressed. Call input coming back cancels it. Keep recording turns it off for this
+/// recording until a new call starts using the microphone. Quick Note and recordings with no
+/// call at the start never stop on their own; nothing counts while paused or with audio lost.
+/// The app's `Recorder` steps it ten times a second with what the call detector last saw.
+public struct CallEndStop: Equatable, Sendable {
+    public static let quietAfter: TimeInterval = 15
+    public static let countdown: TimeInterval = 10
+
+    public enum Phase: Equatable, Sendable {
+        /// Quick Note, no call at the start, or already stopped: never.
+        case off
+        /// Watching the call; `quietSince` is when its input stopped, nil while it's heard.
+        case watching(quietSince: Date?)
+        /// "Call ended. Stopping in N seconds."; the recording stops at `stopAt`.
+        case countingDown(stopAt: Date)
+        /// Keep recording: off until a call app uses the microphone again.
+        case kept
+    }
+
+    public enum Action: Equatable, Sendable {
+        /// Stop the recording, as Stop does.
+        case stop
+    }
+
+    public private(set) var phase: Phase
+    public var quietAfter: TimeInterval
+    public var countdown: TimeInterval
+
+    public init(callAtStart: Bool, quickNote: Bool, quietAfter: TimeInterval = CallEndStop.quietAfter,
+                countdown: TimeInterval = CallEndStop.countdown) {
+        phase = callAtStart && !quickNote ? .watching(quietSince: nil) : .off
+        self.quietAfter = quietAfter
+        self.countdown = countdown
+    }
+
+    /// When the recording stops, while the countdown runs.
+    public var stopAt: Date? {
+        if case let .countingDown(stopAt) = phase { stopAt } else { nil }
+    }
+
+    /// The whole seconds left on the countdown at `date` (10 … 1), else nil.
+    public func secondsLeft(at date: Date) -> Int? {
+        guard let stopAt else { return nil }
+        return max(1, Int(stopAt.timeIntervalSince(date).rounded(.up)))
+    }
+
+    /// One step. `callInput` is a call app using audio input now; `capturing` is false while
+    /// paused or with audio lost; `enabled` is the setting. Returns `.stop` once, at 0.
+    public mutating func step(at now: Date, callInput: Bool, capturing: Bool, enabled: Bool) -> Action? {
+        switch phase {
+        case .off:
+            return nil
+        case .kept:
+            if callInput { phase = .watching(quietSince: nil) }
+            return nil
+        case let .watching(quietSince):
+            guard enabled, capturing, !callInput else {
+                phase = .watching(quietSince: nil)
+                return nil
+            }
+            let since = quietSince ?? now
+            phase = now.timeIntervalSince(since) >= quietAfter
+                ? .countingDown(stopAt: now.addingTimeInterval(countdown))
+                : .watching(quietSince: since)
+            return nil
+        case let .countingDown(stopAt):
+            guard enabled, capturing, !callInput else {
+                phase = .watching(quietSince: nil)
+                return nil
+            }
+            guard now >= stopAt else { return nil }
+            phase = .off
+            return .stop
+        }
+    }
+
+    /// Keep recording: cancels the countdown, and nothing counts until a new call starts.
+    public mutating func keepRecording() {
+        guard phase != .off else { return }
+        phase = .kept
+    }
+}

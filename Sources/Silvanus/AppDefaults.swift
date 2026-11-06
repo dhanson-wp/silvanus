@@ -58,6 +58,7 @@ extension AppDefaults {
     static let appearanceKey = "appearance.mode"
     static let showInDockKey = "general.showInDock"
     static let promptOnMeetingKey = "general.promptOnMeeting"
+    static let stopWhenCallEndsKey = "general.stopWhenCallEnds"
     static let settingsPaneKey = "settings.pane"
     static let meNameKey = "meName"
 
@@ -76,6 +77,12 @@ extension AppDefaults {
     static var promptOnMeeting: Bool {
         get { shared.object(forKey: promptOnMeetingKey) as? Bool ?? true }
         set { shared.set(newValue, forKey: promptOnMeetingKey) }
+    }
+
+    /// Settings > General > Stop when the call ends. On until it's turned off.
+    static var stopWhenCallEnds: Bool {
+        get { shared.object(forKey: stopWhenCallEndsKey) as? Bool ?? true }
+        set { shared.set(newValue, forKey: stopWhenCallEndsKey) }
     }
 
     /// Saved only for now; the Dock icon follows it once that behavior lands.

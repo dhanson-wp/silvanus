@@ -26,6 +26,7 @@ final class RecordingPanel: BarMover {
     @ObservationIgnored private var dragStart: (mouse: NSPoint, origin: NSPoint)?
     @ObservationIgnored private var lastMode: Recorder.Mode = .idle
     @ObservationIgnored private var lastCallAudioDown: String?
+    @ObservationIgnored private var lastCallEndStopAt: Date?
     @ObservationIgnored private var noteHeights: [String: CGFloat] = [:]
     /// True when the controls were hidden for this recording (the menu bar shows them again).
     private(set) var isHiddenByUser = false
@@ -65,6 +66,7 @@ final class RecordingPanel: BarMover {
             _ = recorder.mode
             _ = recorder.isRecording
             _ = recorder.callAudioDown
+            _ = recorder.callEndStopAt
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.update()
@@ -77,8 +79,12 @@ final class RecordingPanel: BarMover {
         let mode = recorder.mode
         if lastMode == .idle, mode != .idle { isHiddenByUser = false }
         announce(from: lastMode, to: mode)
+        if mode == .recording, recorder.callEndStopAt != nil, lastCallEndStopAt == nil {
+            say(RecordingWords.callEndedNote(seconds: Int(recorder.callEndCountdown.rounded(.up))))
+        }
         lastMode = mode
         lastCallAudioDown = recorder.callAudioDown
+        lastCallEndStopAt = recorder.callEndStopAt
         if recorder.state.showsControls && !isHiddenByUser {
             show()
             place()
@@ -144,14 +150,18 @@ final class RecordingPanel: BarMover {
 
     /// The note's height above the bar, plus its gap, while one shows.
     private var noteRoom: CGFloat {
+        let countdown = recorder.mode == .recording && recorder.callEndStopAt != nil
         let text: String? = switch recorder.mode {
         case .paused: RecordingWords.pausedNote
         case .interrupted: RecordingWords.lostNote(track: Recorder.micTrack)
+        // Measured at its longest, so the window doesn't change size as it counts.
+        case .recording where countdown: RecordingWords.callEndedNote(seconds: 10)
         default: nil
         }
         guard let text else { return 0 }
         if let height = noteHeights[text] { return height + Metric.barNoteGap }
-        let height = NSHostingView(rootView: BarNote(text: text)).fittingSize.height.rounded(.up)
+        let note = BarNote(text: text, action: countdown ? (RecordingWords.keepRecording, {}) : nil)
+        let height = NSHostingView(rootView: note).fittingSize.height.rounded(.up)
         noteHeights[text] = height
         return height + Metric.barNoteGap
     }
@@ -292,6 +302,10 @@ final class RecordingPanel: BarMover {
             text = recorder.callAudioDown == nil ? "Call audio is back" : "\(RecordingWords.micOnly). \(Recorder.micOnly)"
         }
         guard let text else { return }
+        say(text)
+    }
+
+    private func say(_ text: String) {
         lastAnnouncement = text
         NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                              userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
@@ -319,8 +333,9 @@ struct RecordingControlsHost: View {
     var body: some View {
         if let status {
             RecordingControls(status: status, callAudioDown: recorder.callAudioDown, warning: recorder.warning,
-                              meter: recorder.meter, togglePause: recorder.togglePause, retry: recorder.retryCapture,
-                              stop: recorder.stop, mover: mover)
+                              callEndStopAt: recorder.callEndStopAt, meter: recorder.meter,
+                              togglePause: recorder.togglePause, retry: recorder.retryCapture, stop: recorder.stop,
+                              keepRecording: recorder.keepRecording, mover: mover)
         }
     }
 

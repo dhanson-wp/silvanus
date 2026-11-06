@@ -34,7 +34,8 @@ struct RecorderNotice: Equatable {
 /// tests; this class does the work each step names.
 ///
 /// It keeps recording through what it can, and says so honestly. Each track's health is
-/// watched on its own, from its writer's failures (never from silence): call audio that
+/// watched on its own, from its writer's failures (never from silence, which is normal and
+/// never warned about): call audio that
 /// fails drops to the microphone alone ("Mic only", with Retry Call Audio in the menu bar),
 /// a microphone that changes restarts in a new segment, and a microphone that fails is an
 /// interruption ("Audio lost"): the captured time holds and nothing is saved until Retry
@@ -43,6 +44,10 @@ struct RecorderNotice: Equatable {
 /// Pause holds the shared capture clock: both writers drop what they hear from the same
 /// moment, so nothing is saved, the tracks stay aligned, and the time (and the notes'
 /// margin times) leave the pause out. Resume goes on in the same meeting.
+///
+/// A recording started during a call stops when the call ends (`CallEndStop`): once no call
+/// app has used the microphone for 15 seconds, the controls count down 10 seconds with Keep
+/// recording, then it stops as if Stop were pressed.
 @Observable
 final class Recorder {
     enum Failure: LocalizedError {
@@ -82,8 +87,8 @@ final class Recorder {
     /// Every meeting whose transcription failed, with the reason, until Retry works. The
     /// meeting's page shows it with Retry.
     private(set) var failedMeetings: [String: String] = [:]
-    /// Shown in the banner while recording: call audio couldn't start or stopped, or a side
-    /// has been silent for 30 seconds. In the order they came.
+    /// Shown in the banner while recording: call audio couldn't start or stopped ("Mic only").
+    /// Silence never warns.
     private(set) var warnings: [String] = []
     var warning: String? { warnings.isEmpty ? nil : warnings.joined(separator: " ") }
     /// Why call audio isn't recording, while the microphone records on its own.
@@ -102,20 +107,27 @@ final class Recorder {
     @ObservationIgnored var afterCall: (String, @escaping @Sendable (Double) -> Void) async throws -> Void
     /// How often the level and the tracks' health are sampled: at most `LevelMath.maxRate`.
     @ObservationIgnored var sampleInterval: Duration = .milliseconds(100)
-    /// A side silent this long while recording shows a warning.
-    @ObservationIgnored var silenceWarning: TimeInterval = 30
+    /// When the recording stops because the call ended, while the countdown runs ("Call ended.
+    /// Stopping in 10 seconds."); set only when it changes.
+    private(set) var callEndStopAt: Date?
+    /// Stop when the call ends: the rule, and its setting (Settings > General).
+    @ObservationIgnored private(set) var callEnd = CallEndStop(callAtStart: false, quickNote: false)
+    @ObservationIgnored var stopWhenCallEnds: () -> Bool = { AppDefaults.stopWhenCallEnds }
+    /// How long the call must be off the microphone, and the countdown. The self-test shortens them.
+    @ObservationIgnored var callEndQuiet: TimeInterval = CallEndStop.quietAfter
+    @ObservationIgnored var callEndCountdown: TimeInterval = CallEndStop.countdown
     /// For the checks: how many times the level was sampled.
     @ObservationIgnored private(set) var samples = 0
-    /// Whether a call app is using audio input now. The call detector sets it every 2
-    /// seconds; the samples only read it.
+    /// Whether a call app is using audio input now (Silvanus's own process never counts). The
+    /// call detector sets it every 2 seconds; the samples read it for Stop when the call ends.
     @ObservationIgnored var callAppRunning = false
     /// Whether a call app is using audio input, read once as a recording starts (before our
     /// own microphone opens). The self-test fakes it.
     @ObservationIgnored var callAppProbe: () -> Bool = { CallDetector.Probe.live.callInProgress(recording: false) }
     /// The recording was started by Quick Note: a voice note, never a call.
     @ObservationIgnored private var isQuickNote = false
-    /// A call app ran when the recording started.
-    @ObservationIgnored private var callAppAtStart = false
+    /// A call app was using the microphone when the recording started.
+    @ObservationIgnored private(set) var callAppAtStart = false
 
     @ObservationIgnored private var mic: AudioCapture?
     @ObservationIgnored private var system: AudioCapture?
@@ -128,8 +140,6 @@ final class Recorder {
     /// The current "Audio lost" came while paused: Retry goes back to Paused.
     @ObservationIgnored private var interruptedWhilePaused = false
     @ObservationIgnored private var sampler: Task<Void, Never>?
-    @ObservationIgnored private var systemHeard = Date()
-    @ObservationIgnored private var micHeard = Date()
     @ObservationIgnored private var queue: [(id: String, recovered: Bool)] = []
     @ObservationIgnored private var worker: Task<Void, Never>?
 
@@ -139,9 +149,6 @@ final class Recorder {
     /// a call by surprise.
     @ObservationIgnored private(set) static weak var current: Recorder?
 
-    /// Shown only during a call, never for Quick Note (`CallAudioWarning`).
-    static let silentCall = CallAudioWarning.text
-    static let silentMic = "No microphone audio yet. Check the input in System Settings > Sound."
     static let micOnly = "Recording your microphone only."
     static let nothingRecorded = "Nothing was recorded."
     /// The track names in "Audio lost" notes.
@@ -189,7 +196,7 @@ final class Recorder {
     /// already recording, or when the microphone can't start: the phase is then failed, the
     /// banner says why, and a meeting made for it is removed again. Call audio that can't
     /// start is a warning: the microphone records on its own. `quickNote` marks a voice
-    /// note: it never warns about call audio.
+    /// note: it never stops when a call ends.
     func start(into meetingID: String?, quickNote: Bool = false) throws {
         guard let model else { throw Failure.noFolder }
         guard apply(.start) else { throw Failure.busy }
@@ -233,11 +240,12 @@ final class Recorder {
         startedAt = start
         level = 0
         meter.reset()
-        systemHeard = start
-        micHeard = start
         isQuickNote = quickNote
         callAppAtStart = quickNote ? false : callAppProbe()
         callAppRunning = callAppAtStart
+        callEnd = CallEndStop(callAtStart: callAppAtStart, quickNote: quickNote, quietAfter: callEndQuiet,
+                              countdown: callEndCountdown)
+        syncCallEnd()
         apply(.started(start))
         startSampler()
     }
@@ -290,6 +298,7 @@ final class Recorder {
         apply(.pause(now))
         level = 0
         meter.reset()
+        stepCallEnd(at: now)
     }
 
     /// Resume: both captures start again into the same tracks, lined up with the clock, and
@@ -346,8 +355,6 @@ final class Recorder {
         micWriter?.lineUp()
         systemWriter?.lineUp()
         let now = Date()
-        micHeard = now
-        systemHeard = now
         clock?.release(at: now)
         apply(event(now))
     }
@@ -368,7 +375,6 @@ final class Recorder {
         guard state.isCapturing, system == nil, let audio = audioDirectory, let clock else { return }
         let writer = systemWriter ?? SegmentWriter(directory: audio, name: "system", clock: clock)
         writer.resume()
-        systemHeard = Date()
         startSystem(into: writer)
     }
 
@@ -451,6 +457,8 @@ final class Recorder {
         startedAt = nil
         warnings = []
         callAudioDown = nil
+        callEnd = CallEndStop(callAtStart: false, quickNote: false)
+        syncCallEnd()
         level = 0
         meter.reset()
         return recorded
@@ -470,6 +478,7 @@ final class Recorder {
         apply(.interrupt(now, reason))
         level = 0
         meter.reset()
+        stepCallEnd(at: now)
         print("RECORDER audio lost: \(reason)")
     }
 
@@ -484,7 +493,6 @@ final class Recorder {
         system?.stop()
         system = nil
         callAudioDown = reason
-        removeWarning(Self.silentCall)
         warnings.removeAll { $0.hasPrefix(Self.micOnly) }
         addWarning("\(Self.micOnly) \(reason)")
         print("RECORDER call audio stopped: \(reason)")
@@ -502,9 +510,9 @@ final class Recorder {
         }
     }
 
-    /// Ten times a second while recording: the level bars, each track's health, and a side
-    /// that stays silent. The bars combine both tracks; health is per track, from the
-    /// writers' failures, never from silence.
+    /// Ten times a second while recording: the level bars, each track's health, and Stop
+    /// when the call ends. The bars combine both tracks; health is per track, from the
+    /// writers' failures, never from silence (silence is normal and never warns).
     func sample() {
         samples += 1
         let mic = micWriter?.sampleLevels() ?? (peak: 0, rms: 0)
@@ -518,30 +526,34 @@ final class Recorder {
             return
         }
         if system != nil, let reason = systemWriter?.failure { dropSystem(reason) }
-        guard capturing else { return }
-        let now = Date()
-        if mic.peak > 0.001 {
-            micHeard = now
-            removeWarning(Self.silentMic)
-        } else if now.timeIntervalSince(micHeard) > silenceWarning {
-            addWarning(Self.silentMic)
+        stepCallEnd(at: Date())
+    }
+
+    /// Steps Stop when the call ends with what the call detector last saw; at 0 it stops,
+    /// exactly as Stop does.
+    private func stepCallEnd(at now: Date) {
+        let action = callEnd.step(at: now, callInput: callAppRunning, capturing: state.isCapturing,
+                                  enabled: stopWhenCallEnds())
+        syncCallEnd()
+        if action == .stop {
+            print("RECORDER the call ended: stopping")
+            stop()
         }
-        guard system != nil else { return }
-        if call.peak > 0.001 { systemHeard = now }
-        if CallAudioWarning.warning(quickNote: isQuickNote, callAppAtStart: callAppAtStart, callAppNow: callAppRunning,
-                                    silentFor: now.timeIntervalSince(systemHeard), threshold: silenceWarning) != nil {
-            addWarning(Self.silentCall)
-        } else {
-            removeWarning(Self.silentCall)
-        }
+    }
+
+    /// The countdown's Keep recording: records on, and nothing counts until a new call starts.
+    func keepRecording() {
+        callEnd.keepRecording()
+        syncCallEnd()
+    }
+
+    private func syncCallEnd() {
+        let next = isRecording ? callEnd.stopAt : nil
+        if callEndStopAt != next { callEndStopAt = next }
     }
 
     private func addWarning(_ text: String) {
         if !warnings.contains(text) { warnings.append(text) }
-    }
-
-    private func removeWarning(_ text: String) {
-        if warnings.contains(text) { warnings.removeAll { $0 == text } }
     }
 
     // MARK: - Transcribing
@@ -690,9 +702,11 @@ final class Recorder {
     }
 
     /// Snapshots and the gallery draw the recording states without any capture.
-    func force(_ phase: RecorderPhase, meetingID: String? = nil, levels: [Float] = [], callAudioDown: String? = nil) {
+    func force(_ phase: RecorderPhase, meetingID: String? = nil, levels: [Float] = [], callAudioDown: String? = nil,
+               callEndStopAt: Date? = nil) {
         state = RecorderState(phase: phase)
         syncStored()
+        self.callEndStopAt = state.isRecording ? callEndStopAt : nil
         self.meetingID = state.isRecording ? meetingID : nil
         startedAt = state.isRecording ? (startedAt ?? Date()) : nil
         transcribingID = { if case .transcribing = phase { meetingID } else { nil } }()

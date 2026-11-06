@@ -97,6 +97,9 @@ struct SettingsScreen: View {
                 SettingRow.toggle("Prompt when a meeting starts",
                                   description: "When a call app starts using the microphone, offer to start recording.",
                                   isOn: $model.promptOnMeeting)
+                SettingRow.toggle("Stop when the call ends",
+                                  description: "When the call app lets go of the microphone, stop recording after a short countdown.",
+                                  isOn: $model.stopWhenCallEnds)
                 SettingRow.toggle("Open at login", description: "Start Silvanus when you log in.",
                                   isOn: .constant(false), isEnabled: false, help: "Coming soon")
             case .appearance:

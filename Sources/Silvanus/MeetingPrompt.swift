@@ -76,14 +76,17 @@ struct MeetingPrompt: View {
 /// text (8.06:1); Not now is outlined in muted ivory.
 struct PromptButtonStyle: ButtonStyle {
     var primary: Bool
+    /// 40 in the prompt; the recording controls' note uses the bar's compact height.
+    var height: CGFloat = Metric.promptButtonHeight
 
     func makeBody(configuration: Configuration) -> some View {
-        Content(configuration: configuration, primary: primary)
+        Content(configuration: configuration, primary: primary, height: height)
     }
 
     private struct Content: View {
         let configuration: Configuration
         let primary: Bool
+        let height: CGFloat
         @Environment(\.isFocused) private var isFocused
         @State private var hovering = false
 
@@ -93,7 +96,7 @@ struct PromptButtonStyle: ButtonStyle {
                 .kitType(primary ? .promptButton : .label)
                 .foregroundStyle(primary ? Ink.barGround : Ink.barText)
                 .padding(.horizontal, Metric.promptButtonPadding)
-                .frame(height: Metric.promptButtonHeight)
+                .frame(height: height)
                 .background(shape.fill(primary ? Ink.barEdge : (hovering ? Ink.barRaised : Color.clear)))
                 .overlay(shape.strokeBorder(primary ? Ink.barEdge : Ink.barTextSecondary, lineWidth: Metric.hairline))
                 .brightness(configuration.isPressed ? -0.05 : hovering && primary ? 0.06 : 0)

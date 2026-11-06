@@ -137,6 +137,19 @@ public enum RecordingWords {
     /// Recording, with call audio gone: the microphone records on its own.
     public static let micOnly = "Mic only"
     public static let pausedNote = "Audio isn't being saved."
+    /// Stop when the call ends: the note above the bar while the countdown runs, and its button.
+    public static let callEnded = "Call ended"
+    public static let keepRecording = "Keep recording"
+
+    /// "Stopping in 10 seconds" … "Stopping in 1 second".
+    public static func stoppingIn(_ seconds: Int) -> String {
+        "Stopping in \(seconds) \(seconds == 1 ? "second" : "seconds")"
+    }
+
+    /// The countdown note: "Call ended. Stopping in 10 seconds."
+    public static func callEndedNote(seconds: Int) -> String {
+        "\(callEnded). \(stoppingIn(seconds))."
+    }
 
     /// The state line's time suffix.
     public static func timeSuffix(paused: Bool, interrupted: Bool) -> String {
