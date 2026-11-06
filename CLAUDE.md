@@ -21,6 +21,7 @@ is folders of plain files (Markdown and JSON), one folder per meeting.
 - Install: `./build.sh --install` copies the dev bundle to `~/Applications/Silvanus.app`; `--open` also quits the running copy and opens the new one. Use them only when Derek says so: the installed copy may be recording a call.
 - Signing: `SIGN_IDENTITY` from the environment, else the `SIGN_IDENTITY=...` line in the gitignored `.env.local`, else ad hoc.
 - Unit tests: `tools/test.sh` (adds the Command Line Tools flags Swift Testing needs).
+- A second checkout (a worktree) builds and tests side by side with `SILVANUS_DEV_DIR=~/Library/Developer/Silvanus-<name>` set for `build.sh`, `tools/test.sh`, `tools/snap.sh`, and `tools/selftest.sh`. `SILVANUS_SNAP_STORE`, `SILVANUS_SHOTS`, and `SILVANUS_SELFTEST_STORE` move their /tmp folders.
 - Self-test (the app's real functions on a /tmp folder): `tools/selftest.sh`. Exit 0 when every check passes. Add a check for every story with logic in `SelfTest.swift`.
 - After every UI change, take snapshots and look at them: `tools/snap.sh`.
   It writes `/tmp/Silvanus-shots/<page>-light.png` and `-dark.png` for every sidebar page, `settings-<tab>-light.png` and `-dark.png` for every Settings tab, and the brand set (`about-*`, `menubar-*`, `menubar-recording-*`), then quits. `APP_SNAPSHOT_PAGES=all,settings tools/snap.sh` limits the pages.

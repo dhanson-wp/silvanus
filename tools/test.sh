@@ -5,7 +5,8 @@
 set -euo pipefail
 here=${0:A:h}
 repo=${here:h}
-scratch="$HOME/Library/Developer/Silvanus/test-build"
+# SILVANUS_DEV_DIR moves the build folder, so a second checkout can test side by side.
+scratch="${SILVANUS_DEV_DIR:-$HOME/Library/Developer/Silvanus}/test-build"
 dev=$(xcode-select -p)
 flags=()
 if [[ "$dev" == */CommandLineTools ]]; then
