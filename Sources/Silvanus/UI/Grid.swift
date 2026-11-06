@@ -34,7 +34,7 @@ extension View {
 final class GridProbes {
     static let shared = GridProbes()
     static let enabled = ProcessInfo.processInfo.environment["APP_SNAPSHOT"] != nil
-        || GridOverlay.enabled
+        || GridOverlay.enabled || CommandLine.arguments.contains("--selftest")
 
     enum Kind: String, Codable { case area, probe }
 

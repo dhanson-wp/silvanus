@@ -32,3 +32,8 @@ Every word Silvanus puts on screen. One name per idea.
 | No meetings yet | The sidebar when there are no meetings at all | Empty, Nothing here |
 | No meetings in this folder | The sidebar when the chosen folder holds no meetings | Folder is empty |
 | Move to Trash | Remove a meeting so it can be restored from the Trash | Delete (unless it can't come back) |
+| Attendees | The people in a meeting, listed from the date chip; "No attendees" when there are none | Participants, Guests |
+| Add to folder | The folder chip on a meeting that isn't in a folder; its menu has the folders, Remove from Folder, and New Folder… | Move to Project, Tag |
+| No summary yet | The Summary view before a meeting has one | Nothing here |
+| No transcript yet | The Transcript view before a meeting has one | No captions |
+| Pick a meeting or start one | The canvas with no meeting open | Nothing selected |

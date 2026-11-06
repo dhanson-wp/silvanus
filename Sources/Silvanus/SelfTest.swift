@@ -119,6 +119,7 @@ enum SelfTest {
                   InkToken.missingFromBrand.isEmpty, InkToken.missingFromBrand.joined(separator: ", "))
 
             await checkWindowFrame(model: model)
+            await checkHeaders(model: model)
 
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
@@ -158,11 +159,13 @@ enum SelfTest {
         // Header clicks reach the right view: the toggle button over the header's click
         // target, the click target in empty header space, and never the hidden sidebar's.
         let toggle = CGPoint(x: Metric.sidebarHeaderFirstX, y: Metric.trafficLightFirst.y)
-        let emptyCanvasHeader = CGPoint(x: Metric.contentX + Metric.sidebarWidth, y: Metric.trafficLightFirst.y)
+        // Past the view pill and before the folder chip, in a 910 pt window.
+        let emptyCanvasHeader = CGPoint(x: 480, y: Metric.trafficLightFirst.y)
         let onToggle = headerArea(at: toggle, in: window)
         check("a click on the sidebar toggle goes to the button, not the header",
               onToggle == "other", onToggle)
-        let onSidebar = headerArea(at: CGPoint(x: 150, y: Metric.trafficLightFirst.y), in: window)
+        // Past the filter button (it ends at x 192).
+        let onSidebar = headerArea(at: CGPoint(x: 200, y: Metric.trafficLightFirst.y), in: window)
         check("a click in the empty sidebar header goes to the header", onSidebar == "sidebar", onSidebar)
         let onEmpty = headerArea(at: emptyCanvasHeader, in: window)
         check("a click in the empty canvas header goes to the header", onEmpty == "canvas", onEmpty)
@@ -173,11 +176,12 @@ enum SelfTest {
         menu.performActionForItem(at: menu.index(of: item))
         try? await Task.sleep(for: .seconds(0.5))
         // Hidden, the sidebar's header takes nothing: under the toggle (x 100) the button
-        // still wins, and past it (x 150) the canvas header does.
+        // still wins, and where the sidebar's other buttons were (x 150, x 200) the canvas
+        // header's empty space does (no meeting is open, so no view pill there).
         let hiddenToggle = headerArea(at: CGPoint(x: 100, y: Metric.trafficLightFirst.y), in: window)
-        let hiddenPast = headerArea(at: CGPoint(x: 150, y: Metric.trafficLightFirst.y), in: window)
+        let hiddenPast = headerArea(at: CGPoint(x: 200, y: Metric.trafficLightFirst.y), in: window)
         check("with the sidebar hidden, header clicks go to the button or the canvas header",
-              hiddenToggle == "other" && hiddenPast == "canvas", "x 100: \(hiddenToggle), x 150: \(hiddenPast)")
+              hiddenToggle == "other" && hiddenPast == "canvas", "x 100: \(hiddenToggle), x 200: \(hiddenPast)")
         // AppKit leaves the hidden sidebar's click view at its old 208 pt frame (the canvas
         // happens to sit over it today); asked directly, it must refuse every point.
         func clickViews(_ view: NSView) -> [HeaderClickView.ClickView] {
@@ -201,6 +205,90 @@ enum SelfTest {
         try? await Task.sleep(for: .seconds(0.3))
         check("⌃⌘S again shows the sidebar", model.sidebarVisible)
     }
+
+    /// The headers (task 4): New Meeting, renaming and filing a meeting, the view menu's
+    /// ⌘1 to ⌘3, and the canvas header's controls clear of the traffic lights and each other
+    /// at the default and minimum sizes with a 120-character title (Review Focus 2).
+    private static func checkHeaders(model: AppModel) async {
+        let before = model.meetings.count
+        let newItem = menuItem(key: "n", modifiers: [.command], in: NSApp.mainMenu)
+        check("File has New Meeting on ⌘N", newItem?.title == "New Meeting", newItem?.title ?? "missing")
+        if let newItem, let menu = newItem.menu { menu.performActionForItem(at: menu.index(of: newItem)) }
+        try? await Task.sleep(for: .seconds(0.3))
+        let created = model.selectedMeeting
+        check("⌘N makes a meeting, saves it, opens it on My notes",
+              model.meetings.count == before + 1 && created != nil && model.canvasMode == .notes
+              && model.library.folderURL(for: created?.id ?? "") != nil,
+              "count \(before) -> \(model.meetings.count), selected \(created?.id ?? "none")")
+        for (key, title) in [("r", "Start Recording"), ("n", "Quick Note")] {
+            let modifiers: NSEvent.ModifierFlags = key == "r" ? [.shift, .command] : [.option, .command]
+            let item = menuItem(key: key, modifiers: modifiers, in: NSApp.mainMenu)
+            check("File has \(title)", item?.title == title, item?.title ?? "missing")
+        }
+        guard let id = created?.id else { return }
+
+        model.rename(id, to: "  Acme   kickoff  ")
+        let reread = model.library.loadAll().meetings.first { $0.id == id }
+        check("renaming saves the tidy title and the sidebar shows it",
+              reread?.info.title == "Acme kickoff" && model.selectedMeeting?.displayTitle == "Acme kickoff"
+              && model.dayGroups.flatMap(\.meetings).contains { $0.id == id && $0.info.title == "Acme kickoff" },
+              reread?.info.title ?? "not on disk")
+        model.setFolder(id, to: "Clients")
+        check("filing a meeting saves its folder and the sidebar lists it",
+              model.library.loadAll().meetings.first { $0.id == id }?.info.folder == "Clients"
+              && model.folders.map(\.name) == ["Clients"])
+
+        // SwiftUI refreshes menu items (here, enabled now that a meeting is open) as a menu opens.
+        NSApp.mainMenu?.update()
+        if let view = menuItem(key: "1", modifiers: [.command], in: NSApp.mainMenu)?.menu {
+            view.delegate?.menuNeedsUpdate?(view)
+        }
+        try? await Task.sleep(for: .seconds(0.3))
+        for mode in CanvasMode.allCases {
+            let item = menuItem(key: String(mode.shortcut), modifiers: [.command], in: NSApp.mainMenu)
+            if let item, let menu = item.menu { menu.performActionForItem(at: menu.index(of: item)) }
+            try? await Task.sleep(for: .seconds(0.2))
+            check("View > \(mode.title) (⌘\(mode.shortcut)) shows it", item?.title == mode.title && model.canvasMode == mode,
+                  "\(item?.title ?? "missing"), mode \(model.canvasMode)")
+        }
+        model.show(.notes)
+
+        // Review Focus 2: the longest title and folder name at both sizes.
+        model.rename(id, to: HeadersGallery.longTitle)
+        model.setFolder(id, to: HeadersGallery.longFolder)
+        guard let window = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        let names = ["hideSidebar", "search", "newMeeting", "filter",
+                     "headerPill", "headerFolder", "headerMic", "headerRecord", "headerMore"]
+        // The traffic lights' right edge: the zoom button's center plus its 7 pt radius.
+        let lightsEnd = Metric.trafficLightFirst.x + 2 * Metric.trafficLightPitch + 7
+        for size in [Metric.windowDefault, Metric.windowMinimum] {
+            window.setContentSize(size)
+            try? await Task.sleep(for: .seconds(0.6))
+            let probes = GridProbes.shared.probes.values
+            let frames = names.compactMap { name in
+                probes.first { $0.name == name }.map { (name, CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)) }
+            }
+            let ranges = frames.map { "\($0.0) \(fmt($0.1.minX))-\(fmt($0.1.maxX))" }.joined(separator: ", ")
+            print("HEADER \(Int(size.width)) × \(Int(size.height)): \(ranges)")
+            var overlaps: [String] = []
+            for (index, first) in frames.enumerated() {
+                for second in frames.dropFirst(index + 1) where first.1.intersection(second.1).width > 0.25 {
+                    overlaps.append("\(first.0)/\(second.0)")
+                }
+            }
+            let clear = frames.allSatisfy { $0.1.minX >= lightsEnd && $0.1.maxX <= size.width && $0.1.minY >= Metric.controlY - 0.5
+                && $0.1.maxY <= Metric.controlY + Metric.controlHeight + 0.5 }
+            check("at \(Int(size.width)) × \(Int(size.height)) the header controls clear the traffic lights and each other",
+                  frames.count == names.count && overlaps.isEmpty && clear,
+                  "\(frames.count) of \(names.count) found; overlaps \(overlaps); \(ranges)")
+        }
+        window.setContentSize(Metric.windowDefault)
+        try? model.library.moveToTrash(id)
+        model.reload()
+        model.selection = nil
+    }
+
+    private static func fmt(_ value: CGFloat) -> String { String(format: "%g", value) }
 
     /// The color of a selected sidebar row's pill, away from its text, drawn on the sidebar.
     private static func selectionFill(appearsActive: Bool) -> String? {

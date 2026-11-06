@@ -70,6 +70,10 @@ final class AppModel {
     @ObservationIgnored private(set) var regroupCount = 0
     /// False when the sidebar is hidden (View > Hide Sidebar, ⌃⌘S, or the header button).
     var sidebarVisible = true
+    /// What the canvas shows for the open meeting (the view pill, ⌘1, ⌘2, ⌘3).
+    var canvasMode: CanvasMode = .notes
+    /// True while a meeting records. Nothing sets it until recording is wired in.
+    var isRecording = false
     /// Settings reopens on the last tab. Test and snapshot runs use their own defaults.
     var settingsTab: SettingsTab = SettingsTab(rawValue: AppDefaults.shared.string(forKey: "settings.tab") ?? "") ?? .general {
         didSet { AppDefaults.shared.set(settingsTab.rawValue, forKey: "settings.tab") }
@@ -110,5 +114,59 @@ extension AppModel {
     /// the selected meeting; once it has a text view it takes keyboard focus here too.
     func open(_ id: String) {
         selection = id
+    }
+
+    /// The open meeting, if any.
+    var selectedMeeting: Meeting? {
+        guard let selection else { return nil }
+        return meetings.first { $0.id == selection }
+    }
+
+    /// Switches the canvas, sliding the view pill's segment with the kit's selection curve.
+    func show(_ mode: CanvasMode) {
+        withAnimation(Motion.select) { canvasMode = mode }
+    }
+
+    /// New Meeting (⌘N, the sidebar's new meeting button): a meeting page for notes, without
+    /// recording, filed in the folder the sidebar shows. It opens on My notes.
+    @discardableResult
+    func newMeeting(now: Date = Date()) -> Meeting? {
+        let meeting = Meeting(info: MeetingInfo(title: "", start: now, folder: folder))
+        guard (try? library.save(meeting)) != nil else { return nil }
+        let index = meetings.firstIndex { $0.info.start <= meeting.info.start } ?? meetings.endIndex
+        meetings.insert(meeting, at: index)
+        open(meeting.id)
+        canvasMode = .notes
+        return meeting
+    }
+
+    /// Renames a meeting on disk and in the sidebar. Spaces are tidied; an empty title shows
+    /// as "Untitled meeting". The folder on disk keeps its name.
+    func rename(_ id: String, to title: String) {
+        update(id) { $0.info.title = MeetingTitle.clean(title) }
+    }
+
+    /// Files a meeting in a sidebar folder, or takes it out of one (nil).
+    func setFolder(_ id: String, to name: String?) {
+        let cleaned = name.map(MeetingTitle.clean).flatMap { $0.isEmpty ? nil : $0 }
+        update(id) { $0.info.folder = cleaned }
+    }
+
+    /// Start Recording (⇧⌘R, the canvas header's Record button). Recording is wired in after
+    /// the audio work lands; until then this does nothing.
+    func startRecording() {}
+
+    /// Quick Note (⌥⌘N, the canvas header's mic): a new meeting that records right away.
+    /// Wired in with recording; until then this does nothing.
+    func quickNote() {}
+
+    /// Saves a change to one meeting, then puts the saved copy back in `meetings` so the
+    /// sidebar refreshes. A failed save changes nothing.
+    private func update(_ id: String, _ change: (inout Meeting) -> Void) {
+        guard let index = meetings.firstIndex(where: { $0.id == id }) else { return }
+        var meeting = meetings[index]
+        change(&meeting)
+        guard meeting != meetings[index], (try? library.save(meeting)) != nil else { return }
+        meetings[index] = meeting
     }
 }

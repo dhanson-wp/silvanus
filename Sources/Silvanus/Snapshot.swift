@@ -83,23 +83,37 @@ enum Snapshot {
     ///   window-<mode>.png            910 × 600, the default and pixel-compare size
     ///   window-min-<mode>.png        720 × 480, the minimum: nothing in the header overlaps
     ///   window-collapsed-<mode>.png  910 × 600 with the sidebar hidden
+    ///   window-long-<mode>.png       910 × 600, the open meeting with a 120-character title
+    ///                                and a long folder name (Review Focus 1 and 2)
+    ///   window-min-long-<mode>.png   the same at 720 × 480
+    /// The long title and folder are set in memory only, never saved.
     @MainActor private static func captureFrames(model: AppModel, to dir: String) async {
         guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
-        let frames: [(name: String, size: CGSize, sidebar: Bool)] = [
-            ("window", Metric.windowDefault, true),
-            ("window-min", Metric.windowMinimum, true),
-            ("window-collapsed", Metric.windowDefault, false),
+        let frames: [(name: String, size: CGSize, sidebar: Bool, long: Bool)] = [
+            ("window", Metric.windowDefault, true, false),
+            ("window-min", Metric.windowMinimum, true, false),
+            ("window-collapsed", Metric.windowDefault, false, false),
+            ("window-long", Metric.windowDefault, true, true),
+            ("window-min-long", Metric.windowMinimum, true, true),
         ]
         model.sidebar = .all
+        let original = model.meetings
         for mode in ["light", "dark"] {
             NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
             for frame in frames {
                 model.sidebarVisible = frame.sidebar
+                if frame.long, let index = model.meetings.firstIndex(where: { $0.id == model.selection }) {
+                    model.meetings[index].info.title = HeadersGallery.longTitle
+                    model.meetings[index].info.folder = HeadersGallery.longFolder
+                } else if model.meetings != original {
+                    model.meetings = original
+                }
                 main.setContentSize(frame.size)
                 try? await Task.sleep(for: .seconds(0.8))
                 capture(to: "\(dir)/\(frame.name)-\(mode).png", window: main)
             }
         }
+        model.meetings = original
         model.sidebarVisible = true
         main.setContentSize(Metric.windowDefault)
     }

@@ -32,6 +32,7 @@ struct KitGallery: View {
                 }
             }
             SidebarGallery()
+            HeadersGallery()
         }
         .padding(Space.xxl)
         .background(Ink.background)

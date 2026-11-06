@@ -37,6 +37,7 @@ struct SilvanusApp: App {
         .defaultSize(Metric.windowDefault)
         .commands {
             SidebarCommand(model: model)
+            MeetingCommands(model: model)
             AboutCommand()
         }
 
@@ -87,6 +88,31 @@ struct SidebarCommand: Commands {
         CommandGroup(replacing: .sidebar) {
             Button(model.sidebarVisible ? "Hide Sidebar" : "Show Sidebar", action: model.toggleSidebar)
                 .keyboardShortcut("s", modifiers: [.control, .command])
+        }
+    }
+}
+
+/// File > New Meeting (⌘N), Start Recording (⇧⌘R), and Quick Note (⌥⌘N); View > Summary,
+/// My notes, and Transcript (⌘1, ⌘2, ⌘3), which switch the canvas like the view pill.
+struct MeetingCommands: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Meeting") { model.newMeeting() }
+                .keyboardShortcut("n")
+            Button(model.isRecording ? "Stop" : "Start Recording", action: model.startRecording)
+                .keyboardShortcut("r", modifiers: [.shift, .command])
+            Button("Quick Note", action: model.quickNote)
+                .keyboardShortcut("n", modifiers: [.option, .command])
+        }
+        CommandGroup(before: .sidebar) {
+            ForEach(CanvasMode.allCases) { mode in
+                Button(mode.title) { model.show(mode) }
+                    .keyboardShortcut(KeyEquivalent(mode.shortcut))
+                    .disabled(model.selectedMeeting == nil)
+            }
+            Divider()
         }
     }
 }
