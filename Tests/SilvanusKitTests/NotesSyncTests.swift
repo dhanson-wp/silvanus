@@ -168,3 +168,29 @@ struct TextMergeTests {
         #expect(!r.conflict && r.merged == "z\na\nb\nc")
     }
 }
+
+@Suite("Line endings")
+struct LineEndingsTests {
+    @Test("A text with any CRLF is CRLF; otherwise LF")
+    func detect() {
+        #expect(LineEnding.detect("a\r\nb\r\n") == .crlf)
+        #expect(LineEnding.detect("a\nb\r\n") == .crlf)
+        #expect(LineEnding.detect("a\nb\n") == .lf)
+        #expect(LineEnding.detect("") == .lf)
+    }
+
+    @Test("Normalizing turns every CRLF into LF and leaves the rest")
+    func normalize() {
+        #expect(LineEnding.normalized("a\r\nb\nc\r\n") == "a\nb\nc\n")
+        #expect(LineEnding.normalized("plain") == "plain")
+    }
+
+    @Test("Applying a style writes every line ending in it, without doubling")
+    func apply() {
+        #expect(LineEnding.crlf.apply(to: "a\nb\n") == "a\r\nb\r\n")
+        #expect(LineEnding.crlf.apply(to: "a\r\nb\n") == "a\r\nb\r\n")
+        #expect(LineEnding.lf.apply(to: "a\r\nb\n") == "a\nb\n")
+        let typed = "# Weekly sync\n- On track\n- Typed line\n"
+        #expect(LineEnding.normalized(LineEnding.crlf.apply(to: typed)) == typed)
+    }
+}

@@ -272,6 +272,8 @@ struct EditorChecks {
         switching()
         conflictCopyFails()
         trashing()
+        closingKeepsUnsaved()
+        lineEndings()
         try? FileManager.default.removeItem(at: CheckStore.root)
         print(failures == 0 ? "EDITOR CHECK PASS \(count) checks" : "EDITOR CHECK FAIL \(failures) of \(count) checks")
         return failures == 0 ? 0 : 1
@@ -904,6 +906,86 @@ struct EditorChecks {
         RunLoop.main.run(until: Date().addingTimeInterval(1.6))
         check("typing whose folder vanished is kept in recovered/", recoveredTexts().contains("Status\n- Hiring"),
               "\(recoveredTexts())")
+        for c in " now" { other.insertText(String(c), replacementRange: other.selectedRange()) }
+        RunLoop.main.run(until: Date().addingTimeInterval(1.6))
+        let vanished = recoveredTexts().filter { $0.hasPrefix("Status") }
+        check("later saves overwrite the same recovered file", vanished == ["Status\n- Hiring now"], "\(recoveredTexts())")
+        check("and keep the app's copy current", model.meetings.first { $0.id == b.id }?.notes == "Status\n- Hiring now")
+        window.orderOut(nil)
+    }
+
+    // MARK: Closing with text that couldn't be saved
+
+    private mutating func closingKeepsUnsaved() {
+        let root = CheckStore.root.appending(path: "closing")
+        let library = MeetingLibrary(root: root, trash: { try FileManager.default.removeItem(at: $0) })
+        let a = Meeting(info: MeetingInfo(id: "check-close", title: "Acme kickoff", series: "Acme kickoff",
+                                          start: Date(), end: Date(), attendees: ["Sam Rivera"]), notes: "# Acme\n")
+        let b = Meeting(info: MeetingInfo(id: "check-close-other", title: "Weekly sync", series: "Weekly sync",
+                                          start: Date().addingTimeInterval(-86_400), end: Date(), attendees: ["Jordan Lee"]),
+                        notes: "Status\n")
+        guard let folderA = try? library.save(a), (try? library.save(b)) != nil else { check("the check store is writable", false); return }
+        NotesDocument.conflictCopyOverride = { _ in throw CocoaError(.fileWriteNoPermission) }
+        defer { NotesDocument.conflictCopyOverride = nil }
+        let model = AppModel(library: library)
+        model.reload()
+        model.selection = a.id
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: NotesCanvas().environment(model))
+        window.orderFrontRegardless()
+        func all(_ v: NSView) -> [NotesTextView] { ((v as? NotesTextView).map { [$0] } ?? []) + v.subviews.flatMap(all) }
+        var view: NotesTextView?
+        for _ in 0..<40 where view == nil {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            view = window.contentView.map(all)?.first { $0.string == "# Acme\n" }
+        }
+        guard let view else { check("the canvas shows an editor", false); return }
+        view.insertText("!", replacementRange: NSRange(location: 6, length: 0))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        let file = folderA.appending(path: MeetingFolder.notes)
+        try? Data("Rewritten elsewhere\n".utf8).write(to: file, options: .atomic)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        model.selection = b.id
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let dir = root.appending(path: "recovered")
+        let kept = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+            .compactMap { try? String(contentsOf: dir.appending(path: $0), encoding: .utf8) }
+        check("closing with a conflict copy that fails keeps our text in recovered/", kept == ["# Acme!\n"], "\(kept)")
+        check("and leaves the other version in notes.md", (try? String(contentsOf: file, encoding: .utf8)) == "Rewritten elsewhere\n")
+        window.orderOut(nil)
+    }
+
+    // MARK: Line endings
+
+    private mutating func lineEndings() {
+        let root = CheckStore.root.appending(path: "line-endings")
+        let library = MeetingLibrary(root: root, trash: { try FileManager.default.removeItem(at: $0) })
+        let meeting = Meeting(info: MeetingInfo(id: "check-crlf", title: "Weekly sync", series: "Weekly sync",
+                                                start: Date(), end: Date(), attendees: ["Jordan Lee"]),
+                              notes: "# Sync\r\n- On track\r\n")
+        guard let folder = try? library.save(meeting) else { check("the check store is writable", false); return }
+        let file = folder.appending(path: MeetingFolder.notes)
+        let document = NotesDocument(meetingID: meeting.id, library: library)
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: NotesEditor(document: document))
+        window.orderFrontRegardless()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        guard let view = document.link.textView else { check("the notes editor appears", false); return }
+        check("a CRLF note opens with LF lines in the editor", view.string == "# Sync\n- On track\n" && document.lineEnding == .crlf,
+              view.string.debugDescription)
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        for c in "- Typed" { view.insertText(String(c), replacementRange: view.selectedRange()) }
+        view.insertText("\n", replacementRange: view.selectedRange())
+        document.saveNow()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        let disk = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        check("typed lines save with the file's CRLF endings", disk == "# Sync\r\n- On track\r\n- Typed\r\n", disk.debugDescription)
+        check("and our own CRLF save isn't loaded back", document.reloads == 0)
+        document.close()
         window.orderOut(nil)
     }
 }

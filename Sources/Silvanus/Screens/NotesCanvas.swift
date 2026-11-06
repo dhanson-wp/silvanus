@@ -37,7 +37,7 @@ struct NotesCanvas: View {
         model.beforeTrash = { [weak self] trashed in
             guard let self else { return }
             for document in [current].compactMap({ $0 }) + replaced where document.meetingID == trashed {
-                document.saveNow()
+                document.saveOrRecover()
             }
         }
         if let current, current.meetingID == id { return current }
@@ -127,6 +127,8 @@ final class NotesDocument {
     @ObservationIgnored private(set) var reloads = 0
     @ObservationIgnored private(set) var conflicts: [URL] = []
     @ObservationIgnored private(set) var recovered: [URL] = []
+    /// For the checks: a conflict copy writer every new document starts with.
+    @ObservationIgnored static var conflictCopyOverride: ((String) throws -> URL)?
     /// Writes the other app's version beside the notes. The checks swap in one that fails.
     @ObservationIgnored var writeConflictCopy: (String) throws -> URL
     /// Seconds after the last change before the file is written.
@@ -144,12 +146,20 @@ final class NotesDocument {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     /// Another app's version that must be copied beside the notes before ours is saved.
     @ObservationIgnored private var pendingConflict: String?
+    /// How the note's lines ended when last read from disk. The editor works in LF;
+    /// saves write this style back.
+    @ObservationIgnored private(set) var lineEnding: LineEnding = .lf
+    /// The one recovery file this document writes to once its folder is gone.
+    @ObservationIgnored private var recoveryURL: URL?
 
     init(meetingID: String, library: MeetingLibrary) {
         self.meetingID = meetingID
         self.library = library
-        writeConflictCopy = { [library] text in try library.saveConflictCopy(text, for: meetingID) }
-        let loaded = library.readNotes(for: meetingID) ?? ""
+        writeConflictCopy = Self.conflictCopyOverride
+            ?? { [library] text in try library.saveConflictCopy(text, for: meetingID) }
+        let raw = library.readNotes(for: meetingID) ?? ""
+        lineEnding = LineEnding.detect(raw)
+        let loaded = LineEnding.normalized(raw)
         text = loaded
         sync = NotesSync(loaded: loaded)
         if let url = library.notesURL(for: meetingID) {
@@ -161,17 +171,17 @@ final class NotesDocument {
             let closing = note.object as? NSWindow
             MainActor.assumeIsolated {
                 guard let self, let closing, closing === self.link.window else { return }
-                self.saveNow()
+                self.saveOrRecover()
             }
         })
         observers.append(center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.saveNow() }
+            MainActor.assumeIsolated { self?.saveOrRecover() }
         })
     }
 
     private func changed() {
         isDirty = true
-        if closed { saveNow(); return }
+        if closed { saveOrRecover(); return }
         startMaxWait()
         saveWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.saveNow() }
@@ -215,7 +225,7 @@ final class NotesDocument {
             }
         }
         do {
-            try library.saveNotes(text, for: meetingID)
+            try library.saveNotes(lineEnding.apply(to: text), for: meetingID)
             sync.saved(text)
             isDirty = false
             saveError = nil
@@ -230,17 +240,29 @@ final class NotesDocument {
         }
     }
 
-    /// The meeting's folder is gone: keep the text under the store's `recovered/`.
+    /// Saves, and if the text still couldn't be written (a conflict copy that fails, a
+    /// save error), keeps it under `recovered/`. For closing and trashing, when there's no
+    /// later save to wait for.
+    func saveOrRecover() {
+        saveNow()
+        if isDirty { recover() }
+    }
+
+    /// Keeps the text under the store's `recovered/`: the meeting's folder is gone, or the
+    /// document is closing with text it couldn't save. Later recoveries overwrite the same
+    /// file.
     private func recover() {
         do {
-            let url = try library.saveRecoveredNotes(text, for: meetingID)
-            recovered.append(url)
+            let url = try library.saveRecoveredNotes(lineEnding.apply(to: text), for: meetingID, replacing: recoveryURL)
+            if recoveryURL == nil { recovered.append(url) }
+            recoveryURL = url
             sync.saved(text)
             isDirty = false
-            print("NOTES \(meetingID): the meeting's folder is gone; kept the notes as \(url.path)")
+            onSaved?(text)
+            print("NOTES \(meetingID): couldn't save to the meeting's folder; kept the notes as \(url.path)")
         } catch {
             saveError = Self.reason(error)
-            print("NOTES \(meetingID): the meeting's folder is gone and the notes couldn't be kept: \(error)")
+            print("NOTES \(meetingID): the notes couldn't be saved or kept: \(error)")
         }
     }
 
@@ -252,8 +274,10 @@ final class NotesDocument {
     func diskChanged() {
         guard !closed else { return }
         link.flush()
-        let disk = library.readNotes(for: meetingID)
-        switch sync.diskChanged(to: disk, editor: text, editorDirty: isDirty) {
+        let raw = library.readNotes(for: meetingID)
+        let action = sync.diskChanged(to: raw.map(LineEnding.normalized), editor: text, editorDirty: isDirty)
+        if action != .none, let raw { lineEnding = LineEnding.detect(raw) }
+        switch action {
         case .none:
             return
         case .show(let fresh):
@@ -264,8 +288,9 @@ final class NotesDocument {
             show(merged)
             isDirty = true
             saveNow()
-        case .conflict(let theirs):
-            pendingConflict = theirs
+        case .conflict:
+            // The other version is copied exactly as it is on disk.
+            pendingConflict = raw
             isDirty = true
             saveNow()
         }
@@ -279,9 +304,10 @@ final class NotesDocument {
         link.show(fresh)
     }
 
-    /// Saves and stops watching. Later changes (the editor's last push) save at once.
+    /// Saves (or recovers what can't be saved) and stops watching. Later changes (the
+    /// editor's last push) save at once.
     func close() {
-        saveNow()
+        saveOrRecover()
         closed = true
         watcher = nil
         for observer in observers { NotificationCenter.default.removeObserver(observer) }

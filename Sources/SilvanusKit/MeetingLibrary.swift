@@ -101,11 +101,17 @@ public final class MeetingLibrary {
     }
 
     /// Typing that had nowhere to go (its meeting's folder was trashed or vanished) is
-    /// kept as `<root>/recovered/<meeting id>-<yyyyMMdd-HHmmss>.md`. Returns where it went.
+    /// kept as `<root>/recovered/<meeting id>-<yyyyMMdd-HHmmss>.md`. Pass the URL an
+    /// earlier call returned as `replacing` to overwrite that file (atomically) instead of
+    /// starting another. Returns where it went.
     @discardableResult
-    public func saveRecoveredNotes(_ text: String, for id: String, at date: Date = Date()) throws -> URL {
+    public func saveRecoveredNotes(_ text: String, for id: String, at date: Date = Date(), replacing earlier: URL? = nil) throws -> URL {
         let folder = root.appending(path: "recovered")
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        if let earlier {
+            try Data(text.utf8).write(to: earlier, options: .atomic)
+            return earlier
+        }
         return try writeUnique(text, in: folder, base: "\(MeetingFolder.safeSeries(id))-\(stamp(date))")
     }
 

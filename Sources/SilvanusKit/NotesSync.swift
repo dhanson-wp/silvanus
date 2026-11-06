@@ -138,3 +138,25 @@ public enum TextMerge {
         return (prefix..<(base.count - suffix), Array(side[prefix..<(side.count - suffix)]))
     }
 }
+
+/// How a note's lines end on disk. The editor works in LF; saving writes the note back
+/// in the style it was read in, so lines typed into a CRLF file don't mix endings.
+public enum LineEnding: Equatable, Sendable {
+    case lf, crlf
+
+    /// CRLF when the text has any "\r\n", else LF.
+    public static func detect(_ text: String) -> LineEnding {
+        text.contains("\r\n") ? .crlf : .lf
+    }
+
+    /// Every "\r\n" as "\n".
+    public static func normalized(_ text: String) -> String {
+        text.contains("\r\n") ? text.replacingOccurrences(of: "\r\n", with: "\n") : text
+    }
+
+    /// The text with every line ending in this style.
+    public func apply(to text: String) -> String {
+        let lf = Self.normalized(text)
+        return self == .crlf ? lf.replacingOccurrences(of: "\n", with: "\r\n") : lf
+    }
+}

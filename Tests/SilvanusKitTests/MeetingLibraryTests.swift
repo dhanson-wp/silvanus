@@ -299,6 +299,11 @@ private func names(_ folder: URL) -> [String] {
     #expect(try String(contentsOf: url, encoding: .utf8) == "Typed before the folder went\n")
     let again = try lib.saveRecoveredNotes("More\n", for: "gone", at: start)
     #expect(again != url)
+    // A document that already has a recovery file keeps writing to it.
+    let reused = try lib.saveRecoveredNotes("Latest\n", for: "gone", at: start, replacing: url)
+    #expect(reused == url)
+    #expect(try String(contentsOf: url, encoding: .utf8) == "Latest\n")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "recovered").path).count == 2)
     #expect(lib.loadAll().meetings.isEmpty)
 }
 
