@@ -1,4 +1,5 @@
 import AppKit
+import SilvanusKit
 import SwiftUI
 
 /// The notes canvas in SwiftUI: one NotesTextView on TextKit 2. The binding holds the
@@ -25,6 +26,8 @@ struct MarkdownEditor: NSViewRepresentable {
     var accessibilityLabel: String? = nil
     /// The Summary page: selectable and findable, never edited or saved.
     var readOnly = false
+    /// Timestamps for the trailing margin (My notes while recording); nil for none.
+    var marginTimes: NoteTimes? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scroll, view) = NotesTextView.scrollable()
@@ -37,6 +40,7 @@ struct MarkdownEditor: NSViewRepresentable {
         view.delegate = coordinator
         coordinator.view = view
         view.load(text)
+        view.marginTimes = marginTimes
         coordinator.known = text
         view.onCharactersChanged = { [weak coordinator] in coordinator?.edited() }
         link?.attach(view: view, coordinator: coordinator)
@@ -51,6 +55,7 @@ struct MarkdownEditor: NSViewRepresentable {
         }
         link?.attach(view: context.coordinator.view, coordinator: context.coordinator)
         context.coordinator.take(text)
+        context.coordinator.view?.marginTimes = marginTimes
     }
 
     /// Typing not yet handed over goes to the binding before the editor goes away.

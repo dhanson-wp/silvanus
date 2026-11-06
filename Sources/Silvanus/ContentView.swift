@@ -36,7 +36,10 @@ struct ContentView: View {
             } else {
                 CanvasHeader(mode: $model.canvasMode,
                              hasMeeting: meeting != nil,
+                             // The Stop look and the wave belong to the meeting being recorded.
                              isRecording: model.isRecording,
+                             meter: model.recorder.meetingID == meeting?.id ? model.recorder.meter : nil,
+                             transcribing: transcribingProgress,
                              startRecording: recordAction(model.startRecording),
                              quickNote: recordAction(model.quickNote))
             }
@@ -45,7 +48,15 @@ struct ContentView: View {
                 SettingsScreen()
             } else {
                 MeetingPage(meeting: meeting, documents: documents)
+                    .overlay(alignment: .bottom) { banner }
             }
+        }
+        .sheet(item: $model.permissionsRequest) { request in
+            PermissionsView(request: request,
+                            start: { model.record(request, fromSheet: true) },
+                            cancel: { model.permissionsRequest = nil })
+                .noInitialFocus()
+                .fitsContent()
         }
         .task {
             SelfTest.runIfRequested(model: model)
@@ -53,7 +64,38 @@ struct ContentView: View {
         }
     }
 
-    /// A recording action, or nil (the control shows disabled) until recording is wired in.
+    private var transcribingProgress: Double? {
+        if case let .transcribing(progress) = model.recorder.phase { progress } else { nil }
+    }
+
+    /// The recorder's banners: the open meeting's failed transcription (with Retry, until it
+    /// works), then the latest failure or news, or a warning while recording.
+    @ViewBuilder private var banner: some View {
+        let recorder = model.recorder
+        let open = model.selection
+        VStack(spacing: Space.sm) {
+            if let open, let reason = recorder.failedMeetings[open], recorder.notice?.retryMeetingID != open {
+                NoticeBanner(message: "Transcription failed. \(reason)", actionTitle: "Retry",
+                             action: { recorder.retry(open) })
+            }
+            latest
+        }
+        .padding(.bottom, Space.md)
+    }
+
+    @ViewBuilder private var latest: some View {
+        let recorder = model.recorder
+        if let notice = recorder.notice {
+            NoticeBanner(message: notice.message,
+                         actionTitle: notice.retryMeetingID == nil ? nil : "Retry",
+                         action: recorder.retry,
+                         dismiss: recorder.dismissNotice)
+        } else if recorder.isRecording, let warning = recorder.warning {
+            NoticeBanner(message: warning)
+        }
+    }
+
+    /// A recording action, or nil (the control shows disabled) when recording is off.
     private func recordAction(_ action: @escaping () -> Void) -> (() -> Void)? {
         model.canRecord ? action : nil
     }

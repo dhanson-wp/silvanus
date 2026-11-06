@@ -112,6 +112,44 @@ public final class MeetingLibrary {
         }
     }
 
+    /// The meeting's `notes-times.json`, or nil when there is none or it can't be read.
+    public func readNoteTimes(for id: String) -> NoteTimes? {
+        guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.noteTimes),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? NoteTimes(json: data)
+    }
+
+    /// Writes only `notes-times.json`, atomically, beside the notes.
+    public func saveNoteTimes(_ times: NoteTimes, for id: String) throws {
+        guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { throw NotFound(id: id) }
+        try times.json().write(to: folder.appending(path: MeetingFolder.noteTimes), options: .atomic)
+    }
+
+    /// How many after-call passes failed in a row for this meeting (`audio/attempts`), 0
+    /// when there's no record.
+    public func transcriptionAttempts(for id: String) -> Int {
+        guard let url = audioURL(for: id)?.appending(path: MeetingFolder.attempts),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return 0 }
+        return Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
+    /// Records the failed passes; 0 removes the record.
+    public func setTranscriptionAttempts(_ count: Int, for id: String) throws {
+        guard let audio = audioURL(for: id) else { throw NotFound(id: id) }
+        let url = audio.appending(path: MeetingFolder.attempts)
+        if count <= 0 {
+            if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
+            return
+        }
+        try fm.createDirectory(at: audio, withIntermediateDirectories: true)
+        try Data("\(count)\n".utf8).write(to: url, options: .atomic)
+    }
+
+    /// The meeting's `audio/` folder (it may not exist yet).
+    public func audioURL(for id: String) -> URL? {
+        notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.audio)
+    }
+
     /// The meeting as it is on disk now, found there if this instance has not loaded it yet.
     public func meeting(id: String) -> Meeting? {
         guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { return nil }

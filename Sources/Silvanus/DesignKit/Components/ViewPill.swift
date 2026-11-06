@@ -70,9 +70,12 @@ extension Metric {
 ///
 /// `disabled` lists modes that can't be shown yet (no transcript). The gallery's forced
 /// state (`forcedPartState`) applies to the unselected tabs; `.focused` rings the selected one.
+/// While a meeting records, `meter` is its live level: the Transcript tab's icon becomes a
+/// small live wave in `recordingText` (measured from the reference's recording state).
 struct ViewPill: View {
     @Binding var mode: CanvasMode
     var disabled: Set<CanvasMode> = []
+    var meter: LevelMeter? = nil
 
     @Namespace private var segment
 
@@ -83,7 +86,12 @@ struct ViewPill: View {
                     withAnimation(Motion.select) { mode = tab }
                 } label: {
                     HStack(spacing: Metric.pillIconGap) {
-                        KitIconView(tab.icon)
+                        if tab == .transcript, let meter {
+                            LiveWave(meter: meter)
+                                .foregroundStyle(Ink.recordingText)
+                        } else {
+                            KitIconView(tab.icon)
+                        }
                         if tab == mode {
                             Text(tab.title)
                                 .kitType(.tab)

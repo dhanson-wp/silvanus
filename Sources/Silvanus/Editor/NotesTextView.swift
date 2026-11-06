@@ -340,6 +340,42 @@ final class NotesTextView: NSTextView {
     var onCharactersChanged: (() -> Void)?
     private var fallbackObserver: NSObjectProtocol?
 
+    /// When each line was written during the recording, drawn as `mm:ss` in a margin on
+    /// the trailing side, never in the text. Nil hides the margin and gives the text its
+    /// full width back.
+    var marginTimes: NoteTimes? {
+        didSet {
+            guard marginTimes != oldValue else { return }
+            if (marginTimes == nil) != (oldValue == nil) { placeMargin() }
+            marginView?.needsDisplay = true
+        }
+    }
+    private var marginView: MarginTimesView?
+
+    /// Text starts at the leading inset whatever the trailing side reserves.
+    override var textContainerOrigin: NSPoint {
+        NSPoint(x: styler.style.leadingInset, y: textContainerInset.height)
+    }
+
+    /// The text container's width comes from a symmetric inset, so the margin is reserved by
+    /// widening the inset and pinning the origin (above) to the leading edge: the text keeps
+    /// x 221 and wraps before the times.
+    private func placeMargin() {
+        let style = styler.style
+        let trailing = marginTimes == nil ? style.leadingInset : Metric.noteTimeMargin
+        textContainerInset = NSSize(width: (style.leadingInset + trailing) / 2, height: style.topInset)
+        if marginTimes != nil, marginView == nil {
+            let view = MarginTimesView(frame: bounds)
+            view.autoresizingMask = [.width, .height]
+            view.textView = self
+            addSubview(view)
+            marginView = view
+        } else if marginTimes == nil {
+            marginView?.removeFromSuperview()
+            marginView = nil
+        }
+    }
+
     /// A scroll view holding a TextKit 2 notes view, set up for Markdown.
     static func scrollable() -> (NSScrollView, NotesTextView) {
         let scroll = NSScrollView()
@@ -438,6 +474,7 @@ final class NotesTextView: NSTextView {
         styler.restylePending()
         styler.selectionChanged()
         super.didChangeText()
+        marginView?.needsDisplay = true
     }
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
@@ -600,5 +637,48 @@ final class NotesTextView: NSTextView {
         let mark = NSRange(location: start + box.lowerBound + 1, length: 1)
         replace(mark, with: done ? " " : "x", keeping: selectedRange())
         return true
+    }
+}
+
+extension Metric {
+    /// The notes' trailing margin while they have timestamps: room for "1:00:00" in
+    /// `monoSmall` and a gap before it.
+    static let noteTimeMargin: CGFloat = 64
+}
+
+/// Draws each timed line's `mm:ss` in the notes' trailing margin, level with the line's
+/// first row, in `monoSmall` and `textSecondary`. It sits over the text view, takes no
+/// clicks, and reads the times and line positions from it.
+final class MarginTimesView: NSView {
+    weak var textView: NotesTextView?
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let textView, let times = textView.marginTimes, !times.isEmpty,
+              let layout = textView.textLayoutManager else { return }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: KitType.nsFont(.monoSmall),
+            .foregroundColor: Ink.appKit(.textSecondary),
+        ]
+        let origin = textView.textContainerOrigin
+        let right = bounds.maxX - textView.styler.style.leadingInset
+        let start = layout.textViewportLayoutController.viewportRange?.location ?? layout.documentRange.location
+        layout.enumerateTextLayoutFragments(from: start, options: []) { fragment in
+            let frame = fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y)
+            if frame.minY > dirtyRect.maxY { return false }
+            guard frame.maxY >= dirtyRect.minY, let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            var line = paragraph.attributedString.string
+            if line.hasSuffix("\n") { line.removeLast() }
+            guard let time = times.time(for: line) else { return true }
+            let text = Clock.text(time) as NSString
+            let size = text.size(withAttributes: attributes)
+            // Level with the first row: centered in its line box.
+            let row = fragment.textLineFragments.first?.typographicBounds ?? CGRect(origin: .zero, size: frame.size)
+            let y = frame.minY + row.minY + (row.height - size.height) / 2
+            text.draw(at: NSPoint(x: right - size.width, y: y), withAttributes: attributes)
+            return true
+        }
     }
 }

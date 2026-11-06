@@ -1,5 +1,6 @@
 import AppKit
 import IOKit.pwr_mgt
+import SilvanusKit
 import SwiftUI
 
 /// Screenshot mode for agents.
@@ -12,12 +13,16 @@ import SwiftUI
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
-/// notes canvas, "summary" for the Summary view, "transcript" for the Transcript view, "settings" for Settings.
+/// notes canvas, "summary" for the Summary view, "transcript" for the Transcript view, "recording" for
+/// the recording states, the pill, and the permissions sheet, "settings" for Settings.
 /// "reference-main" (only when asked for by name) writes the reference-main page for the pixel
 /// compare (captureReferenceMain, tools/compare.sh).
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
 /// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
 enum Snapshot {
+    /// True when this run takes snapshots (APP_SNAPSHOT).
+    static var requested: Bool { !(ProcessInfo.processInfo.environment["APP_SNAPSHOT"] ?? "").isEmpty }
+
     static func runIfRequested(model: AppModel) {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["APP_SNAPSHOT"], !dir.isEmpty else { return }
@@ -66,6 +71,9 @@ enum Snapshot {
             }
             if only == nil || only?.contains("transcript") == true {
                 await captureTranscript(model: model, to: dir)
+            }
+            if only == nil || only?.contains("recording") == true {
+                await captureRecording(model: model, to: dir)
             }
             if only == nil || only?.contains("settings") == true {
                 // Settings takes the main window, so each pane is the window itself.
@@ -254,6 +262,85 @@ enum Snapshot {
         }
         model.show(.notes)
         model.selection = nil
+    }
+
+    /// Recording, forced on the recorder with no capture, at 910 × 600:
+    ///   recording-<mode>.png     a seeded meeting recording: Stop with the red square, the live
+    ///                            wave on the Transcript tab, timestamps in the notes' margin
+    ///   transcribing-<mode>.png  after Stop: "Transcribing…" and its bar in the canvas header
+    ///   pill-<mode>.png          the floating recording pill (recording, stopping, failed)
+    ///   permissions-<mode>.png   the permissions sheet
+    @MainActor private static func captureRecording(model: AppModel, to dir: String) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        model.sidebar = .all
+        model.sidebarVisible = true
+        main.setContentSize(Metric.windowDefault)
+        let id = model.meetings.first { $0.id == "seed-acme-kickoff" }?.id ?? model.meetings.first?.id
+        guard let id else { return }
+        // Times for the note's lines, a little over half a minute apart, as if typed live.
+        model.selection = nil
+        try? await Task.sleep(for: .seconds(0.3))
+        var times = NoteTimes()
+        var so = ""
+        for (index, line) in (model.library.readNotes(for: id) ?? "").split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let next = so.isEmpty && index == 0 ? String(line) : so + "\n" + line
+            times.update(old: so, new: next, now: Double(index) * 37 + 12)
+            so = next
+        }
+        try? model.library.saveNoteTimes(times, for: id)
+        model.selection = id
+        model.show(.notes)
+        let since = Date().addingTimeInterval(-754)
+        let levels: [Float] = [0.08, 0.35, 0.7, 0.25, 0.5]
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            model.recorder.force(.recording(since: since), meetingID: id, levels: levels)
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/recording-\(mode).png", window: main)
+            model.recorder.force(.transcribing(progress: 0.45), meetingID: id)
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/transcribing-\(mode).png", window: main)
+        }
+        model.recorder.force(.idle)
+        renderRecordingParts(since: since, levels: levels, to: dir)
+        model.selection = nil
+    }
+
+    /// The pill in its three states, and the permissions sheet, drawn straight from the views
+    /// like the brand set: pill-<mode>.png and permissions-<mode>.png.
+    @MainActor private static func renderRecordingParts(since: Date, levels: [Float], to dir: String) {
+        let meter = LevelMeter(levels: levels)
+        for mode in ["light", "dark"] {
+            let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
+            NSApp.appearance = appearance
+            let pills = VStack(alignment: .leading, spacing: Space.lg) {
+                RecordingPill(status: .recording(since: since), line: "Acme kickoff", meter: meter, open: {}, stop: {})
+                RecordingPill(status: .recording(since: since), line: Recorder.silentCall, meter: meter, open: {}, stop: {})
+                RecordingPill(status: .stopping, line: "Acme kickoff", meter: meter, open: {}, stop: {})
+                RecordingPill(status: .failed("Couldn't write audio: The disk is full."), line: "Acme kickoff", meter: meter,
+                              open: {}, stop: {}, dismiss: {})
+            }
+            .padding(Space.xxl)
+            .background(Ink.background)
+            let sheet = PermissionsView(request: .startRecording, start: {}, cancel: {})
+            for (name, view) in [("pill", AnyView(pills)), ("permissions", AnyView(sheet))] {
+                let host = NSHostingView(rootView: view)
+                host.appearance = appearance
+                host.frame = NSRect(origin: .zero, size: host.fittingSize)
+                host.layoutSubtreeIfNeeded()
+                var rep: NSBitmapImageRep?
+                appearance.performAsCurrentDrawingAppearance {
+                    rep = bitmap(pixelsWide: Int(host.bounds.width * 2), pixelsHigh: Int(host.bounds.height * 2), size: host.bounds.size) { rect in
+                        NSColor.windowBackgroundColor.setFill()
+                        rect.fill()
+                        if let context = NSGraphicsContext.current {
+                            host.displayIgnoringOpacity(host.bounds, in: context)
+                        }
+                    }
+                }
+                write(rep, to: "\(dir)/\(name)-\(mode).png")
+            }
+        }
     }
 
     /// A left click at a point in the window's content, from its top left.

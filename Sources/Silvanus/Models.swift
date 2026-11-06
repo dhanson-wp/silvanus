@@ -28,10 +28,16 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 final class AppModel {
     init(library: MeetingLibrary) {
         self.library = library
+        recorder = Recorder(library: library)
         appearance.apply()
+        recorder.model = self
     }
 
     let library: MeetingLibrary
+    /// Recording and the after-call pass (Recorder.swift).
+    let recorder: Recorder
+    /// The floating recording pill's window, made once per process.
+    @ObservationIgnored private(set) var pill: RecordingPanel?
     /// Every meeting on disk, newest first. Setting it rebuilds the sidebar's folders and days.
     var meetings: [Meeting] = [] {
         didSet {
@@ -96,10 +102,14 @@ final class AppModel {
     }
     /// Where the transcript last asked to play from. The snapshot and self-test read it.
     @ObservationIgnored var lastSeek: TimeInterval?
-    /// True while a meeting records. Nothing sets it until recording is wired in.
-    var isRecording = false
-    /// False until recording is wired in: Start Recording and Quick Note show disabled.
-    let canRecord = false
+    /// True while a meeting records.
+    var isRecording: Bool { recorder.isRecording }
+    /// Start Recording and Quick Note are always on: a missing permission opens the
+    /// permissions sheet instead of failing.
+    let canRecord = true
+    /// The permissions sheet, shown by a Start Recording or Quick Note that needs
+    /// Microphone access or System audio access first. Never shown at launch.
+    var permissionsRequest: RecordRequest?
     /// A Meeting menu item waiting for the meeting header (Rename Meeting…, Show Attendees,
     /// Move to Folder > New Folder…). It stays until the header acts on it, so a request made
     /// from Transcript, where the header isn't on screen, lands once the header appears.
@@ -134,6 +144,20 @@ final class AppModel {
 }
 
 extension AppModel {
+    @ObservationIgnored private static var servicesStarted = false
+
+    /// Once per process, when the app's model is made: the recording pill's window, and the
+    /// launch pass that finishes recordings cut off by a quit or crash (not in checks or
+    /// snapshots, which drive the recorder themselves).
+    func startRecordingServices() {
+        guard !Self.servicesStarted else { return }
+        Self.servicesStarted = true
+        pill = RecordingPanel(recorder: recorder, model: self)
+        if !SelfTest.requested && !Snapshot.requested {
+            recorder.recoverInterrupted(library: library)
+        }
+    }
+
     /// Seeds when asked (scratch stores only), then reads the meetings from disk.
     convenience init(root: URL) {
         // Test, snapshot, and self-test runs (scratch stores) delete instead of using the real Trash.
@@ -143,6 +167,7 @@ extension AppModel {
         self.init(library: library)
         SeedData.seedIfRequested(library: library)
         reload()
+        startRecordingServices()
     }
 
     /// Hides or shows the sidebar, sliding the canvas with the kit's selection curve.
@@ -164,10 +189,21 @@ extension AppModel {
         settingsOpen = false
     }
 
+    /// False while the meeting records or transcribes (or waits to): its files are in use.
+    func canTrash(_ id: String) -> Bool { !recorder.isBusy(id) }
+
+    /// The tooltip on Move to Trash: why it's off, when it is.
+    func trashHelp(_ id: String?) -> String {
+        guard let id, recorder.isBusy(id) else { return "Move this meeting to the Trash (⌘⌫)" }
+        return recorder.meetingID == id ? "Stop recording before moving this meeting to the Trash"
+            : "Wait for transcription to finish before moving this meeting to the Trash"
+    }
+
     /// Meeting > Move to Trash (⌘⌫) and the sidebar row's menu. A failure shows the
-    /// system's reason, and the meeting stays.
+    /// system's reason, and the meeting stays. A meeting that records or transcribes stays.
     func trash(_ id: String) {
         trashRequests.append(id)
+        guard canTrash(id) else { return }
         do {
             try moveToTrash(id)
         } catch {
@@ -224,8 +260,8 @@ extension AppModel {
     /// New Meeting (⌘N, the sidebar's new meeting button): a meeting page for notes, without
     /// recording, filed in the folder the sidebar shows. It opens on My notes.
     @discardableResult
-    func newMeeting(now: Date = Date()) -> Meeting? {
-        let meeting = Meeting(info: MeetingInfo(title: Meeting.untitled, start: now, folder: folder))
+    func newMeeting(now: Date = Date(), title: String = Meeting.untitled) -> Meeting? {
+        let meeting = Meeting(info: MeetingInfo(title: title, start: now, folder: folder))
         // The full save is safe here: a new id gets a new folder, so there's nothing to overwrite.
         guard (try? library.save(meeting)) != nil else { return nil }
         settingsOpen = false
@@ -271,17 +307,55 @@ extension AppModel {
         update(id) { $0.info.folder = cleaned }
     }
 
-    /// Start Recording (⇧⌘R, the canvas header's Record button). Recording is wired in after
-    /// the audio work lands; until then this does nothing.
-    func startRecording() {}
+    /// Start Recording (⇧⌘R, the canvas header's Record button), or Stop while a meeting
+    /// records. It records into the open meeting when that has no audio yet
+    /// (`RecordingRules`), otherwise into a new meeting titled with the date and time.
+    func startRecording() {
+        if recorder.isRecording {
+            recorder.stop()
+        } else {
+            record(.startRecording)
+        }
+    }
+
+    /// The meeting Start Recording would record into, or nil for a new one.
+    var recordingTarget: String? {
+        guard let meeting = selectedMeeting, !settingsOpen else { return nil }
+        let audio = library.audioURL(for: meeting.id)
+        let files = audio.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) } ?? []
+        let transcript = library.notesURL(for: meeting.id)?.deletingLastPathComponent()
+            .appending(path: MeetingFolder.transcriptJSON)
+        let hasTranscript = transcript.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        return RecordingRules.canRecord(into: meeting, hasAudio: RecordingRules.hasSegments(files),
+                                        hasTranscript: hasTranscript) ? meeting.id : nil
+    }
+
+    /// Starts a recording now, or opens the permissions sheet when access is missing. The
+    /// sheet's Start Recording comes back with `fromSheet`: it needs only the microphone, and
+    /// system audio never blocks (it's a warning if call audio can't start).
+    func record(_ request: RecordRequest, fromSheet: Bool = false) {
+        guard !recorder.isRecording else { return }
+        let ready = fromSheet ? recorder.micReady() : recorder.permissionsReady()
+        guard ready else {
+            permissionsRequest = request
+            return
+        }
+        permissionsRequest = nil
+        do {
+            try recorder.start(into: request == .quickNote ? nil : recordingTarget)
+        } catch {
+            print("RECORDER couldn't start: \(error.localizedDescription)")
+        }
+    }
 
     /// A word or a timestamp in the Transcript view was clicked: play from `time`. Playback is
     /// wired in after calls; until then the transcript only shows the time.
     func seek(_ time: TimeInterval) { lastSeek = time }
 
     /// Quick Note (⌥⌘N, the canvas header's mic): a new meeting that records right away.
-    /// Wired in with recording; until then this does nothing.
-    func quickNote() {}
+    func quickNote() {
+        record(.quickNote)
+    }
 
     /// Saves a change to one meeting's details (`meeting.json` only, never the notes or other
     /// files from this copy), then puts it back in `meetings` so the sidebar refreshes. A
@@ -293,4 +367,11 @@ extension AppModel {
         guard meeting.info != meetings[index].info, (try? library.saveInfo(meeting)) != nil else { return }
         meetings[index] = meeting
     }
+}
+
+/// What the permissions sheet starts once access is given.
+enum RecordRequest: Identifiable, Equatable {
+    case startRecording, quickNote
+
+    var id: Self { self }
 }

@@ -65,8 +65,8 @@ struct HeadersGallery: View {
                     sample("Canvas header, recording") {
                         canvasHeader(width: Self.minimumWidth, mode: .summary, recording: true)
                     }
-                    sample("Canvas header, recording not available yet (as the app ships today)") {
-                        CanvasHeader(mode: .constant(.notes))
+                    sample("Canvas header, transcribing after Stop") {
+                        CanvasHeader(mode: .constant(.notes), transcribing: 0.45, startRecording: {}, quickNote: {})
                             .padding(.leading, Metric.contentX - Metric.canvasX)
                             .frame(width: Self.minimumWidth, height: Metric.headerHeight)
                     }
@@ -126,7 +126,8 @@ struct HeadersGallery: View {
     }
 
     private func canvasHeader(width: CGFloat, mode: CanvasMode, recording: Bool = false) -> some View {
-        CanvasHeader(mode: .constant(mode), isRecording: recording, startRecording: {}, quickNote: {})
+        CanvasHeader(mode: .constant(mode), isRecording: recording, meter: RecordingGallery.meter,
+                     startRecording: {}, quickNote: {})
             .padding(.leading, Metric.contentX - Metric.canvasX)
             .frame(width: width, height: Metric.headerHeight)
     }
