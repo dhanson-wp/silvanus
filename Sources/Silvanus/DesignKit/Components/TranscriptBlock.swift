@@ -32,8 +32,8 @@ extension KitType {
 /// below the label's.
 ///
 /// The paragraph is one Text: each word is a run of one AttributedString, and its own link
-/// (`silvanus-word:<index>`), so the Text's own layout hit-tests a click to its word and no
-/// word needs a view. A word under 0.6 confidence gets a 1 pt dotted underline in
+/// (`silvanus-word:<index>`, with its trailing space), so the Text's own layout hit-tests a
+/// click to its word and no word needs a view. A word under 0.6 confidence gets a 1 pt dotted underline in
 /// `textSecondary`; the current word gets a fill (adapted: `divider`, since Silvanus's
 /// `selection` is the canvas's own color).
 ///
@@ -87,14 +87,17 @@ struct TranscriptBlock: View {
                 .focusable(false)
                 .help("Play from \(Clock.text(block.start))")
             }
+            // Snapshot runs click the timestamp and a word from these frames.
+            .gridArea("transcriptLabel-\(block.id)", inset: 0)
             Text(Self.paragraph(block, selected: selectedWord))
                 .kitType(.transcript)
                 .foregroundStyle(Ink.text)
                 // Word links take the text's color; only the underline marks a word.
                 .tint(Ink.text)
                 .fixedSize(horizontal: false, vertical: true)
+                .gridArea("transcriptText-\(block.id)", inset: 0)
                 .environment(\.openURL, OpenURLAction { url in
-                    if let index = Self.wordIndex(url) { select(index) }
+                    if let index = TranscriptLayout.wordIndex(link: url) { select(index) }
                     return .handled
                 })
         }
@@ -120,32 +123,18 @@ struct TranscriptBlock: View {
         }
         // One element for VoiceOver, not one link per word.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(block.speaker), \(Clock.text(block.start)): \(block.text)")
+        .accessibilityLabel("\(block.speaker), \(Clock.spoken(block.start)): \(block.text)")
         .accessibilityAction { select(block.firstWord) }
-        .accessibilityAction(named: "Play from \(Clock.text(block.start))") { select(block.firstWord) }
+        .accessibilityAction(named: "Play from \(Clock.spoken(block.start))") { select(block.firstWord) }
     }
 
-    /// The paragraph's text: one run per word, each its own link, low-confidence words
-    /// underlined, the current word filled.
+    /// The paragraph's text (TranscriptLayout.paragraph: each word and its trailing space is
+    /// one link), with low-confidence words underlined and the current word filled.
     static func paragraph(_ block: TranscriptLayout.Block, selected: Int?) -> AttributedString {
-        var out = AttributedString()
-        var low = AttributeContainer()
-        low.underlineStyle = Text.LineStyle(pattern: .dot, color: Ink.textSecondary)
-        for (i, word) in block.words.enumerated() {
-            if i > 0 { out.append(AttributedString(" ")) }
-            let index = block.firstWord + i
-            var run = AttributedString(word.text)
-            run.link = URL(string: "silvanus-word:\(index)")
-            if TranscriptLayout.isLowConfidence(word) { run.mergeAttributes(low) }
+        let low = Text.LineStyle(pattern: .dot, color: Ink.textSecondary)
+        return TranscriptLayout.paragraph(block) { index, word, run in
+            if TranscriptLayout.isLowConfidence(word) { run.underlineStyle = low }
             if index == selected { run.backgroundColor = Ink.divider }
-            out.append(run)
         }
-        return out
-    }
-
-    /// The word index in a `silvanus-word:<index>` link.
-    static func wordIndex(_ url: URL) -> Int? {
-        guard url.scheme == "silvanus-word" else { return nil }
-        return Int(url.absoluteString.dropFirst("silvanus-word:".count))
     }
 }

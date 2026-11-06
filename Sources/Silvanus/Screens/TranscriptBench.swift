@@ -33,7 +33,8 @@ enum TranscriptBench {
         let open = clock.measure {
             let reader = MeetingLibrary(root: Store.root)
             let t = reader.readTranscript(id: meeting.id)
-            let layout = t.map { TranscriptView.Layout($0, me: "Sam Rivera", them: TranscriptView.them) }
+            let names = SpeakerNames.resolve(info: meeting.info, defaultMe: AppDefaults.meName)
+            let layout = t.map { TranscriptView.Layout($0, me: names.me, them: names.them) }
             words = layout?.words.count ?? 0
             let host = NSHostingView(rootView: TranscriptView(layout: layout).background(Ink.canvas))
             host.frame = NSRect(origin: .zero, size: size)

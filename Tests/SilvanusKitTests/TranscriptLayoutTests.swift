@@ -99,3 +99,45 @@ func activityLevels() {
     #expect(TranscriptLayout.activity(t, slices: 2) == [0.5, 0.5])
     #expect(TranscriptLayout.activity(Transcript(lines: [], engine: "test"), slices: 3) == [0, 0, 0])
 }
+
+@Test("Speaker names: the meeting's own names win, then the defaults")
+func speakerNames() {
+    let start = Date(timeIntervalSince1970: 0)
+    let unmapped = SpeakerNames.resolve(info: MeetingInfo(title: "Acme kickoff", start: start), defaultMe: "Me")
+    #expect(unmapped.me == "Me" && unmapped.them == "Them")
+    let mapped = SpeakerNames.resolve(info: MeetingInfo(title: "Acme kickoff", start: start,
+                                                        speakers: ["me": "Sam Rivera", "them": "Priya Natarajan"]),
+                                      defaultMe: "Me")
+    #expect(mapped.me == "Sam Rivera" && mapped.them == "Priya Natarajan")
+    let blank = SpeakerNames.resolve(info: MeetingInfo(title: "Acme kickoff", start: start, speakers: ["me": " ", "them": ""]),
+                                     defaultMe: "Jordan Lee")
+    #expect(blank.me == "Jordan Lee" && blank.them == "Them")
+}
+
+@Test("Times read aloud", arguments: [(0.0, "0 seconds"), (1, "1 second"), (14.9, "14 seconds"), (60, "1 minute"),
+                                      (65, "1 minute 5 seconds"), (125, "2 minutes 5 seconds"), (3725, "1 hour 2 minutes 5 seconds"),
+                                      (7200, "2 hours")])
+func spokenTime(_ seconds: TimeInterval, text: String) {
+    #expect(Clock.spoken(seconds) == text)
+}
+
+@Test("Each word's run, with its trailing space, links to its index in the whole transcript")
+func paragraphLinks() {
+    let words = ["Café", "is", "open", "🎉", "today"].enumerated().map { i, w in
+        Word(text: w, start: Double(i), end: Double(i) + 0.5, confidence: i == 0 ? 0.3 : 1)
+    }
+    let block = TranscriptLayout.Block(id: 2, side: .them, speaker: "Them", words: words, firstWord: 40)
+    var styled: [Int] = []
+    let text = TranscriptLayout.paragraph(block) { index, _, _ in styled.append(index) }
+    #expect(String(text.characters) == "Café is open 🎉 today")
+    #expect(styled == [40, 41, 42, 43, 44])
+    var linked: [(String, Int)] = []
+    for run in text.runs {
+        guard let url = run.link, let index = TranscriptLayout.wordIndex(link: url) else { continue }
+        let piece = String(text[run.range].characters)
+        if let last = linked.last, last.1 == index { linked[linked.count - 1].0 += piece } else { linked.append((piece, index)) }
+    }
+    #expect(linked.map(\.0) == ["Café ", "is ", "open ", "🎉 ", "today"])
+    #expect(linked.map(\.1) == [40, 41, 42, 43, 44])
+    #expect(TranscriptLayout.wordIndex(link: URL(string: "https://example.com/3")!) == nil)
+}

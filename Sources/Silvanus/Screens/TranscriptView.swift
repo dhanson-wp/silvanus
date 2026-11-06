@@ -7,12 +7,19 @@ import SwiftUI
 struct MeetingTranscript: View {
     @Environment(AppModel.self) private var model
     let meeting: Meeting
-    /// The meeting it was read for, and its layout (nil when it has no transcript yet).
-    @State private var loaded: (id: String, layout: TranscriptView.Layout?)?
+    /// What the layout was built from, and the layout (nil when there's no transcript yet).
+    @State private var loaded: (key: Key, layout: TranscriptView.Layout?)?
+
+    /// A new meeting, or new speaker names for this one, reads the transcript again.
+    private struct Key: Equatable {
+        let id: String
+        let speakers: [String: String]
+    }
 
     var body: some View {
+        let key = Key(id: meeting.id, speakers: meeting.info.speakers)
         Group {
-            if let loaded, loaded.id == meeting.id {
+            if let loaded, loaded.key.id == meeting.id {
                 TranscriptView(layout: loaded.layout, onSeek: model.seek)
                     // A new meeting starts with nothing selected.
                     .id(meeting.id)
@@ -20,11 +27,11 @@ struct MeetingTranscript: View {
                 Color.clear
             }
         }
-        .task(id: meeting.id) {
-            let them = meeting.info.speakers[Side.them.rawValue].flatMap { $0.isEmpty ? nil : $0 } ?? TranscriptView.them
+        .task(id: key) {
+            let names = SpeakerNames.resolve(info: meeting.info, defaultMe: AppDefaults.meName)
             let layout = model.library.readTranscript(id: meeting.id)
-                .map { TranscriptView.Layout($0, me: AppDefaults.meName, them: them) }
-            loaded = (meeting.id, layout?.blocks.isEmpty == false ? layout : nil)
+                .map { TranscriptView.Layout($0, me: names.me, them: names.them) }
+            loaded = (key, layout?.blocks.isEmpty == false ? layout : nil)
         }
     }
 }
@@ -35,9 +42,6 @@ struct MeetingTranscript: View {
 /// gets it (playback is wired after calls). With no transcript, one line says so where the
 /// strip would be.
 struct TranscriptView: View {
-    /// The call side's name until speakers are named (docs/GLOSSARY.md).
-    static let them = "Them"
-
     /// Nil when the meeting has no transcript yet.
     let layout: Layout?
     var onSeek: (TimeInterval) -> Void = { _ in }

@@ -590,7 +590,8 @@ enum SelfTest {
         let read = model.library.readTranscript(id: recorded.id)
         check("transcript.json reads back as it was written", read == SeedData.kickoffTranscript)
         check("a meeting without transcript.json has no transcript", model.library.readTranscript(id: plain.id) == nil)
-        let layout = read.map { TranscriptView.Layout($0, me: AppDefaults.meName, them: TranscriptView.them) }
+        let names = SpeakerNames.resolve(info: recorded.info, defaultMe: AppDefaults.meName)
+        let layout = read.map { TranscriptView.Layout($0, me: names.me, them: names.them) }
         check("the transcript groups into turns named Me and Them",
               layout?.blocks.first?.speaker == "Me" && layout?.blocks.dropFirst().first?.speaker == "Them"
               && zip(layout?.blocks ?? [], (layout?.blocks ?? []).dropFirst()).allSatisfy { $0.side != $1.side },

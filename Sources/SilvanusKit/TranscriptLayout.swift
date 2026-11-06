@@ -87,3 +87,49 @@ extension TranscriptLayout {
         return levels.map { min(1, $0) }
     }
 }
+
+extension TranscriptLayout {
+    /// The link scheme of a word in a paragraph: `silvanus-word:<index>`.
+    public static let linkScheme = "silvanus-word"
+
+    /// A block's paragraph: each word and the space after it is one link to the word's index
+    /// in the whole transcript (`firstWord + i`), so a click anywhere up to the next word
+    /// picks that word. `style` styles the word itself (not its space), given its index.
+    public static func paragraph(_ block: Block,
+                                 style: (Int, Word, inout AttributedString) -> Void = { _, _, _ in }) -> AttributedString {
+        var out = AttributedString()
+        for (i, word) in block.words.enumerated() {
+            let index = block.firstWord + i
+            let link = URL(string: "\(linkScheme):\(index)")
+            var run = AttributedString(word.text)
+            style(index, word, &run)
+            run.link = link
+            out.append(run)
+            if i < block.words.count - 1 {
+                var space = AttributedString(" ")
+                space.link = link
+                out.append(space)
+            }
+        }
+        return out
+    }
+
+    /// The word index in a paragraph's link, or nil for any other link.
+    public static func wordIndex(link url: URL) -> Int? {
+        guard url.scheme == linkScheme else { return nil }
+        return Int(url.absoluteString.dropFirst(linkScheme.count + 1))
+    }
+}
+
+/// The names the transcript shows for its two sides.
+public enum SpeakerNames {
+    /// The meeting's own names win (`speakers["me"]`, `speakers["them"]`, when not blank);
+    /// otherwise `defaultMe` and "Them".
+    public static func resolve(info: MeetingInfo, defaultMe: String) -> (me: String, them: String) {
+        func name(_ key: Side) -> String? {
+            let value = info.speakers[key.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return value.isEmpty ? nil : value
+        }
+        return (name(.me) ?? defaultMe, name(.them) ?? "Them")
+    }
+}

@@ -173,12 +173,15 @@ enum Snapshot {
             model.show(.transcript)
             try? await Task.sleep(for: .seconds(0.8))
             capture(to: "\(dir)/transcript-\(mode).png", window: main)
-            // A click on the second block's timestamp, then on a word in its first line.
-            click(main, at: CGPoint(x: 285, y: 214))
+            // A click on the second block's timestamp (the end of its label row), then on a
+            // word in its first line, found from the block's layout frames.
+            let row = GridProbes.shared.probes["area:transcriptLabel-1"]
+            let text = GridProbes.shared.probes["area:transcriptText-1"]
+            if let row { click(main, at: CGPoint(x: row.x + row.width - Metric.timestampGap, y: row.y + row.height / 2)) }
             try? await Task.sleep(for: .seconds(0.4))
             // The second turn starts at 00:14 (SeedData.kickoffTranscript).
             print("SNAPSHOT transcript timestamp click: \(model.lastSeek == 14 ? "PASS" : "FAIL") (seek to \(model.lastSeek.map { "\($0)" } ?? "nothing"))")
-            click(main, at: CGPoint(x: 345, y: 243))
+            if let text { click(main, at: CGPoint(x: text.x + 4 * Space.xl, y: text.y + KitType.transcript.lineBox / 2)) }
             try? await Task.sleep(for: .seconds(0.6))
             // Any word after the turn's first one.
             let word = model.lastSeek ?? 0
