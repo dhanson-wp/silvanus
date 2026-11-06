@@ -73,7 +73,7 @@ Acceptance:
 UX:
 - Flow: recording runs -> the recording bar shows the latest draft line -> Transcript shows the full draft at the end -> nothing to do
 - Surface: inline (the recording bar at the bottom of the meeting)
-- States: before anyone speaks, "Listening…"; draft model still downloading, "Draft starts when the speech model is ready (240 MB of 470 MB)"; call audio silent for 30 seconds, "No call audio. Check that the call is playing on this Mac."
+- States: before anyone speaks, "Listening…"; draft model still downloading, "Draft starts when the speech model is ready (240 MB of 470 MB)"; call audio silent for 30 seconds during a call, "Nobody on the call is audible yet. Check System Audio access in Settings."
 - Words: "Draft" label in Transcript; Me shown as my name, Them as "Them"
 - Access: the bar's draft line is not announced on every change (VoiceOver would talk over the call); Pause and Stop have labels "Pause recording", "Stop recording"
 Status: todo

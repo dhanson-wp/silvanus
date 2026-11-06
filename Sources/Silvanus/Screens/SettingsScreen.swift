@@ -94,6 +94,9 @@ struct SettingsScreen: View {
             case .general:
                 SettingRow.toggle("Show in Dock", description: "Keep Silvanus in the Dock while it's open.",
                                   isOn: $model.showInDock)
+                SettingRow.toggle("Prompt when a meeting starts",
+                                  description: "When a call app starts using the microphone, offer to start recording.",
+                                  isOn: $model.promptOnMeeting)
                 SettingRow.toggle("Open at login", description: "Start Silvanus when you log in.",
                                   isOn: .constant(false), isEnabled: false, help: "Coming soon")
             case .appearance:

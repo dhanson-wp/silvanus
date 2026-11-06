@@ -303,6 +303,7 @@ enum Snapshot {
         }
         model.recorder.force(.idle)
         renderRecordingParts(since: since, levels: levels, to: dir)
+        renderMeetingPrompt(to: dir)
         model.selection = nil
     }
 
@@ -424,6 +425,31 @@ enum Snapshot {
                 }
             }
             write(rep, to: "\(dir)/kit-gallery-\(ColorSet.active.rawValue)-\(mode).png")
+        }
+    }
+
+    /// The "Meeting detected" prompt, drawn straight from the view: prompt-<mode>.png.
+    @MainActor private static func renderMeetingPrompt(to dir: String) {
+        for mode in ["light", "dark"] {
+            let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
+            NSApp.appearance = appearance
+            let host = NSHostingView(rootView: MeetingPrompt(start: {}, dismiss: {})
+                .padding(Space.xxl)
+                .background(Ink.background))
+            host.appearance = appearance
+            host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            var rep: NSBitmapImageRep?
+            appearance.performAsCurrentDrawingAppearance {
+                rep = bitmap(pixelsWide: Int(host.bounds.width * 2), pixelsHigh: Int(host.bounds.height * 2), size: host.bounds.size) { rect in
+                    NSColor.windowBackgroundColor.setFill()
+                    rect.fill()
+                    if let context = NSGraphicsContext.current {
+                        host.displayIgnoringOpacity(host.bounds, in: context)
+                    }
+                }
+            }
+            write(rep, to: "\(dir)/prompt-\(mode).png")
         }
     }
 

@@ -131,9 +131,11 @@ enum SelfTest {
             await checkSettings(model: model)
             await checkNotesAcrossViews(model: model)
             await checkTranscript(model: model)
+            await checkPlayback()
             await checkSummary(model: model)
             checkAudio()
             await checkMicRestarts()
+            await checkMeetingDetection(model: model)
             await checkRecording(model: model)
             if ProcessInfo.processInfo.environment["APP_SELFTEST_AUDIO"] == "1" {
                 await checkAfterCall(model: model)
@@ -711,6 +713,65 @@ enum SelfTest {
         model.reload()
     }
 
+    /// Playback of two short `say` tracks in a /tmp meeting: both tracks load, a seek lands
+    /// where it was asked, the highlighted word follows the engine's player time, pause holds
+    /// still, and the end stops it. Muted, and about four seconds.
+    private static func checkPlayback() async {
+        let dir = Store.root.appending(path: "playback-\(UUID().uuidString.prefix(6))")
+        let audio = dir.appending(path: MeetingFolder.audio)
+        try? FileManager.default.createDirectory(at: audio, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func speech(_ text: String, _ name: String) {
+            let say = Process()
+            say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            say.arguments = ["-o", audio.appending(path: "\(name).caf").path, "--data-format=LEF32@16000", text]
+            try? say.run()
+            say.waitUntilExit()
+        }
+        speech("Thanks everyone, I will send the revised plan tomorrow morning, and then we can all go home.", "mic")
+        speech("Priya will share the launch checklist before the next meeting.", "system")
+        let player = MeetingPlayer()
+        player.volume = 0
+        check("two tracks load for playback", player.load(audio: audio) && player.duration > 2, "duration \(player.duration)")
+        let none = MeetingPlayer()
+        check("a meeting folder with no tracks has no audio", !none.load(audio: dir) && !none.hasAudio)
+
+        // Words every half second over the audio's length, so a time maps to a known word.
+        let words = (0..<Int(player.duration * 2)).map {
+            Word(text: "w\($0)", start: Double($0) * 0.5, end: Double($0) * 0.5 + 0.4)
+        }
+        player.play(from: 1)
+        let first = TranscriptLayout.wordIndex(at: player.currentTime, in: words)
+        try? await Task.sleep(for: .seconds(1.2))
+        let t1 = player.currentTime
+        let followed = TranscriptLayout.wordIndex(at: t1, in: words)
+        check("playing moves with the engine's player time, from where it was asked",
+              player.isPlaying && t1 > 1.8 && t1 < 2.8, "time \(t1)")
+        check("the highlighted word follows playback", (followed ?? 0) > (first ?? 0) && followed == Int(t1 / 0.5),
+              "word \(first ?? -1) then \(followed ?? -1) at \(t1)")
+
+        player.seek(to: 0.5)
+        try? await Task.sleep(for: .milliseconds(300))
+        let t2 = player.currentTime
+        check("a seek while playing reschedules from the target", player.isPlaying && t2 >= 0.5 && t2 < 1.3, "time \(t2)")
+        player.pause()
+        let held = player.currentTime
+        try? await Task.sleep(for: .milliseconds(300))
+        check("pause holds the position", !player.isPlaying && player.currentTime == held && held >= 0.5, "time \(held)")
+        player.seek(to: 1.5)
+        check("a seek while paused only moves", !player.isPlaying && player.currentTime == 1.5)
+        player.resume()
+        try? await Task.sleep(for: .milliseconds(300))
+        check("resume plays from the moved position", player.isPlaying && player.currentTime >= 1.5 && player.currentTime < 2.3,
+              "time \(player.currentTime)")
+
+        player.play(from: player.duration - 0.3)
+        await poll(timeout: 2) { _ = player.currentTime; return !player.isPlaying }
+        check("reaching the end stops playback at the end", !player.isPlaying && player.currentTime == player.duration,
+              "time \(player.currentTime) of \(player.duration)")
+        player.stop()
+    }
+
     /// The Summary page: summary.md read back through the library, shown read-only in the
     /// notes' styling under the meeting header, and never written (bytes and modification
     /// time stay as they were after selecting, copying, and an attempt to type). Then the
@@ -1203,6 +1264,74 @@ enum SelfTest {
         model.show(.notes)
     }
 
+    /// The call detector with a fake probe: "Meeting detected" once per call, never with no
+    /// call app, never while recording, not when the setting is off, and gone after its time.
+    private static func checkMeetingDetection(model: AppModel) async {
+        // `mic` is any process using input; `apps` the call apps among them.
+        final class Fake { var mic = false; var apps: Set<String> = [] }
+        let fake = Fake()
+        let detector = model.makeDetector(probe: .init(callAppsUsingInput: { fake.mic ? fake.apps : [] },
+                                                       micInUseElsewhere: { fake.mic }, runningCallApps: { fake.apps }))
+        guard let prompt = model.meetingPrompt else {
+            check("the Meeting detected prompt exists", false)
+            return
+        }
+        func release() {
+            fake.mic = false
+            for _ in 0..<5 { detector.poll() }
+        }
+        check("Prompt when a meeting starts starts on", model.promptOnMeeting && AppDefaults.promptOnMeeting)
+        let shown = prompt.shown
+        fake.mic = true
+        detector.poll()
+        detector.poll()
+        check("the microphone in use with no call app shows no prompt", !prompt.isShowing && prompt.shown == shown)
+        fake.apps = ["us.zoom.xos"]
+        detector.poll()
+        check("a call app using the microphone shows \"Meeting detected\"", prompt.isShowing && prompt.shown == shown + 1)
+        detector.poll()
+        detector.poll()
+        check("…once per call", prompt.shown == shown + 1, "shown \(prompt.shown - shown)")
+        check("…and the recorder hears that a call app runs", model.recorder.callAppRunning)
+        prompt.hide()
+        release()
+        model.promptOnMeeting = false
+        check("turning the prompt off is saved", AppDefaults.shared.object(forKey: AppDefaults.promptOnMeetingKey) as? Bool == false)
+        fake.mic = true
+        detector.poll()
+        check("with Prompt when a meeting starts off, nothing shows", !prompt.isShowing && prompt.shown == shown + 1)
+        model.promptOnMeeting = true
+        release()
+        model.recorder.force(.recording(since: Date()))
+        fake.mic = true
+        detector.poll()
+        check("nothing shows while Silvanus records", !prompt.isShowing && prompt.shown == shown + 1)
+        model.recorder.force(.idle)
+        detector.poll()
+        check("…nor after it stops mid-call", !prompt.isShowing && prompt.shown == shown + 1)
+        release()
+        prompt.seconds = 0.3
+        fake.mic = true
+        detector.poll()
+        let up = prompt.isShowing
+        await poll { !prompt.isShowing }
+        check("the prompt hides itself after its time", up && !prompt.isShowing)
+        prompt.seconds = Metric.meetingPromptSeconds
+        prompt.hide()
+        // A browser open but not using input (an in-person meeting): no call.
+        let chromeOpen = CallDetector.Probe(callAppsUsingInput: { [] }, micInUseElsewhere: { true },
+                                            runningCallApps: { ["com.google.Chrome"] })
+        check("a call app that's open but not using input isn't a call",
+              !chromeOpen.callInProgress(recording: false) && !chromeOpen.callInProgress(recording: true))
+        let noList = CallDetector.Probe(callAppsUsingInput: { nil }, micInUseElsewhere: { true },
+                                        runningCallApps: { ["us.zoom.xos"] })
+        check("without the process list, the input device running while a call app runs is a call",
+              noList.callInProgress(recording: false))
+        let live = CallDetector.liveCallAppsUsingInput()
+        check("Core Audio's process list can be read", live != nil)
+        model.recorder.callAppRunning = false
+    }
+
     /// MicCapture through a device switch, on a fake engine with fake configuration-change
     /// notifications: no device opens.
     private static func checkMicRestarts() async {
@@ -1388,6 +1517,34 @@ enum SelfTest {
               calls.ids.count == before2 && recorder.notice?.message == Recorder.nothingRecorded && recorder.phase == .idle,
               "calls \(calls.ids.count - before), notice \(recorder.notice?.message ?? "none")")
         recorder.dismissNotice()
+
+        // 5b. Call audio that stays silent warns only during a call, never for Quick Note.
+        recorder.silenceWarning = 0.3
+        captures(system: .silent)
+        recorder.callAppProbe = { true }
+        model.quickNote()
+        try? await Task.sleep(for: .milliseconds(800))
+        check("Quick Note never warns about call audio, even with a call app open",
+              recorder.isRecording && recorder.warning?.contains(Recorder.silentCall) != true, recorder.warning ?? "none")
+        model.startRecording()
+        await idle()
+        model.startRecording()
+        await poll { recorder.warning?.contains(Recorder.silentCall) == true }
+        check("during a call, silent call audio says \"Nobody on the call is audible yet. Check System Audio access in Settings.\"",
+              recorder.warning?.contains("Nobody on the call is audible yet. Check System Audio access in Settings.") == true,
+              recorder.warning ?? "none")
+        check("…and the microphone warning isn't mixed in while the microphone is heard",
+              recorder.warning?.contains(Recorder.silentMic) != true, recorder.warning ?? "none")
+        model.startRecording()
+        await idle()
+        recorder.callAppProbe = { false }
+        model.startRecording()
+        try? await Task.sleep(for: .milliseconds(800))
+        check("with no call app at the start or since, silent call audio never warns",
+              recorder.isRecording && recorder.warning?.contains(Recorder.silentCall) != true, recorder.warning ?? "none")
+        model.startRecording()
+        await idle()
+        recorder.silenceWarning = 30
 
         // 6. Move to Trash is off for the recording meeting and the one transcribing.
         captures()

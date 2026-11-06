@@ -91,6 +91,16 @@ final class Recorder {
     @ObservationIgnored var silenceWarning: TimeInterval = 30
     /// For the checks: how many times the level was sampled.
     @ObservationIgnored private(set) var samples = 0
+    /// Whether a call app is using audio input now. The call detector sets it every 2
+    /// seconds; the samples only read it.
+    @ObservationIgnored var callAppRunning = false
+    /// Whether a call app is using audio input, read once as a recording starts (before our
+    /// own microphone opens). The self-test fakes it.
+    @ObservationIgnored var callAppProbe: () -> Bool = { CallDetector.Probe.live.callInProgress(recording: false) }
+    /// The recording was started by Quick Note: a voice note, never a call.
+    @ObservationIgnored private var isQuickNote = false
+    /// A call app ran when the recording started.
+    @ObservationIgnored private var callAppAtStart = false
 
     @ObservationIgnored private var mic: AudioCapture?
     @ObservationIgnored private var system: AudioCapture?
@@ -110,7 +120,8 @@ final class Recorder {
     /// a call by surprise.
     @ObservationIgnored private(set) static weak var current: Recorder?
 
-    static let silentCall = "No call audio yet. Check that the call plays on this Mac."
+    /// Shown only during a call, never for Quick Note (`CallAudioWarning`).
+    static let silentCall = CallAudioWarning.text
     static let silentMic = "No microphone audio yet. Check the input in System Settings > Sound."
     static let micOnly = "Recording your microphone only."
     static let nothingRecorded = "Nothing was recorded."
@@ -155,8 +166,9 @@ final class Recorder {
     /// time when it's nil, and opens that meeting on My notes. Throws when a meeting is
     /// already recording, or when the microphone can't start: the phase is then failed, the
     /// banner says why, and a meeting made for it is removed again. Call audio that can't
-    /// start is a warning: the microphone records on its own.
-    func start(into meetingID: String?) throws {
+    /// start is a warning: the microphone records on its own. `quickNote` marks a voice
+    /// note: it never warns about call audio.
+    func start(into meetingID: String?, quickNote: Bool = false) throws {
         guard let model else { throw Failure.noFolder }
         guard apply(.start) else { throw Failure.busy }
         let start = Date()
@@ -206,6 +218,9 @@ final class Recorder {
         meter.reset()
         systemHeard = start
         micHeard = start
+        isQuickNote = quickNote
+        callAppAtStart = quickNote ? false : callAppProbe()
+        callAppRunning = callAppAtStart
         apply(.started(start))
         startSampler()
     }
@@ -350,11 +365,12 @@ final class Recorder {
             addWarning(Self.silentMic)
         }
         guard systemWriter != nil else { return }
-        if systemPeak > 0.001 {
-            systemHeard = now
-            removeWarning(Self.silentCall)
-        } else if now.timeIntervalSince(systemHeard) > silenceWarning {
+        if systemPeak > 0.001 { systemHeard = now }
+        if CallAudioWarning.warning(quickNote: isQuickNote, callAppAtStart: callAppAtStart, callAppNow: callAppRunning,
+                                    silentFor: now.timeIntervalSince(systemHeard), threshold: silenceWarning) != nil {
             addWarning(Self.silentCall)
+        } else {
+            removeWarning(Self.silentCall)
         }
     }
 
