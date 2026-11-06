@@ -279,7 +279,7 @@ All controls are 28 tall at y 9, centered in the 46 pt header.
 | rest | canvas | 1 pt divider | text |
 | hover | controlHover | 1 pt divider | text |
 | pressed | controlHover, 80% | 1 pt divider | text |
-| recording | recording | none | onRecording, label "Stop" |
+| recording | canvas | 1 pt divider | text, label "Stop"; the icon a stop square in recordingText (measured from the reference's recording state; recordingText, not recording, so the square reads on raisedMidnight) |
 | focused | as rest | 2 pt focus ring | text |
 | disabled (no input device) | canvas | 1 pt divider at 40% | text at 40% |
 
@@ -309,6 +309,10 @@ Organization part, adapted to this grid. It's the top of the canvas on a meeting
 
 - Bar (measured): 40 tall, fully rounded (corner 20), inset 31 from both canvas edges (x 240 to 879 in the reference window), bottom 12 above the window edge (y 548 to 588). 1 pt border (`refBarBorder` / Silvanus `Ink.divider`), fill `Ink.canvas`, a soft shadow below. Placeholder text `rowTitle` in `textSecondary`, starting 17 inside the bar.
 - Recording contents (provisional): a 28 × 28 live button at 6 inside the leading edge (`Ink.recording` fill, ivory waveform glyph), 10 gap, the draft line (`rowTitle`, `textSecondary`, one line, truncates), then the elapsed time (`monoTime`), then Pause and Stop as 28 × 28 icon buttons, 6 from the trailing edge.
+- As built (phase 1b): the pill floats in its own always-on-top panel, 320 wide, near the top right of the screen, and shows only while recording when the main window isn't key. Until there's a draft, the line holds the meeting's title (or a recording warning); a failure shows its reason there in `recordingText`. Pause is disabled until Phase 2.
+- While recording, the view pill's Transcript tab shows a small live wave (bars 2 wide, 2 apart, 3 to 12 tall) in `recordingText` instead of its icon, sampled 10 times a second.
+- After Stop, the canvas header shows "Transcribing…" (`label`, `textSecondary`) and a 64 × 4 bar (track `divider`, fill `accent`) before the mic.
+- My notes while recording: each line's time (`mm:ss`, `monoSmall`, `textSecondary`) in a 64 pt trailing margin, level with the line's first row. The text keeps x 221 and wraps before the margin.
 
 | State | Contents |
 | --- | --- |

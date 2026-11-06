@@ -112,6 +112,24 @@ public final class MeetingLibrary {
         }
     }
 
+    /// The meeting's `notes-times.json`, or nil when there is none or it can't be read.
+    public func readNoteTimes(for id: String) -> NoteTimes? {
+        guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.noteTimes),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? NoteTimes(json: data)
+    }
+
+    /// Writes only `notes-times.json`, atomically, beside the notes.
+    public func saveNoteTimes(_ times: NoteTimes, for id: String) throws {
+        guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { throw NotFound(id: id) }
+        try times.json().write(to: folder.appending(path: MeetingFolder.noteTimes), options: .atomic)
+    }
+
+    /// The meeting's `audio/` folder (it may not exist yet).
+    public func audioURL(for id: String) -> URL? {
+        notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.audio)
+    }
+
     /// The meeting as it is on disk now, found there if this instance has not loaded it yet.
     public func meeting(id: String) -> Meeting? {
         guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { return nil }

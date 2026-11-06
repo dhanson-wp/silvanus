@@ -26,6 +26,11 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
     /// Loudest recent level, 0 to 1, for "no call audio" warnings.
     private(set) var recentPeak: Float = 0
     private(set) var framesWritten: AVAudioFramePosition = 0
+    /// Guards what other threads read while the queue writes: the first failure and the
+    /// loudest level since the last sample.
+    private let lock = NSLock()
+    private var firstFailure: String?
+    private var peakSinceSample: Float = 0
 
     init(directory: URL, name: String, recordingStart: Date) {
         self.directory = directory
@@ -48,6 +53,24 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
         }
     }
 
+    /// Why writing failed ("Couldn't write audio: …"), from the first open, convert, or
+    /// write error. Nil while all is well. Safe to read from any thread.
+    var failure: String? { lock.withLock { firstFailure } }
+
+    /// The loudest level since the last call, 0 to 1, and starts over. The recorder samples
+    /// it 10 times a second for the live wave, never per buffer.
+    func samplePeak() -> Float {
+        lock.withLock {
+            let peak = peakSinceSample
+            peakSinceSample = 0
+            return peak
+        }
+    }
+
+    private func fail(_ reason: String) {
+        lock.withLock { if firstFailure == nil { firstFailure = "Couldn't write audio: \(reason)" } }
+    }
+
     /// Writes what's queued and closes the current file.
     func finish() {
         queue.sync { file?.close(); file = nil }
@@ -67,9 +90,15 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
         if buffer.format == target { return buffer }
         if sourceFormat != buffer.format {
             converter = AVAudioConverter(from: buffer.format, to: target)
+            // Mix every channel into the mono track, not just the first (a stereo call, a
+            // headset that puts the voice on the right).
+            converter?.downmix = true
             sourceFormat = buffer.format
         }
-        guard let converter else { return nil }
+        guard let converter else {
+            fail("can't convert \(buffer.format.channelCount)-channel \(Int(buffer.format.sampleRate)) Hz audio")
+            return nil
+        }
         let ratio = target.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
         guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
@@ -82,6 +111,7 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
             status.pointee = .haveData
             return buffer
         }
+        if let error { fail(error.localizedDescription) }
         return error == nil && out.frameLength > 0 ? out : nil
     }
 
@@ -91,16 +121,28 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
             framesInSegment = 0
             let url = directory.appending(path: String(format: "%@-%04d.caf", name, index))
             file?.close()
-            file = try? AVAudioFile(forWriting: url, settings: TrackFormat.format.settings,
-                                    commonFormat: .pcmFormatFloat32, interleaved: false)
+            do {
+                file = try AVAudioFile(forWriting: url, settings: TrackFormat.format.settings,
+                                       commonFormat: .pcmFormatFloat32, interleaved: false)
+            } catch {
+                file = nil
+                fail(error.localizedDescription)
+                return
+            }
         }
-        try? file?.write(from: buffer)
+        do {
+            try file?.write(from: buffer)
+        } catch {
+            fail(error.localizedDescription)
+            return
+        }
         framesInSegment += AVAudioFramePosition(buffer.frameLength)
         framesWritten += AVAudioFramePosition(buffer.frameLength)
         if let data = buffer.floatChannelData?[0] {
             var peak: Float = 0
             for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(data[i])) }
             recentPeak = max(peak, recentPeak * 0.9)
+            lock.withLock { peakSinceSample = max(peakSinceSample, min(1, peak)) }
         }
     }
 

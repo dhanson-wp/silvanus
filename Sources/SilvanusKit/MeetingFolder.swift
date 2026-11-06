@@ -10,6 +10,8 @@ public enum MeetingFolder {
     public static let todo = "todo.md"
     public static let info = "meeting.json"
     public static let audio = "audio"
+    /// When each note line was written during the recording (`NoteTimes`).
+    public static let noteTimes = "notes-times.json"
 
     /// The top folder under the library root.
     public static let top = "meetings"

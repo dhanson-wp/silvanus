@@ -1,4 +1,5 @@
 import AppKit
+import SilvanusKit
 import SwiftUI
 
 // Silvanus
@@ -51,27 +52,43 @@ struct SilvanusApp: App {
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
 
-        // Static on purpose: no timer and no changing label (a live label here has hung the menu bar).
+        // A static image that changes only when recording starts or stops: never a timer or
+        // other per-second content (a live label here has hung the menu bar; docs/FIXLOG.md).
+        // `isRecording` is stored apart from the recorder's progress for this reason.
         MenuBarExtra {
-            MenuBarMenu()
+            MenuBarMenu(model: model)
         } label: {
-            Image(nsImage: Brand.menuBarGlyph)
+            Image(nsImage: model.recorder.isRecording ? Brand.menuBarRecordingGlyph : Brand.menuBarGlyph)
         }
         .menuBarExtraStyle(.menu)
     }
 }
 
-/// The menu bar item's menu: bring the main window forward, or quit.
+/// The menu bar item's menu. While recording: "Recording since 10:30" (static text, never
+/// a running timer), Stop, and Open Silvanus. Otherwise Start Recording and Quick Note.
+/// Then Quit.
 struct MenuBarMenu: View {
+    let model: AppModel
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Open Silvanus") {
-            NSApp.activate()
-            openWindow(id: "main")
+        let recorder = model.recorder
+        if recorder.isRecording, let since = recorder.since {
+            Text(RecordingRules.since(since))
+            Button("Stop", action: recorder.stop)
+        } else {
+            Button("Start Recording") { showWindow(); model.record(.startRecording) }
+            Button("Quick Note") { showWindow(); model.record(.quickNote) }
         }
+        Divider()
+        Button("Open Silvanus", action: showWindow)
         Button("Quit Silvanus") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
+    }
+
+    private func showWindow() {
+        NSApp.activate()
+        openWindow(id: "main")
     }
 }
 
@@ -91,8 +108,8 @@ struct SidebarCommand: Commands {
 /// File > New Meeting (⌘N), Start Recording (⇧⌘R), and Quick Note (⌥⌘N); Meeting > Rename
 /// Meeting… (⌃⌘R), Show Attendees (⌃⌘A), Move to Folder, Move to Trash (⌘⌫), Search, and Filter;
 /// View > Summary, My notes, and Transcript (⌘1, ⌘2, ⌘3), which switch the canvas like the
-/// view pill. Meeting items are disabled with no meeting open; recording items until
-/// recording is wired in; Search and Filter until they land.
+/// view pill. Meeting items are disabled with no meeting open; Quick Note while a meeting
+/// records; Search and Filter until they land.
 struct MeetingCommands: Commands {
     let model: AppModel
 
@@ -106,10 +123,9 @@ struct MeetingCommands: Commands {
                 .keyboardShortcut("n")
             Button(model.isRecording ? "Stop" : "Start Recording", action: model.startRecording)
                 .keyboardShortcut("r", modifiers: [.shift, .command])
-                .disabled(!model.canRecord)
             Button("Quick Note", action: model.quickNote)
                 .keyboardShortcut("n", modifiers: [.option, .command])
-                .disabled(!model.canRecord)
+                .disabled(model.isRecording)
         }
         CommandMenu("Meeting") {
             Button("Rename Meeting…", action: model.requestRename)
@@ -200,7 +216,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EditorSpike.openIfRequested()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Closing the window quits, except while a meeting records: the menu bar item and the
+    /// recording pill keep it going, and Stop is still there.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        !(Recorder.current?.isRecording ?? false)
+    }
 
     /// The self-test's result becomes the exit code, after a normal quit.
     func applicationWillTerminate(_ notification: Notification) {

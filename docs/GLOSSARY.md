@@ -22,9 +22,18 @@ Every word Silvanus puts on screen. One name per idea.
 | Them | The call-audio side, before speakers are named | Others, Remote, System |
 | Speaker | One voice in the call audio, named or numbered | Participant, Voice (in labels) |
 | Name Speakers | Assign names to the voices in a meeting | Identify, Label |
-| Recording bar | The slim bar at the bottom of a meeting while recording | toolbar, HUD |
+| Recording pill | The small floating bar with the time, Pause, and Stop, shown while recording when Silvanus's window isn't in front | toolbar, HUD, Recording bar |
+| Recording since (time) | The menu bar item's line while recording ("Recording since 10:30 AM"); a clock time, never a running timer | Recording for, Live |
+| Open Silvanus | The menu bar item that brings the window forward; "Show Silvanus" is the recording pill's live button | Show App |
 | Timestamp | The time a note line or transcript block starts, from the start of the meeting | time code |
 | Microphone access / System audio access | The two macOS permissions Silvanus needs | Mic permission, Screen Recording |
+| Silvanus needs two permissions to record | The sheet the first Start Recording opens when access is missing; its buttons are Allow Microphone Access, Allow System Audio Access, Open System Settings…, Not Now, and Start Recording (or Quick Note) | Grant access, Setup |
+| Recording your microphone only. (reason) | The warning when call audio couldn't start; the microphone records on its own | Mic-only mode |
+| No call audio yet. Check that the call plays on this Mac. | The warning when call audio stays silent for 30 seconds while recording | No system audio |
+| Couldn't start recording: (reason) / Couldn't write audio: (reason) | Why a recording didn't start, or stopped early; the audio saved so far is kept | Recording error, Capture failed |
+| Couldn't transcribe this meeting: (reason) | The banner when the after-call pass fails; Retry runs it again on the saved audio | Transcription error |
+| Finished transcribing an interrupted recording | The banner after a recording cut off by a quit or crash is transcribed at launch | Recovered, Restored |
+| Transcribing… | The canvas header's label, with its bar, while the after-call pass runs | Processing… |
 | Folder | A group of meetings the user makes | Project, Space, Tag |
 | All meetings | The sidebar's list with no folder chosen: every meeting | All Notes, Everything, Inbox |
 | Folders | The sidebar section that lists every folder, under the meetings | Collections, Groups |
@@ -43,4 +52,4 @@ Every word Silvanus puts on screen. One name per idea.
 | Theme | The Appearance choice: System, Light, or Dark | Mode, Color scheme |
 | Model | The Transcription pane's speech model, "Parakeet TDT v2, on this Mac" | Engine |
 | Couldn't save notes: (reason) | The banner over My notes when writing notes.md fails; the reason is the system's | Save error, Sync failed |
-| Retry | Try the failed save again, from that banner | Try again, Resave |
+| Retry | Try the failed step again, from its banner: the notes' save, or a meeting's transcription | Try again, Resave |

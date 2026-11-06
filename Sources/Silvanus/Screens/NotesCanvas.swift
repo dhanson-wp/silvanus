@@ -14,7 +14,8 @@ struct NotesCanvas: View {
     let header: AnyView
 
     var body: some View {
-        NotesEditor(document: documents.open(meeting.id, model: model), header: header)
+        NotesEditor(document: documents.open(meeting.id, model: model), header: header,
+                    recording: model.recorder.meetingID == meeting.id)
             // A new meeting gets a new editor; the old one hands over its typing as it goes.
             .id(meeting.id)
     }
@@ -43,6 +44,7 @@ struct NotesCanvas: View {
         if let current { replaced.append(current) }
         let document = NotesDocument(meetingID: id, library: model.library)
         document.onSaved = { [weak model] text in model?.notesSaved(text, for: id) }
+        document.elapsed = { [weak model] in model?.recorder.elapsed(for: id) }
         current = document
         return document
     }
@@ -65,11 +67,14 @@ struct NotesCanvas: View {
 struct NotesEditor: View {
     @Bindable var document: NotesDocument
     var header: AnyView? = nil
+    /// True while this meeting records: the timestamp margin shows from the start.
+    var recording = false
 
     var body: some View {
         MarkdownEditor(text: $document.text, link: document.link,
                        header: header, headerHeight: header == nil ? 0 : MeetingHeader.height,
-                       accessibilityLabel: "My notes")
+                       accessibilityLabel: "My notes",
+                       marginTimes: recording || !document.times.isEmpty ? document.times : nil)
             .overlay(alignment: .bottom) {
                 if let error = document.saveError {
                     SaveErrorBanner(reason: error, retry: document.saveNow)
@@ -118,8 +123,19 @@ final class NotesDocument {
     var text: String {
         // The editor's push of text it already handed over (leaving My notes flushes, then the
         // editor's dismantle pushes) changes nothing, so it doesn't count as typing.
-        didSet { if !applyingDisk, text != oldValue { changed() } }
+        didSet {
+            guard text != oldValue else { return }
+            retime(from: oldValue)
+            if !applyingDisk { changed() }
+        }
     }
+    /// When each line was written during a recording (`notes-times.json`), for the margin.
+    private(set) var times = NoteTimes()
+    /// Seconds into this meeting's recording, or nil when it isn't recording. New lines get
+    /// this time.
+    @ObservationIgnored var elapsed: () -> TimeInterval? = { nil }
+    /// True when `times` changed since it was last written.
+    @ObservationIgnored private var timesDirty = false
     /// True when `text` has changes not yet written.
     private(set) var isDirty = false
     /// Why the last save failed, until a save works.
@@ -165,6 +181,7 @@ final class NotesDocument {
         lineEnding = LineEnding.detect(raw)
         let loaded = LineEnding.normalized(raw)
         text = loaded
+        times = library.readNoteTimes(for: meetingID) ?? NoteTimes()
         sync = NotesSync(loaded: loaded)
         if let url = library.notesURL(for: meetingID) {
             watcher = FileWatcher(url: url) { [weak self] in self?.diskChanged() }
@@ -181,6 +198,20 @@ final class NotesDocument {
         observers.append(center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.saveOrRecover() }
         })
+    }
+
+    /// New lines get the recording's elapsed time; edited lines keep theirs. Changes from
+    /// disk carry times but add none.
+    private func retime(from old: String) {
+        let now = applyingDisk ? nil : elapsed()
+        // Nothing to carry and nothing to add: skip the line diff.
+        guard now != nil || !times.isEmpty else { return }
+        var next = times
+        next.update(old: old, new: text, now: now)
+        if next != times {
+            times = next
+            timesDirty = true
+        }
     }
 
     private func changed() {
@@ -230,6 +261,7 @@ final class NotesDocument {
         }
         do {
             try library.saveNotes(lineEnding.apply(to: text), for: meetingID)
+            saveTimes()
             sync.saved(text)
             isDirty = false
             saveError = nil
@@ -267,6 +299,18 @@ final class NotesDocument {
         } catch {
             saveError = Self.reason(error)
             print("NOTES \(meetingID): the notes couldn't be saved or kept: \(error)")
+        }
+    }
+
+    /// Writes `notes-times.json` beside the notes when the times changed. A failure is
+    /// logged, never shown: the notes themselves were saved.
+    private func saveTimes() {
+        guard timesDirty else { return }
+        do {
+            try library.saveNoteTimes(times, for: meetingID)
+            timesDirty = false
+        } catch {
+            print("NOTES \(meetingID): couldn't save the note times: \(error)")
         }
     }
 
