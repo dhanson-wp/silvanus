@@ -23,10 +23,13 @@ struct MarkdownEditor: NSViewRepresentable {
     var headerHeight: CGFloat = 0
     /// What VoiceOver calls the text view itself ("My notes"), not the scroll view around it.
     var accessibilityLabel: String? = nil
+    /// The Summary page: selectable and findable, never edited or saved.
+    var readOnly = false
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scroll, view) = NotesTextView.scrollable()
         if let accessibilityLabel { view.setAccessibilityLabel(accessibilityLabel) }
+        if readOnly { view.makeReadOnly() }
         if let header {
             scroll.documentView = HeaderedNotesView(header: header, height: headerHeight, textView: view)
         }

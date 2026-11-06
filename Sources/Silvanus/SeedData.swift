@@ -82,7 +82,26 @@ enum SeedData {
                     [x] Book the room for the review
 
                     """,
-                summary: "Agreed on scope and a first milestone.",
+                summary: """
+                    ## Overview
+                    Agreed on scope and a first milestone for the **Acme** launch.
+
+                    ## Decisions
+                    - Launch target is **March**, with _one_ buffer week
+                    - Priya owns the integration plan
+                    - Sam shares the `staging` checklist by Friday
+
+                    ### Open questions
+                    - Who books the review room?
+                    - Does the buffer week move if the deck slips?
+
+                    ## Imported summary
+
+                    A short recap kept as it came in: scope, dates, and who owns what.
+                    - **Scope** is the integration plan and the staging checklist
+                    - **Dates** hold at March unless the deck slips
+
+                    """,
                 todo: "- [ ] Sam sends the project plan\n",
                 transcriptMarkdown: kickoffTranscript.markdown(me: "Sam Rivera")),
             Meeting(
