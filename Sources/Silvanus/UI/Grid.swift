@@ -130,7 +130,7 @@ struct GridOverlay: View {
                                        style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
                     } else {
                         context.stroke(Path(rect), with: .color(.pink.opacity(0.8)), lineWidth: 1)
-                        context.draw(Text(probe.name).font(.system(size: 9, weight: .medium)).foregroundStyle(.pink),
+                        context.draw(Text(probe.name).font(KitType.meta.font).foregroundStyle(.pink),
                                      at: CGPoint(x: rect.minX + 2, y: rect.minY - 6), anchor: .leading)
                     }
                 }

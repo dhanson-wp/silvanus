@@ -24,7 +24,7 @@ is folders of plain files (Markdown and JSON), one folder per meeting.
 - A second checkout (a worktree) builds and tests side by side with `SILVANUS_DEV_DIR=~/Library/Developer/Silvanus-<name>` set for `build.sh`, `tools/test.sh`, `tools/snap.sh`, and `tools/selftest.sh`. `SILVANUS_SNAP_STORE`, `SILVANUS_SHOTS`, and `SILVANUS_SELFTEST_STORE` move their /tmp folders.
 - Self-test (the app's real functions on a /tmp folder): `tools/selftest.sh`. Exit 0 when every check passes. Add a check for every story with logic in `SelfTest.swift`.
 - After every UI change, take snapshots and look at them: `tools/snap.sh`.
-  It writes `/tmp/Silvanus-shots/<page>-light.png` and `-dark.png` for every sidebar page, `settings-<tab>-light.png` and `-dark.png` for every Settings tab, and the brand set (`about-*`, `menubar-*`, `menubar-recording-*`), then quits. `APP_SNAPSHOT_PAGES=all,settings tools/snap.sh` limits the pages.
+  It writes `/tmp/Silvanus-shots/<page>-light.png` and `-dark.png` for every sidebar page, `settings-<pane>-light.png` and `-dark.png` for every Settings pane, and the brand set (`about-*`, `menubar-*`, `menubar-recording-*`), then quits. `APP_SNAPSHOT_PAGES=all,settings tools/snap.sh` limits the pages.
   For a panel, sheet, or popover, add a capture to `Snapshot.swift` like the Settings loop.
 - `snap.sh` and `selftest.sh` run the dev bundle's binary with `APP_STORE` in /tmp and `-ApplePersistenceIgnoreState YES`. Never run the installed app, never use `open` or `osascript` on it, and never delete its saved state.
 - Snapshots and the self-test refuse to run without `APP_STORE`. Never test against the real meetings folder.
@@ -44,12 +44,11 @@ This repo is public. `tools/check-public.sh` runs as the pre-commit hook (`tools
 ## Design rules
 
 - Window chrome is custom and measured from the design kit; menus, shortcuts, Settings, and accessibility stay native.
-- The accent color comes from `UI/Theme.swift` (`ThemeStore.defaultID`). People change it in Settings > Appearance; light and dark mode follow the Mac.
-- Views use `.tint`, `Palette.accent`, `Palette.accentText` (accent-colored text), and `Palette.onAccent` (text on an accent fill). Never hard-code colors, radii, or durations in views.
-- Compare accents: add `APP_ACCENT=<id>` to the snapshot command.
+- The accent is the brand's, from the design kit (`Ink.accent`, fill only; `Ink.accentText` for accent text). People can't pick another. Settings > Appearance chooses System, Light, or Dark (`AppDefaults.appearance`, applied with `NSApp.appearance`).
+- Views read only `Ink.*`, `KitType`, `Metric`, `Motion`, and `KitIcon`. Never hard-code colors, radii, or durations in views.
 - Spacing comes from `Space` in `UI/Grid.swift`, on a 4 pt grid. Mark custom pages and cards with `.gridArea` and `.gridProbe`.
-- Windows open calm: `.noInitialFocus()` on every window and sheet (no focus ring or selected text on open), `.fitsContent()` on sheets and Settings tabs (no scroll bar with nothing to scroll). System scroll bars. Both in `UI/WindowBehavior.swift`.
-- Settings: one tab per topic in `SettingsView.swift`, one grouped Form per tab. Add a case to `SettingsTab` for a new tab.
+- Windows open calm: `.noInitialFocus()` on every window and sheet (no focus ring or selected text on open), `.fitsContent()` on sheets (no scroll bar with nothing to scroll). System scroll bars. Both in `UI/WindowBehavior.swift`.
+- Settings open inside the main window (⌘, or Settings…), not in their own window: the list takes the sidebar column and the pane the canvas (`Screens/SettingsScreen.swift`). One pane per topic: add a case to `SettingsPane`, and a row per setting with `SettingRow`. Switches are `KitSwitchStyle`; buttons are `KitButtonStyle`.
 - Colors: `.primary`, `.secondary`, `.tint`, and system colors. Never fixed grays or white for text.
 - Every action has a menu bar item and a keyboard shortcut.
 - `Label` for icon and text pairs. SF Symbols for icons.

@@ -21,13 +21,13 @@ enum Brand {
     /// The menu bar glyph while recording: a template image, 18 pt.
     static var menuBarRecordingGlyph: NSImage { glyph("menubar-recording", filled: true) }
 
-    /// The accent from the bundled `brand-colors.json` (`{"accent": "#RRGGBB"}`),
-    /// else the accent the theme ships with (`ThemeStore.defaultID`).
+    /// The accent from the bundled `brand-colors.json` (`{"accent": "#RRGGBB"}`), else the
+    /// kit's accent (`Ink.accent`).
     static var accent: Color {
         if let hex = accentHex(in: Bundle.main.url(forResource: "brand-colors", withExtension: "json")) {
-            return Color(hex: hex)
+            return Color.rgb(hex)
         }
-        return Theme.all.first { $0.id == ThemeStore.defaultID }?.accent ?? .accentColor
+        return Ink.accent
     }
 
     /// Reads the `accent` value of a brand colors file: "#RRGGBB" or "RRGGBB". nil when
@@ -87,7 +87,7 @@ struct BrandPalette {
 
     /// The token's color in the light or dark theme; nil when the token or its color is unknown.
     func color(_ token: String, dark isDark: Bool = false) -> Color? {
-        hex(token, dark: isDark).map { Color(hex: $0) }
+        hex(token, dark: isDark).map { Color.rgb($0) }
     }
 
     /// The token's color as 0xRRGGBB in the light or dark theme; nil when unknown.
@@ -104,20 +104,31 @@ struct BrandPalette {
     }
 }
 
-/// The About window: the icon, the name, the version.
-struct BrandAboutView: View {
+/// The About content: the icon, the name, the version. The About pane in Settings shows it
+/// as is; `BrandAboutView` puts it in the About window.
+struct BrandAboutContent: View {
     var body: some View {
         VStack(spacing: Space.sm) {
             Image(nsImage: Brand.appIcon)
                 .resizable()
                 .frame(width: 96, height: 96)
             Text("Silvanus")
-                .font(.title2.weight(.semibold))
+                .kitType(.title)
+                .foregroundStyle(Ink.text)
             Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1")")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .kitType(.label)
+                .foregroundStyle(Ink.textSecondary)
         }
-        .padding(Space.xl)
-        .frame(width: 280)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The About window.
+struct BrandAboutView: View {
+    var body: some View {
+        BrandAboutContent()
+            .padding(Space.xl)
+            .frame(width: 280)
+            .background(Ink.canvas)
     }
 }

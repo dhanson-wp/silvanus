@@ -26,7 +26,10 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 /// App-wide state that menus, toolbars, and views share.
 @Observable
 final class AppModel {
-    init(library: MeetingLibrary) { self.library = library }
+    init(library: MeetingLibrary) {
+        self.library = library
+        appearance.apply()
+    }
 
     let library: MeetingLibrary
     /// Every meeting on disk, newest first. Setting it rebuilds the sidebar's folders and days.
@@ -84,9 +87,22 @@ final class AppModel {
     var headerRequest: HeaderRequest?
     /// How many requests the header has carried out. The self-test reads it.
     @ObservationIgnored private(set) var handledHeaderRequests: [HeaderRequest] = []
-    /// Settings reopens on the last tab. Test and snapshot runs use their own defaults.
-    var settingsTab: SettingsTab = SettingsTab(rawValue: AppDefaults.shared.string(forKey: "settings.tab") ?? "") ?? .general {
-        didSet { AppDefaults.shared.set(settingsTab.rawValue, forKey: "settings.tab") }
+    /// True while Settings takes the window (⌘, or the app menu's Settings…).
+    var settingsOpen = false
+    /// Settings reopens on the last pane. Test and snapshot runs use their own defaults.
+    var settingsPane: SettingsPane = SettingsPane(rawValue: AppDefaults.shared.string(forKey: AppDefaults.settingsPaneKey) ?? "") ?? .general {
+        didSet { AppDefaults.shared.set(settingsPane.rawValue, forKey: AppDefaults.settingsPaneKey) }
+    }
+    /// Settings > Appearance. Setting it saves it and applies it to every window.
+    var appearance: AppearanceChoice = AppDefaults.appearance {
+        didSet {
+            AppDefaults.appearance = appearance
+            appearance.apply()
+        }
+    }
+    /// Settings > General > Show in Dock. Saved only; no behavior yet.
+    var showInDock: Bool = AppDefaults.showInDock {
+        didSet { AppDefaults.showInDock = showInDock }
     }
 }
 
@@ -104,7 +120,21 @@ extension AppModel {
 
     /// Hides or shows the sidebar, sliding the canvas with the kit's selection curve.
     func toggleSidebar() {
+        // Settings keeps its list on screen; the hide button is its back button then.
+        guard !settingsOpen else { return }
         withAnimation(Motion.select) { sidebarVisible.toggle() }
+    }
+
+    /// Settings…, ⌘,: Settings takes the canvas column, and the sidebar column shows its list.
+    /// `pane` picks the pane to show; nil keeps the last one.
+    func openSettings(_ pane: SettingsPane? = nil) {
+        if let pane { settingsPane = pane }
+        settingsOpen = true
+    }
+
+    /// The back button and Escape: back to the meeting.
+    func closeSettings() {
+        settingsOpen = false
     }
 
     func reload() {

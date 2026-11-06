@@ -7,14 +7,14 @@ import SwiftUI
 ///     ~/Library/Developer/Silvanus/Silvanus.app/Contents/MacOS/Silvanus -ApplePersistenceIgnoreState YES
 /// writes <page>-light.png and <page>-dark.png for every sidebar page, the window frame at
 /// its default and minimum sizes and with the sidebar hidden (captureFrames), and
-/// settings-<tab>-light.png and settings-<tab>-dark.png for every Settings tab, then quits.
+/// settings-<pane>-light.png and settings-<pane>-dark.png for every Settings pane (Settings is
+/// open in the main window), then quits.
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "settings" for Settings.
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
-/// Add APP_ACCENT=<id> to see the pages in another accent.
 /// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
 enum Snapshot {
-    static func runIfRequested(model: AppModel, openSettings: OpenSettingsAction) {
+    static func runIfRequested(model: AppModel) {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["APP_SNAPSHOT"], !dir.isEmpty else { return }
         // The editor spike takes its own snapshots (runEditorSpikeIfRequested).
@@ -55,18 +55,19 @@ enum Snapshot {
                 await captureFrames(model: model, to: dir)
             }
             if only == nil || only?.contains("settings") == true {
-                let main = NSApp.windows.first { $0.canBecomeMain && !$0.isSheet }
-                openSettings()
-                try? await Task.sleep(for: .seconds(1))
+                // Settings takes the main window, so each pane is the window itself.
+                model.sidebar = .all
+                model.openSettings()
+                try? await Task.sleep(for: .seconds(0.8))
                 for mode in ["light", "dark"] {
                     NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
-                    for tab in SettingsTab.allCases {
-                        model.settingsTab = tab
+                    for pane in SettingsPane.allCases {
+                        model.settingsPane = pane
                         try? await Task.sleep(for: .seconds(0.8))
-                        let settings = NSApp.windows.first { $0.isVisible && $0 !== main && !$0.isSheet }
-                        capture(to: "\(dir)/settings-\(tab.rawValue)-\(mode).png", window: settings)
+                        capture(to: "\(dir)/settings-\(pane.rawValue)-\(mode).png")
                     }
                 }
+                model.closeSettings()
             }
             if only == nil || only?.contains("brand") == true {
                 renderBrand(to: dir)
@@ -128,7 +129,7 @@ enum Snapshot {
             let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
             NSApp.appearance = appearance
             // About: the same view the About window shows, on the window background.
-            let host = NSHostingView(rootView: BrandAboutView().themed())
+            let host = NSHostingView(rootView: BrandAboutView())
             host.appearance = appearance
             host.frame = NSRect(origin: .zero, size: host.fittingSize)
             host.layoutSubtreeIfNeeded()

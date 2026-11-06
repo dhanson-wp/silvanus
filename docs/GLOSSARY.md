@@ -37,3 +37,8 @@ Every word Silvanus puts on screen. One name per idea.
 | No summary yet | The Summary view before a meeting has one | Nothing here |
 | No transcript yet | The Transcript view before a meeting has one | No captions |
 | Pick a meeting or start one | The canvas with no meeting open | Nothing selected |
+| Settings | The panes that open inside the main window (⌘,): General, Appearance, About, Transcription | Preferences, Options |
+| Show in Dock | The General switch that keeps Silvanus's icon in the Dock | Dock icon |
+| Open at login | The General switch that starts Silvanus when you log in; "Coming soon" for now | Launch at startup |
+| Theme | The Appearance choice: System, Light, or Dark | Mode, Color scheme |
+| Model | The Transcription pane's speech model, "Parakeet TDT v2, on this Mac" | Engine |

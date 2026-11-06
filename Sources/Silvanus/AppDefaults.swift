@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Every defaults read and write in the app goes through `AppDefaults.shared`,
@@ -21,4 +22,51 @@ enum AppDefaults {
         suite.removePersistentDomain(forName: testSuite)
         return suite
     }()
+}
+
+/// What Settings > Appearance offers: follow the Mac, or always light or dark.
+enum AppearanceChoice: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    /// nil follows the Mac.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
+    /// Makes every window of the app use this appearance.
+    @MainActor func apply() {
+        NSApplication.shared.appearance = nsAppearance
+    }
+}
+
+/// The settings that have a Settings pane. Reads and writes go through `AppDefaults.shared`.
+extension AppDefaults {
+    static let appearanceKey = "appearance.mode"
+    static let showInDockKey = "general.showInDock"
+    static let settingsPaneKey = "settings.pane"
+
+    static var appearance: AppearanceChoice {
+        get { AppearanceChoice(rawValue: shared.string(forKey: appearanceKey) ?? "") ?? .system }
+        set { shared.set(newValue.rawValue, forKey: appearanceKey) }
+    }
+
+    /// Saved only for now; the Dock icon follows it once that behavior lands.
+    static var showInDock: Bool {
+        get { shared.object(forKey: showInDockKey) as? Bool ?? true }
+        set { shared.set(newValue, forKey: showInDockKey) }
+    }
 }

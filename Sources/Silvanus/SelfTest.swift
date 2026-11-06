@@ -93,11 +93,13 @@ enum SelfTest {
                   active != nil && inactive != nil && active != inactive,
                   "active \(active ?? "none"), inactive \(inactive ?? "none")")
 
-            let saved = UserDefaults.standard.string(forKey: "settings.tab")
-            model.settingsTab = .appearance
-            check("the Settings tab is saved to the test defaults",
-                  AppDefaults.shared.string(forKey: "settings.tab") == "appearance")
-            check("the real defaults are left alone", UserDefaults.standard.string(forKey: "settings.tab") == saved)
+            let saved = UserDefaults.standard.string(forKey: AppDefaults.settingsPaneKey)
+            model.settingsPane = .appearance
+            check("the Settings pane is saved to the test defaults",
+                  AppDefaults.shared.string(forKey: AppDefaults.settingsPaneKey) == "appearance")
+            check("the real defaults are left alone",
+                  UserDefaults.standard.string(forKey: AppDefaults.settingsPaneKey) == saved)
+            model.settingsPane = .general
 
             let palette = Brand.palette
             let unresolved = palette.tokens.flatMap { token in
@@ -125,6 +127,7 @@ enum SelfTest {
 
             await checkWindowFrame(model: model)
             await checkHeaders(model: model)
+            await checkSettings(model: model)
 
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
@@ -214,6 +217,45 @@ enum SelfTest {
     /// The headers (task 4): New Meeting, renaming and filing a meeting, the view menu's
     /// ⌘1 to ⌘3, and the canvas header's controls clear of the traffic lights and each other
     /// at the default and minimum sizes with a 120-character title (Review Focus 2).
+    /// Settings inside the window: ⌘, and the back button and Escape, the appearance choice
+    /// (saved, and applied to every window), and the Show in Dock stub.
+    private static func checkSettings(model: AppModel) async {
+        let item = menuItem(key: ",", modifiers: [.command], in: NSApp.mainMenu)
+        check("the app menu has Settings… on ⌘,", item?.title == "Settings…", item?.title ?? "missing")
+        check("no separate Settings window scene is left",
+              !NSApp.windows.contains { $0.identifier?.rawValue.contains("Settings") == true || $0.title == "Settings" })
+        if let item, let menu = item.menu { menu.performActionForItem(at: menu.index(of: item)) }
+        try? await Task.sleep(for: .seconds(0.4))
+        check("Settings… opens Settings in the main window", model.settingsOpen)
+        let close = menuItem(key: "[", modifiers: [.command], in: NSApp.mainMenu)
+        check("View has Close Settings on ⌘[", close?.title == "Close Settings", close?.title ?? "missing")
+        model.closeSettings()
+        check("the back button closes Settings", !model.settingsOpen)
+        model.openSettings(.appearance)
+        check("openSettings picks the pane", model.settingsOpen && model.settingsPane == .appearance)
+
+        let original = NSApp.appearance
+        model.appearance = .dark
+        check("choosing Dark applies to the app and is saved",
+              NSApp.appearance?.name == .darkAqua && AppDefaults.shared.string(forKey: AppDefaults.appearanceKey) == "dark")
+        model.appearance = .light
+        check("choosing Light applies to the app and is saved",
+              NSApp.appearance?.name == .aqua && AppDefaults.appearance == .light)
+        model.appearance = .system
+        check("choosing System follows the Mac again", NSApp.appearance == nil && AppDefaults.appearance == .system)
+        check("the real defaults are left alone by the appearance choice",
+              UserDefaults.standard.string(forKey: AppDefaults.appearanceKey) != "dark")
+        NSApp.appearance = original
+
+        check("Show in Dock starts on", model.showInDock)
+        model.showInDock = false
+        check("Show in Dock is saved and nothing else changes yet",
+              AppDefaults.shared.object(forKey: AppDefaults.showInDockKey) as? Bool == false)
+        model.showInDock = true
+        model.closeSettings()
+        model.settingsPane = .general
+    }
+
     private static func checkHeaders(model: AppModel) async {
         let before = model.meetings.count
         let newItem = menuItem(key: "n", modifiers: [.command], in: NSApp.mainMenu)

@@ -7,7 +7,6 @@ import SwiftUI
 //   APP_SEED=1 APP_STORE=/tmp/<dir> Silvanus   fill an empty /tmp store with fictional meetings
 //   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings tab in light and dark mode, then quit
 //   Silvanus --selftest           run the self-test on a /tmp folder and quit with 0 or 1 (tools/selftest.sh)
-//   APP_ACCENT=<id> Silvanus      run with another accent from Theme.all (UI/Theme.swift)
 //   APP_KIT_GALLERY=1 Silvanus    show the design kit's gallery instead of the pages (DesignKit/KitGallery.swift);
 //                                 APP_COLORS=reference draws the kit in the reference colors
 //   APP_GRID=1 Silvanus           draw the 8 pt grid and the layout probes over the window
@@ -27,7 +26,6 @@ struct SilvanusApp: App {
             }
                 .environment(model)
                 .noInitialFocus()
-                .themed()
                 .overlay { if GridOverlay.enabled { GridOverlay() } }
                 .windowChrome()
         }
@@ -39,13 +37,13 @@ struct SilvanusApp: App {
             SidebarCommand(model: model)
             MeetingCommands(model: model)
             AboutCommand()
+            SettingsCommand(model: model)
             // Edit > Find (⌘F), Find and Replace (⌥⌘F), and the rest, for the notes canvas.
             TextEditingCommands()
         }
 
         Window("About Silvanus", id: "about") {
             BrandAboutView()
-                .themed()
                 .noInitialFocus()
         }
         .windowResizability(.contentSize)
@@ -58,13 +56,6 @@ struct SilvanusApp: App {
             Image(nsImage: Brand.menuBarGlyph)
         }
         .menuBarExtraStyle(.menu)
-
-        Settings {
-            SettingsView()
-                .environment(model)
-                .themed()
-        }
-        .windowResizability(.contentSize)
     }
 }
 
@@ -90,6 +81,7 @@ struct SidebarCommand: Commands {
         CommandGroup(replacing: .sidebar) {
             Button(model.sidebarVisible ? "Hide Sidebar" : "Show Sidebar", action: model.toggleSidebar)
                 .keyboardShortcut("s", modifiers: [.control, .command])
+                .disabled(model.settingsOpen)
         }
     }
 }
@@ -155,6 +147,24 @@ struct AboutCommand: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Silvanus") { openWindow(id: "about") }
+        }
+    }
+}
+
+/// Silvanus > Settings… (⌘,) opens Settings inside the main window; View > Close Settings
+/// (⌘[) and Escape go back to the meeting.
+struct SettingsCommand: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { model.openSettings() }
+                .keyboardShortcut(",")
+        }
+        CommandGroup(after: .sidebar) {
+            Button("Close Settings", action: model.closeSettings)
+                .keyboardShortcut("[")
+                .disabled(!model.settingsOpen)
         }
     }
 }

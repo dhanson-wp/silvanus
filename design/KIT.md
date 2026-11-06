@@ -170,7 +170,7 @@ Source: SF Symbols, regular weight, at 14 pt (the reference's set is 12 to 15 pt
 | date chip | 13 | `calendar` |
 | attendees chip | 15 | `person.2` |
 | back (settings) | 14 | `chevron.left` |
-| settings list | 14 | `gearshape`, `paintbrush`, `waveform`, `mic` |
+| settings list | 14 | `gearshape`, `paintbrush`, `waveform`, `mic`, `info.circle` (About; ours) |
 
 Icon color is `Ink.textSecondary` in the sidebar header and trailing header buttons, `Ink.textTertiary` for unselected pill tabs, and `Ink.text` on the selected segment and on bordered buttons.
 
@@ -368,6 +368,7 @@ Settings take over the main window, as a grouped list on the left and a pane on 
 - Switch: 44 × 24, fully rounded, knob 20. Off: fill `Ink.sidebar`, 1 pt `Ink.divider` border, knob `Ink.canvas`. On: fill `Ink.primaryControl`, knob `Ink.onPrimary`. Focused: 2 pt focus ring. Disabled: 40%.
 - Bordered button: 36 tall, corner 6, 1 pt `Ink.divider` border, fill `Ink.sidebar`, label `button` (14 medium), padding 16.
 - Section heading: `subheading` (18 semibold).
+- **Adapted** (as built): there's no search field yet, so the first group label sits right under the header, and the list column keeps the window's 208 pt sidebar width rather than 204. The panes are General, Appearance, About (group "App") and Transcription (group "AI"). Switch hover and pressed are ours: off gets a `textSecondary` border, on gets 90% and 80% fill. A bordered button chosen in a group (Theme: System, Light, Dark) is `primaryControl` with an `onPrimary` label. Escape and the back button return to the meeting.
 
 ### Empty states
 
