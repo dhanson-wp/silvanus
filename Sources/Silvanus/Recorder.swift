@@ -297,7 +297,12 @@ final class Recorder {
     /// "Audio lost" (Retry, Stop); call audio that won't start is "Mic only".
     func resume() {
         guard state.isPaused else { return }
-        guard let mic, let micWriter else { return }
+        guard let mic, let micWriter else {
+            interrupt("Couldn't restart the microphone: it isn't running.", whilePaused: false)
+            return
+        }
+        // The clock runs before the devices start, so their first audio counts as after.
+        releaseClock(RecorderEvent.resume)
         do {
             try mic.start(into: micWriter)
         } catch {
@@ -305,7 +310,6 @@ final class Recorder {
             return
         }
         restartSystem()
-        releaseClock(RecorderEvent.resume)
     }
 
     /// The controls' Pause/Resume button.
@@ -318,17 +322,21 @@ final class Recorder {
     /// failure that came while paused goes back to Paused, with the devices released again.
     func retryCapture() {
         guard case .interrupted = phase else { return }
-        if let reason = restartMic() {
-            apply(.interrupt(Date(), reason))
-            return
-        }
         if interruptedWhilePaused {
+            if let reason = restartMic() {
+                apply(.interrupt(Date(), reason))
+                return
+            }
             mic?.stop()
             apply(.recoveredToPause)
             return
         }
-        restartSystem()
         releaseClock(RecorderEvent.recovered)
+        if let reason = restartMic() {
+            interrupt(reason, whilePaused: false)
+            return
+        }
+        restartSystem()
         if callAudioDown != nil { retryCallAudio() }
     }
 

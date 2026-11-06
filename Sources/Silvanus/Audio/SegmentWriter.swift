@@ -67,6 +67,8 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
     private var realign = false
     /// A gap shorter than this (5 ms) is left alone when lining up.
     static let realignThreshold: TimeInterval = 0.005
+    /// Lining up never cuts more than this off a buffer.
+    static let maxTrim: TimeInterval = 0.05
 
     init(directory: URL, name: String, clock: CaptureClock) {
         self.directory = directory
@@ -99,23 +101,22 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
                 write(converted)
                 return
             }
-            // The first buffer after a release (Resume, Retry, a microphone change): line the
-            // track up with the clock. Behind, pad silence; ahead (the buffer holds audio from
-            // before the release), cut that front off. Each track does this on its own, so
-            // their buffer sizes never let one drift ahead of the other.
+            // The first buffer after a release (Resume, Retry, a microphone change), and only
+            // that one: line the track up with the clock. Behind, pad silence; a little ahead
+            // (the buffer holds a moment from before the release), cut up to 50 ms off its
+            // front. Further ahead than that, keep it: within 50 ms is aligned enough.
+            realign = false
             let position = startOffset + Double(framesWritten) / TrackFormat.sampleRate
             let gap = begins - position
             if gap > Self.realignThreshold {
                 writeSilence(min(gap, 4 * 3600))
-            } else if gap < -Self.realignThreshold {
+            } else if gap < -Self.realignThreshold, -gap <= Self.maxTrim {
                 let cut = AVAudioFrameCount((-gap * TrackFormat.sampleRate).rounded())
-                // All of it is from before the release: drop it and line up the next one.
-                guard cut < converted.frameLength, let rest = Self.dropFront(converted, frames: cut) else { return }
-                realign = false
+                guard cut < converted.frameLength else { return }
+                guard let rest = Self.dropFront(converted, frames: cut) else { return }
                 write(rest)
                 return
             }
-            realign = false
             write(converted)
         }
     }

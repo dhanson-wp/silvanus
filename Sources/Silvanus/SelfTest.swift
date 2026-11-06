@@ -1335,8 +1335,8 @@ enum SelfTest {
         let made = Made()
         func fakes(mic mode: FakeCapture.Mode = .tone) {
             recorder.captures = CaptureFactory(
-                mic: { let f = FakeCapture(channels: 1, level: 0.3, mode: mode, chunk: 0.03); made.mic.append(f); return f },
-                system: { let f = FakeCapture(channels: 2, level: 0.5, chunk: 0.01); made.system.append(f); return f })
+                mic: { let f = FakeCapture(channels: 1, level: 0.3, mode: mode, chunk: 0.03, burst: 0); made.mic.append(f); return f },
+                system: { let f = FakeCapture(channels: 2, level: 0.5, chunk: 0.01, burst: 0); made.system.append(f); return f })
         }
         fakes()
         let started = Date()
@@ -2026,16 +2026,19 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
     /// Seconds per buffer after the first half second: devices differ (a microphone near
     /// 85 ms, call audio near 10 ms).
     private let chunk: Double
+    /// Audio delivered at once on start, ahead of the clock (a real device delivers none).
+    private let burst: Double
     private var timer: DispatchSourceTimer?
     private(set) var starts = 0
     var isRunning: Bool { timer != nil }
 
-    init(channels: AVAudioChannelCount, level: Float, mode: Mode = .tone, chunk: Double = 0.1) {
+    init(channels: AVAudioChannelCount, level: Float, mode: Mode = .tone, chunk: Double = 0.1, burst: Double = 0.5) {
         self.channels = channels
         self.level = level
         buffer = nil
         self.mode = mode
         self.chunk = chunk
+        self.burst = burst
     }
 
     /// Feeds a whole buffer (16 kHz mono speech) at once, then nothing.
@@ -2045,6 +2048,7 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         self.buffer = buffer
         mode = .tone
         chunk = 0.1
+        burst = 0.5
     }
 
     func start(into writer: SegmentWriter) throws {
@@ -2055,7 +2059,7 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
             writer.append(buffer)
             return
         }
-        Self.feed(writer, channels: channels, level: level, seconds: 0.5)
+        if burst > 0 { Self.feed(writer, channels: channels, level: level, seconds: burst) }
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "silvanus.fake-capture"))
         timer.schedule(deadline: .now() + chunk, repeating: chunk)
         final class Clock: @unchecked Sendable {
