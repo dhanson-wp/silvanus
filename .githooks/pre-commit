@@ -1,0 +1,3 @@
+#!/bin/bash
+# Blocks commits that would put private data in the public repo.
+exec "$(git rev-parse --show-toplevel)/tools/check-public.sh" --staged
