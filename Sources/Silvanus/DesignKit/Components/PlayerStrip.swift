@@ -114,8 +114,6 @@ struct PlayButton: View {
         }
         .buttonStyle(PlayButtonStyle())
         .disabled(action == nil)
-        // Space plays and pauses while the transcript is on screen.
-        .keyboardShortcut(.space, modifiers: [])
         .help(action == nil ? "No audio for this meeting" : isPlaying ? "Pause" : "Play")
         .accessibilityLabel(isPlaying ? "Pause" : "Play")
     }

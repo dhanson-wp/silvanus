@@ -57,7 +57,9 @@ struct TranscriptView: View {
     @State private var selected: Int?
     @State private var time: TimeInterval = 0
     @State private var player = MeetingPlayer()
-    @State private var canPlay = false
+    /// Set when the tracks failed to open (the strip starts out as playable when there's audio).
+    @State private var loadFailed = false
+    private var canPlay: Bool { audio != nil && !loadFailed }
 
     /// What the page draws, worked out once per transcript, off the view's body. `me` and
     /// `them` name the two sides.
@@ -120,7 +122,16 @@ struct TranscriptView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .gridArea("transcript", inset: 0)
-        .task(id: audio) { canPlay = audio.map { player.load(audio: $0) } ?? false }
+        .task(id: audio) { loadFailed = audio.map { !player.load(audio: $0) } ?? false }
+        // Space plays and pauses while the transcript is on screen.
+        .background {
+            if canPlay, let layout {
+                Button("Play or pause") { togglePlay(in: layout) }
+                    .keyboardShortcut(.space, modifiers: [])
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            }
+        }
         .task(id: player.isPlaying) { await follow() }
         .onDisappear { player.stop() }
     }

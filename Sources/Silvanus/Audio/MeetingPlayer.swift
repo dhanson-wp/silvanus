@@ -37,6 +37,15 @@ final class MeetingPlayer {
     /// Where playback is while paused.
     @ObservationIgnored private var position: TimeInterval = 0
 
+    init() {
+        // An output device change (headphones out, a different default) stops the engine:
+        // pause where it was, so the strip never shows Pause over a frozen time.
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pause() }
+        }
+    }
+
     /// Opens the tracks in `audio`. False when neither file is there.
     @discardableResult
     func load(audio: URL) -> Bool {
