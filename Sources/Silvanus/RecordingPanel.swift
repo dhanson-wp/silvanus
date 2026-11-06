@@ -79,8 +79,8 @@ final class RecordingPanel: BarMover {
         let mode = recorder.mode
         if lastMode == .idle, mode != .idle { isHiddenByUser = false }
         announce(from: lastMode, to: mode)
-        if mode == .recording, recorder.callEndStopAt != nil, lastCallEndStopAt == nil {
-            say(RecordingWords.callEndedNote(seconds: Int(recorder.callEndCountdown.rounded(.up))))
+        if mode == .recording, let stopAt = recorder.callEndStopAt, lastCallEndStopAt == nil {
+            say(RecordingWords.callEndedNote(seconds: CallEndStop.secondsLeft(until: stopAt, at: .now)))
         }
         lastMode = mode
         lastCallAudioDown = recorder.callAudioDown

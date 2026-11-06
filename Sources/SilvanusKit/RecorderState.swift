@@ -194,13 +194,14 @@ public enum RecordingRules {
 }
 
 /// Stop when the call ends (Settings > General): a recording started while a call app was
-/// using the microphone stops on its own once the call is over. The signal is the call app
-/// letting go of the microphone (no call app process using audio input; Silvanus's own
-/// process never counts), never how loud anything is: silence is normal.
+/// using the microphone stops on its own once the call is over. The signal is the call app's
+/// processes letting go of audio: no call app process running input or output (a muted
+/// listener still plays the call; Silvanus's own process never counts), never how loud
+/// anything is: silence is normal.
 ///
-/// After `quietAfter` seconds of no call input while capturing, a `countdown` starts ("Call
+/// After `quietAfter` seconds with neither while capturing, a `countdown` starts ("Call
 /// ended. Stopping in 10 seconds.", with Keep recording); at 0 the recording stops as if Stop
-/// were pressed. Call input coming back cancels it. Keep recording turns it off for this
+/// were pressed. Call input or output coming back cancels it. Keep recording turns it off for this
 /// recording until a new call starts using the microphone. Quick Note and recordings with no
 /// call at the start never stop on their own; nothing counts while paused or with audio lost.
 /// The app's `Recorder` steps it ten times a second with what the call detector last saw.
@@ -242,21 +243,29 @@ public struct CallEndStop: Equatable, Sendable {
 
     /// The whole seconds left on the countdown at `date` (10 … 1), else nil.
     public func secondsLeft(at date: Date) -> Int? {
-        guard let stopAt else { return nil }
-        return max(1, Int(stopAt.timeIntervalSince(date).rounded(.up)))
+        stopAt.map { Self.secondsLeft(until: $0, at: date) }
     }
 
-    /// One step. `callInput` is a call app using audio input now; `capturing` is false while
-    /// paused or with audio lost; `enabled` is the setting. Returns `.stop` once, at 0.
-    public mutating func step(at now: Date, callInput: Bool, capturing: Bool, enabled: Bool) -> Action? {
+    /// The whole seconds left before `stopAt` at `date`, never below 1: what the note shows.
+    public static func secondsLeft(until stopAt: Date, at date: Date) -> Int {
+        max(1, Int(stopAt.timeIntervalSince(date).rounded(.up)))
+    }
+
+    /// One step. `callInput` and `callOutput` are a call app using audio input or output now
+    /// (either keeps the call alive); `capturing` is false while paused or with audio lost;
+    /// `enabled` is the setting. Returns `.stop` once, at 0.
+    public mutating func step(at now: Date, callInput: Bool, callOutput: Bool = false, capturing: Bool,
+                              enabled: Bool) -> Action? {
+        let inCall = callInput || callOutput
         switch phase {
         case .off:
             return nil
         case .kept:
+            // Only a new call using the microphone; the old call may still be playing.
             if callInput { phase = .watching(quietSince: nil) }
             return nil
         case let .watching(quietSince):
-            guard enabled, capturing, !callInput else {
+            guard enabled, capturing, !inCall else {
                 phase = .watching(quietSince: nil)
                 return nil
             }
@@ -266,7 +275,7 @@ public struct CallEndStop: Equatable, Sendable {
                 : .watching(quietSince: since)
             return nil
         case let .countingDown(stopAt):
-            guard enabled, capturing, !callInput else {
+            guard enabled, capturing, !inCall else {
                 phase = .watching(quietSince: nil)
                 return nil
             }

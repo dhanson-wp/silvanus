@@ -194,8 +194,11 @@ extension AppModel {
                                     isEnabled: { [weak self] in self?.promptOnMeeting ?? false })
         detector.meetingStarted = { [weak self] appName in self?.callDetected(appName: appName) }
         detector.meetingEnded = { [weak self] in self?.callEnded() }
-        // A call app using the microphone now: Stop when the call ends watches it.
-        detector.callAppsChanged = { [weak self] running in self?.recorder.callAppRunning = running }
+        // A call app using the microphone, or playing (muted): Stop when the call ends watches them.
+        detector.callAppsChanged = { [weak self] input, output in
+            self?.recorder.callAppRunning = input
+            self?.recorder.callAppPlaying = output
+        }
         return detector
     }
 

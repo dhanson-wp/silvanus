@@ -46,7 +46,8 @@ struct RecorderNotice: Equatable {
 /// margin times) leave the pause out. Resume goes on in the same meeting.
 ///
 /// A recording started during a call stops when the call ends (`CallEndStop`): once no call
-/// app has used the microphone for 15 seconds, the controls count down 10 seconds with Keep
+/// app has used audio input or output for 15 seconds (a muted listener still plays the
+/// call), the controls count down 10 seconds with Keep
 /// recording, then it stops as if Stop were pressed.
 @Observable
 final class Recorder {
@@ -121,6 +122,8 @@ final class Recorder {
     /// Whether a call app is using audio input now (Silvanus's own process never counts). The
     /// call detector sets it every 2 seconds; the samples read it for Stop when the call ends.
     @ObservationIgnored var callAppRunning = false
+    /// Whether a call app is playing audio now: a muted listener is still in the call.
+    @ObservationIgnored var callAppPlaying = false
     /// Whether a call app is using audio input, read once as a recording starts (before our
     /// own microphone opens). The self-test fakes it.
     @ObservationIgnored var callAppProbe: () -> Bool = { CallDetector.Probe.live.callInProgress(recording: false) }
@@ -532,8 +535,8 @@ final class Recorder {
     /// Steps Stop when the call ends with what the call detector last saw; at 0 it stops,
     /// exactly as Stop does.
     private func stepCallEnd(at now: Date) {
-        let action = callEnd.step(at: now, callInput: callAppRunning, capturing: state.isCapturing,
-                                  enabled: stopWhenCallEnds())
+        let action = callEnd.step(at: now, callInput: callAppRunning, callOutput: callAppPlaying,
+                                  capturing: state.isCapturing, enabled: stopWhenCallEnds())
         syncCallEnd()
         if action == .stop {
             print("RECORDER the call ended: stopping")

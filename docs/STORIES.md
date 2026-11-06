@@ -306,13 +306,13 @@ As the user, when I hang up, the recording stops on its own, so I don't have to 
 Screens: recording-controls
 Depends: S-022
 Acceptance:
-- [unit] A recording started while a call app was using the microphone counts down once no call app has used the microphone for 15 seconds; call input coming back cancels; Keep recording holds until a new call starts; no countdown while paused or for Quick Note; at 0 it stops exactly like Stop (`CallEndStop`).
+- [unit] A recording started while a call app was using the microphone counts down once no call app has used audio input or output for 15 seconds (muted, playing only, never counts down); input or output coming back cancels; Keep recording holds until a new call starts; no countdown while paused or for Quick Note; at 0 it stops exactly like Stop (`CallEndStop`).
 - [self] With the fake call probe: the countdown note shows and is announced, Keep recording, Pause, Quick Note, and the setting off never stop, and at 0 the meeting is closed and transcribed.
 - [snap] The note above the bar reads "Call ended. Stopping in 10 seconds." with Keep recording.
 - [manual] On a real Meet or Zoom call, hanging up stops the recording about 25 seconds later; talking alone in the call never warns.
 UX:
-- Signal: a call app's process stops using audio input (Silvanus's own never counts), never how loud anything is. The call app may stay open after hanging up.
-- Words: "Call ended. Stopping in 10 seconds." … "Stopping in 1 second."; button "Keep recording"; Settings > General "Stop when the call ends" (on), "When the call app lets go of the microphone, stop recording after a short countdown."
+- Signal: a call app's processes stop running audio input and output (Silvanus's own never counts), never how loud anything is. The call app may stay open after hanging up. Without the per-app audio list, it waits for the call app to quit.
+- Words: "Call ended. Stopping in 10 seconds." … "Stopping in 1 second."; button "Keep recording"; Settings > General "Stop when the call ends" (on), "When the call app stops using audio, stop recording after a short countdown." and "Needs the Mac's per-app audio list; without it, waits for the call app to quit."
 - Access: the countdown is announced once to VoiceOver; the seconds aren't.
 Status: done
 

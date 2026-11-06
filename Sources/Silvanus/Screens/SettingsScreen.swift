@@ -34,6 +34,10 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         SettingsListItem(id: pane, title: pane.title, icon: pane.icon)
     }
 
+    /// Stop when the call ends: what it does, and a footnote on what it needs.
+    static let stopWhenCallEndsDescription = "When the call app stops using audio, stop recording after a short countdown."
+    static let stopWhenCallEndsFootnote = "Needs the Mac's per-app audio list; without it, waits for the call app to quit."
+
     /// The speech model, shown read-only until there is more than one.
     static let modelName = "Parakeet TDT v2, on this Mac"
 }
@@ -98,7 +102,8 @@ struct SettingsScreen: View {
                                   description: "When a call app starts using the microphone, offer to start recording.",
                                   isOn: $model.promptOnMeeting)
                 SettingRow.toggle("Stop when the call ends",
-                                  description: "When the call app lets go of the microphone, stop recording after a short countdown.",
+                                  description: SettingsPane.stopWhenCallEndsDescription,
+                                  footnote: SettingsPane.stopWhenCallEndsFootnote,
                                   isOn: $model.stopWhenCallEnds)
                 SettingRow.toggle("Open at login", description: "Start Silvanus when you log in.",
                                   isOn: .constant(false), isEnabled: false, help: "Coming soon")

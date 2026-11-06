@@ -1429,9 +1429,11 @@ enum SelfTest {
         let recorder = model.recorder
         recorder.captures = CaptureFactory(mic: { FakeCapture(channels: 1, level: 0.3, mode: .tone) },
                                            system: { FakeCapture(channels: 2, level: 0.5, mode: .tone) })
-        final class Fake { var inCall = false }
+        // `inCall` uses the microphone and plays; `muted` only plays.
+        final class Fake { var inCall = false; var muted = false }
         let fake = Fake()
         let detector = model.makeDetector(probe: .init(callAppsUsingInput: { fake.inCall ? ["us.zoom.xos"] : [] },
+                                                       callAppsUsingOutput: { fake.inCall || fake.muted ? ["us.zoom.xos"] : [] },
                                                        micInUseElsewhere: { fake.inCall },
                                                        runningCallApps: { ["us.zoom.xos"] }))
         let probe = detector.probe
@@ -1455,11 +1457,26 @@ enum SelfTest {
         try? await Task.sleep(for: .milliseconds(700))
         check("while the call app uses the microphone, there's no countdown",
               recorder.isRecording && recorder.callEndStopAt == nil && recorder.callAppAtStart)
+        // Muted: the call app lets go of the microphone but still plays the call.
+        fake.inCall = false
+        fake.muted = true
+        detector.poll()
+        try? await Task.sleep(for: .milliseconds(1_800))
+        check("muted (the call app playing, not using the microphone) never counts down",
+              recorder.isRecording && recorder.callEndStopAt == nil)
+        fake.muted = false
         fake.inCall = false
         detector.poll()
         await poll { recorder.callEndStopAt != nil }
         check("once the call app lets go of the microphone, the controls count down",
               recorder.isRecording && recorder.callEndStopAt != nil)
+        // The note's schedule ticks once a second from the moment it shows: 10, 9, 8.
+        let shown = Date()
+        let tenOut = shown.addingTimeInterval(CallEndStop.countdown)
+        let ticks = RecordingControls.countdownSchedule(stopAt: tenOut).entries(from: shown, mode: .normal)
+            .prefix(3).map { RecordingControls.countdownText(stopAt: tenOut, at: $0) }
+        check("the countdown note ticks 10, 9, 8, a second apart",
+              ticks == [10, 9, 8].map { RecordingWords.callEndedNote(seconds: $0) }, ticks.joined(separator: " | "))
         await poll { model.controls?.lastAnnouncement?.hasPrefix(RecordingWords.callEnded) == true }
         check("…saying \"Call ended. Stopping in 10 seconds.\" in the note above the bar, once to VoiceOver",
               RecordingWords.callEndedNote(seconds: 10) == "Call ended. Stopping in 10 seconds."
@@ -1620,7 +1637,7 @@ enum SelfTest {
                                         runningCallApps: { ["us.zoom.xos"] })
         check("without the process list, the input device running while a call app runs is a call",
               noList.callInProgress(recording: false))
-        let live = CallDetector.liveCallAppsUsingInput()
+        let live = CallDetector.liveCallAppAudio()
         check("Core Audio's process list can be read", live != nil)
         model.recorder.callAppRunning = false
     }

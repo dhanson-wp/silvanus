@@ -123,8 +123,8 @@ struct RecordingControls: View {
                 BarNote(text: note)
             } else if let stopAt = countdown {
                 // The countdown's one-second tick, like the time's, lives in the panel.
-                TimelineView(.periodic(from: stopAt, by: 1)) { context in
-                    BarNote(text: RecordingWords.callEndedNote(seconds: Self.secondsLeft(until: stopAt, at: context.date)),
+                TimelineView(Self.countdownSchedule(stopAt: stopAt)) { context in
+                    BarNote(text: Self.countdownText(stopAt: stopAt, at: context.date),
                             action: (RecordingWords.keepRecording, keepRecording),
                             actionHelp: "Keep recording after the call ends")
                 }
@@ -139,8 +139,15 @@ struct RecordingControls: View {
         if case .recording = status { callEndStopAt } else { nil }
     }
 
-    static func secondsLeft(until stopAt: Date, at date: Date) -> Int {
-        max(1, Int(stopAt.timeIntervalSince(date).rounded(.up)))
+    /// Ticks once a second on the whole seconds before `stopAt`. Anchored in the past (a
+    /// periodic schedule from a future date wouldn't tick until then).
+    static func countdownSchedule(stopAt: Date) -> PeriodicTimelineSchedule {
+        .periodic(from: stopAt.addingTimeInterval(-CallEndStop.countdown), by: 1)
+    }
+
+    /// "Call ended. Stopping in 9 seconds." at `date`.
+    static func countdownText(stopAt: Date, at date: Date) -> String {
+        RecordingWords.callEndedNote(seconds: CallEndStop.secondsLeft(until: stopAt, at: date))
     }
 
     /// The note above the bar: paused, or audio lost.

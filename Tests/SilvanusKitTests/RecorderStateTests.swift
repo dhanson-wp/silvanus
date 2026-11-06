@@ -466,3 +466,74 @@ struct CallEndStopTests {
         #expect(RecordingWords.keepRecording == "Keep recording")
     }
 }
+
+@Suite("Stop when the call ends, muted")
+struct CallEndStopMutedTests {
+    private func step(_ rule: inout CallEndStop, _ t: TimeInterval, input: Bool, output: Bool) -> CallEndStop.Action? {
+        rule.step(at: since.addingTimeInterval(t), callInput: input, callOutput: output, capturing: true, enabled: true)
+    }
+
+    @Test func aMutedListenerNeverCountsDown() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        _ = step(&rule, 0, input: true, output: true)
+        // Muted: the call app lets go of the microphone but still plays the call.
+        for t in 1...3600 {
+            #expect(step(&rule, TimeInterval(t), input: false, output: true) == nil)
+        }
+        #expect(rule.stopAt == nil)
+    }
+
+    @Test func hangingUpWithNeitherCountsDownAndStops() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        _ = step(&rule, 0, input: false, output: true)
+        var stoppedAt: Int?
+        for t in 1...60 where stoppedAt == nil {
+            if step(&rule, TimeInterval(t), input: false, output: false) == .stop { stoppedAt = t }
+        }
+        #expect(stoppedAt == 1 + 15 + 10)
+    }
+
+    @Test func outputComingBackCancels() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        for t in 0...15 { _ = step(&rule, TimeInterval(t), input: false, output: false) }
+        #expect(rule.stopAt != nil)
+        _ = step(&rule, 16, input: false, output: true)
+        #expect(rule.stopAt == nil)
+        #expect(rule.phase == .watching(quietSince: nil))
+    }
+
+    @Test func keptWaitsForTheMicrophoneNotOutput() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        for t in 0...15 { _ = step(&rule, TimeInterval(t), input: false, output: false) }
+        rule.keepRecording()
+        _ = step(&rule, 20, input: false, output: true)
+        #expect(rule.phase == .kept)
+        _ = step(&rule, 21, input: true, output: true)
+        #expect(rule.phase == .watching(quietSince: nil))
+    }
+
+    @Test func theNoteCountsDownOneSecondAtATime() {
+        let stopAt = since.addingTimeInterval(10)
+        let texts = (0..<10).map { RecordingWords.callEndedNote(seconds: CallEndStop.secondsLeft(until: stopAt,
+                                                                   at: since.addingTimeInterval(TimeInterval($0)))) }
+        #expect(texts.prefix(3) == ["Call ended. Stopping in 10 seconds.", "Call ended. Stopping in 9 seconds.",
+                                    "Call ended. Stopping in 8 seconds."])
+        #expect(texts.last == "Call ended. Stopping in 1 second.")
+    }
+}
+
+@Suite("Call apps using output")
+struct CallAppsOutputTests {
+    @Test func outputAndInputComeFromOneRead() {
+        let me: Int32 = 42
+        let processes = [
+            InputProcess(pid: 7, bundleID: "com.google.Chrome.helper", isRunningInput: false, isRunningOutput: true),
+            InputProcess(pid: 8, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true),
+            InputProcess(pid: me, bundleID: "com.apple.FaceTime", isRunningInput: true, isRunningOutput: true),
+            InputProcess(pid: 9, bundleID: "com.apple.Music", isRunningInput: false, isRunningOutput: true),
+        ]
+        let audio = CallApps.audio(processes, ownPID: me)
+        #expect(audio.input == ["us.zoom.xos"])
+        #expect(audio.output == ["com.google.Chrome", "us.zoom.xos"])
+    }
+}
