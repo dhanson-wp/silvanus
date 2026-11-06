@@ -655,30 +655,55 @@ final class MarginTimesView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    override func draw(_ dirtyRect: NSRect) {
+    private static let attributes: [NSAttributedString.Key: Any] = [
+        .font: KitType.nsFont(.monoSmall),
+        .foregroundColor: Ink.appKit(.textSecondary),
+    ]
+
+    /// One timestamp: its text, where it draws, its baseline, and the baseline of the line's
+    /// first row (both in this view's coordinates).
+    struct Stamp {
+        var text: NSString
+        var point: NSPoint
+        var baseline: CGFloat
+        var lineBaseline: CGFloat
+    }
+
+    /// The stamps for the lines that touch `rect`. Each is placed from its line's first text
+    /// line fragment (the layout fragment's origin plus the line's own origin), and aligned by
+    /// baseline, so the line spacing (a fixed shorter line plus `lineSpacing`, which makes the
+    /// typographic height about 21.5 instead of the 24 pt pitch) cannot shift it.
+    func stamps(in rect: NSRect) -> [Stamp] {
         guard let textView, let times = textView.marginTimes, !times.isEmpty,
-              let layout = textView.textLayoutManager else { return }
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: KitType.nsFont(.monoSmall),
-            .foregroundColor: Ink.appKit(.textSecondary),
-        ]
+              let layout = textView.textLayoutManager else { return [] }
+        let font = Self.attributes[.font] as? NSFont ?? KitType.nsFont(.monoSmall)
         let origin = textView.textContainerOrigin
         let right = bounds.maxX - textView.styler.style.leadingInset
         let start = layout.textViewportLayoutController.viewportRange?.location ?? layout.documentRange.location
+        var found: [Stamp] = []
         layout.enumerateTextLayoutFragments(from: start, options: []) { fragment in
             let frame = fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y)
-            if frame.minY > dirtyRect.maxY { return false }
-            guard frame.maxY >= dirtyRect.minY, let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            if frame.minY > rect.maxY { return false }
+            guard frame.maxY >= rect.minY, let paragraph = fragment.textElement as? NSTextParagraph else { return true }
             var line = paragraph.attributedString.string
             if line.hasSuffix("\n") { line.removeLast() }
             guard let time = times.time(for: line) else { return true }
             let text = Clock.text(time) as NSString
-            let size = text.size(withAttributes: attributes)
-            // Level with the first row: centered in its line box.
-            let row = fragment.textLineFragments.first?.typographicBounds ?? CGRect(origin: .zero, size: frame.size)
-            let y = frame.minY + row.minY + (row.height - size.height) / 2
-            text.draw(at: NSPoint(x: right - size.width, y: y), withAttributes: attributes)
+            let size = text.size(withAttributes: Self.attributes)
+            // Level with the first row: the timestamp's baseline sits on the line's baseline.
+            let first = fragment.textLineFragments.first
+            let lineBaseline = frame.minY + (first?.typographicBounds.minY ?? 0) + (first?.glyphOrigin.y ?? frame.height / 2)
+            let y = lineBaseline - font.ascender
+            found.append(Stamp(text: text, point: NSPoint(x: right - size.width, y: y), baseline: y + font.ascender,
+                               lineBaseline: lineBaseline))
             return true
+        }
+        return found
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        for stamp in stamps(in: dirtyRect) {
+            stamp.text.draw(at: stamp.point, withAttributes: Self.attributes)
         }
     }
 }

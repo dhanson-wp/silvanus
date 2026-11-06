@@ -274,6 +274,7 @@ struct EditorChecks {
         trashing()
         closingKeepsUnsaved()
         lineEndings()
+        marginTimestamps()
         try? FileManager.default.removeItem(at: CheckStore.root)
         print(failures == 0 ? "EDITOR CHECK PASS \(count) checks" : "EDITOR CHECK FAIL \(failures) of \(count) checks")
         return failures == 0 ? 0 : 1
@@ -975,6 +976,41 @@ struct EditorChecks {
     }
 
     // MARK: Line endings
+
+    // MARK: Margin timestamps
+
+    /// Each timestamp sits on its line's first baseline (within 1 pt) and the stamps keep the 24 pt
+    /// pitch, even though the line spacing makes a line's typographic height about 21.5.
+    private mutating func marginTimestamps() {
+        let lines = ["First note", "Second note", "Third note"]
+        let (window, view, _) = EditorSpike.offscreenEditor(lines.joined(separator: "\n"))
+        var times = NoteTimes()
+        for (i, line) in lines.enumerated() { times = NoteTimes(byHash: times.byHash.merging([NoteTimes.hash(line): Double(i * 30)]) { $0 + $1 }) }
+        view.marginTimes = times
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        guard let tlm = view.textLayoutManager, let margin = view.subviews.compactMap({ $0 as? MarginTimesView }).first else {
+            check("margin timestamps are drawn", false, "no margin view")
+            window.orderOut(nil)
+            return
+        }
+        tlm.ensureLayout(for: tlm.documentRange)
+        var baselines: [CGFloat] = []
+        var heights: [CGFloat] = []
+        tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: []) { fragment in
+            if let first = fragment.textLineFragments.first {
+                baselines.append(fragment.layoutFragmentFrame.minY + view.textContainerOrigin.y + first.typographicBounds.minY + first.glyphOrigin.y)
+                heights.append(first.typographicBounds.height)
+            }
+            return true
+        }
+        let stamps = margin.stamps(in: margin.bounds)
+        check("every timed line gets a timestamp", stamps.count == lines.count && baselines.count == lines.count, "\(stamps.count) \(baselines.count)")
+        let off = zip(stamps, baselines).map { abs($0.baseline - $1) }
+        check("timestamps align with their lines' first baseline within 1 pt", !off.isEmpty && off.allSatisfy { $0 <= 1 }, "\(off)")
+        let pitch = stamps.count > 1 ? stamps[1].baseline - stamps[0].baseline : 0
+        check("timestamps keep the 24 pt line pitch", abs(pitch - 24) <= 1, "\(pitch) (typographic heights \(heights))")
+        window.orderOut(nil)
+    }
 
     private mutating func lineEndings() {
         let root = CheckStore.root.appending(path: "line-endings")
