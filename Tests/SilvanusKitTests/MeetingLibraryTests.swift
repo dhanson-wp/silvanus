@@ -182,6 +182,20 @@ private func names(_ folder: URL) -> [String] {
     #expect(!FileManager.default.fileExists(atPath: folder.path))
     #expect(lib.folderURL(for: m.id) == nil)
     #expect(library(root).loadAll().meetings.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: folder.deletingLastPathComponent().path))
+}
+
+@Test func trashKeepsSeriesWithOtherMeetings() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let lib = library(root)
+    let a = kickoff(id: "a")
+    let b = kickoff(id: "b", at: start.addingTimeInterval(86_400))
+    let folderA = try lib.save(a)
+    let folderB = try lib.save(b)
+    try lib.moveToTrash(a.id)
+    #expect(!FileManager.default.fileExists(atPath: folderA.path))
+    #expect(FileManager.default.fileExists(atPath: folderB.path))
+    #expect(FileManager.default.fileExists(atPath: folderA.deletingLastPathComponent().path))
 }
 
 @Test func trashingAnUnknownIdDoesNothing() throws {
