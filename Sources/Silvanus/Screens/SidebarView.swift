@@ -24,16 +24,18 @@ struct SidebarView: View {
     private static let visibleFolderRows = 6
 
     /// Nothing is starred yet: starring arrives with the meeting type.
-    private var meetings: [Meeting] {
-        page == .starred ? [] : model.visibleMeetings
+    private var groups: [DayGroup] {
+        page == .starred ? [] : model.dayGroups
     }
 
     var body: some View {
         VStack(spacing: 0) {
             SidebarAccentRule()
-            // Regroups at each midnight, so "Today" turns into "Yesterday" on time.
+            // Moves the model's clock at each midnight, so "Today" turns into "Yesterday" on
+            // time. The model regroups; the view only reads its cached days.
             TimelineView(MidnightSchedule()) { context in
-                meetingList(DayGroups.group(meetings, now: context.date, calendar: .current))
+                meetingList(groups)
+                    .onChange(of: context.date, initial: true) { _, date in model.now = date }
             }
             if !model.folders.isEmpty {
                 foldersSection
@@ -58,12 +60,12 @@ struct SidebarView: View {
 
     // MARK: - Meetings
 
-    private func meetingList(_ groups: [(title: String, meetings: [Meeting])]) -> some View {
-        let order = groups.flatMap(\.meetings).map(\.id)
+    private func meetingList(_ groups: [DayGroup]) -> some View {
+        let order = page == .starred ? [] : model.sidebarOrder
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(groups, id: \.title) { group in
+                    ForEach(groups, id: \.day) { group in
                         SidebarDayHeading(group.title)
                         ForEach(group.meetings) { meeting in
                             meetingRow(meeting).id(meeting.id)

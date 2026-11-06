@@ -1,5 +1,6 @@
 import AppKit
 import SilvanusKit
+import SwiftUI
 
 /// Self-test for agents: runs the app's real functions on a test folder,
 /// prints PASS or FAIL per check, and quits with exit code 0 or 1.
@@ -63,6 +64,34 @@ enum SelfTest {
             for meeting in filed { try? model.library.moveToTrash(meeting.id) }
             model.reload()
             check("a folder with no meetings left stops filtering the list", model.folder == nil && model.folders.isEmpty)
+
+            // The sidebar groups once per change to the meetings or folder, never per selection.
+            let many = (0..<300).map { index in
+                Meeting(info: MeetingInfo(id: "many-\(index)", title: "Weekly sync \(index)",
+                                          start: Date().addingTimeInterval(-Double(index) * 7_200),
+                                          folder: index.isMultiple(of: 3) ? "Team" : nil))
+            }
+            let before = model.regroupCount
+            model.meetings = many
+            let afterLoad = model.regroupCount
+            for id in model.sidebarOrder.prefix(50) { model.selection = id }
+            let afterArrows = model.regroupCount
+            model.folder = "Team"
+            let afterFolder = model.regroupCount
+            check("300 meetings group once per data change, not per selection change",
+                  afterLoad - before == 1 && afterArrows == afterLoad && afterFolder - afterArrows == 1
+                  && model.sidebarOrder.count == 100,
+                  "load \(afterLoad - before), 50 selections \(afterArrows - afterLoad), folder \(afterFolder - afterArrows)")
+            model.folder = nil
+            model.selection = nil
+            model.reload()
+
+            // Review Focus 3: a selected row's fill dims when the window is inactive.
+            let active = selectionFill(appearsActive: true)
+            let inactive = selectionFill(appearsActive: false)
+            check("the selected row's fill dims when the window is inactive",
+                  active != nil && inactive != nil && active != inactive,
+                  "active \(active ?? "none"), inactive \(inactive ?? "none")")
 
             let saved = UserDefaults.standard.string(forKey: "settings.tab")
             model.settingsTab = .appearance
@@ -171,6 +200,24 @@ enum SelfTest {
         }
         try? await Task.sleep(for: .seconds(0.3))
         check("⌃⌘S again shows the sidebar", model.sidebarVisible)
+    }
+
+    /// The color of a selected sidebar row's pill, away from its text, drawn on the sidebar.
+    private static func selectionFill(appearsActive: Bool) -> String? {
+        let row = Button {} label: { SidebarMeetingRow(title: "Acme kickoff", time: "9:30 AM") }
+            .buttonStyle(SidebarRowStyle(isSelected: true))
+            .frame(width: Metric.sidebarWidth)
+            .background(Ink.sidebar)
+            .environment(\.appearsActive, appearsActive)
+            .environment(\.colorScheme, .light)
+        let renderer = ImageRenderer(content: row)
+        renderer.scale = 1
+        guard let image = renderer.cgImage else { return nil }
+        let rep = NSBitmapImageRep(cgImage: image)
+        guard let color = rep.colorAt(x: Int(Metric.sidebarWidth) - 12, y: Int(Metric.meetingRowPitch) / 2)?
+                .usingColorSpace(.sRGB) else { return nil }
+        return String(format: "#%02X%02X%02X", Int(color.redComponent * 255), Int(color.greenComponent * 255),
+                      Int(color.blueComponent * 255))
     }
 
     /// Which header click target AppKit hits at a point measured from the window's top left:

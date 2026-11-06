@@ -47,6 +47,8 @@ struct SidebarMeetingRow: View {
                 .lineLimit(1)
                 .capTop(titleCapTop + Metric.meetingTimeBelowTitle, .monoTime)
         }
-        .accessibilityElement(children: .combine)
+        // One label in reading order; the folder icon is already hidden (KitIconView).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([title, folder, time].compactMap { $0 }.joined(separator: ", "))
     }
 }

@@ -117,3 +117,18 @@ private func ids(_ groups: [(title: String, meetings: [Meeting])]) -> [[String]]
     #expect(SidebarSelection.step(ids, from: "gone", by: -1) == "c")
     #expect(SidebarSelection.step([], from: "a", by: 1) == nil)
 }
+
+@Test func headingsFollowTheCalendarsLocale() {
+    var paris = calendar("Europe/Paris")
+    paris.locale = Locale(identifier: "fr_FR")
+    let groups = DayGroups.group([
+        meeting("tue", at(2026, 11, 3, in: paris)),
+        meeting("old", at(2026, 10, 12, in: paris)),
+    ], now: at(2026, 11, 6, 12, in: paris), calendar: paris)
+    #expect(titles(groups) == ["mardi", "lun. 12 oct."])
+}
+
+@Test func daysCarryTheirStartAsAnID() {
+    let days = DayGroups.days([meeting("a", at(2026, 11, 6, 9)), meeting("b", at(2026, 11, 5, 9))], now: now, calendar: utc)
+    #expect(days.map(\.day) == [at(2026, 11, 6, 0), at(2026, 11, 5, 0)])
+}

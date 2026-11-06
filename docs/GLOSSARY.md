@@ -27,4 +27,8 @@ Every word Silvanus puts on screen. One name per idea.
 | Microphone access / System audio access | The two macOS permissions Silvanus needs | Mic permission, Screen Recording |
 | Folder | A group of meetings the user makes | Project, Space, Tag |
 | All meetings | The sidebar's list with no folder chosen: every meeting | All Notes, Everything, Inbox |
+| Folders | The sidebar section that lists every folder, under the meetings | Collections, Groups |
+| Today / Yesterday | Sidebar day headings; older days show the weekday, then the date ("Mon, Nov 2") | Recent, Earlier |
+| No meetings yet | The sidebar when there are no meetings at all | Empty, Nothing here |
+| No meetings in this folder | The sidebar when the chosen folder holds no meetings | Folder is empty |
 | Move to Trash | Remove a meeting so it can be restored from the Trash | Delete (unless it can't come back) |
