@@ -131,6 +131,7 @@ enum SelfTest {
             await checkSettings(model: model)
             await checkNotesAcrossViews(model: model)
             await checkTranscript(model: model)
+            await checkPlayback()
             await checkSummary(model: model)
             checkAudio()
             await checkMicRestarts()
@@ -709,6 +710,65 @@ enum SelfTest {
         try? model.library.moveToTrash(recorded.id)
         try? model.library.moveToTrash(plain.id)
         model.reload()
+    }
+
+    /// Playback of two short `say` tracks in a /tmp meeting: both tracks load, a seek lands
+    /// where it was asked, the highlighted word follows the engine's player time, pause holds
+    /// still, and the end stops it. Muted, and about four seconds.
+    private static func checkPlayback() async {
+        let dir = Store.root.appending(path: "playback-\(UUID().uuidString.prefix(6))")
+        let audio = dir.appending(path: MeetingFolder.audio)
+        try? FileManager.default.createDirectory(at: audio, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func speech(_ text: String, _ name: String) {
+            let say = Process()
+            say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            say.arguments = ["-o", audio.appending(path: "\(name).caf").path, "--data-format=LEF32@16000", text]
+            try? say.run()
+            say.waitUntilExit()
+        }
+        speech("Thanks everyone, I will send the revised plan tomorrow morning, and then we can all go home.", "mic")
+        speech("Priya will share the launch checklist before the next meeting.", "system")
+        let player = MeetingPlayer()
+        player.volume = 0
+        check("two tracks load for playback", player.load(audio: audio) && player.duration > 2, "duration \(player.duration)")
+        let none = MeetingPlayer()
+        check("a meeting folder with no tracks has no audio", !none.load(audio: dir) && !none.hasAudio)
+
+        // Words every half second over the audio's length, so a time maps to a known word.
+        let words = (0..<Int(player.duration * 2)).map {
+            Word(text: "w\($0)", start: Double($0) * 0.5, end: Double($0) * 0.5 + 0.4)
+        }
+        player.play(from: 1)
+        let first = TranscriptLayout.wordIndex(at: player.currentTime, in: words)
+        try? await Task.sleep(for: .seconds(1.2))
+        let t1 = player.currentTime
+        let followed = TranscriptLayout.wordIndex(at: t1, in: words)
+        check("playing moves with the engine's player time, from where it was asked",
+              player.isPlaying && t1 > 1.8 && t1 < 2.8, "time \(t1)")
+        check("the highlighted word follows playback", (followed ?? 0) > (first ?? 0) && followed == Int(t1 / 0.5),
+              "word \(first ?? -1) then \(followed ?? -1) at \(t1)")
+
+        player.seek(to: 0.5)
+        try? await Task.sleep(for: .milliseconds(300))
+        let t2 = player.currentTime
+        check("a seek while playing reschedules from the target", player.isPlaying && t2 >= 0.5 && t2 < 1.3, "time \(t2)")
+        player.pause()
+        let held = player.currentTime
+        try? await Task.sleep(for: .milliseconds(300))
+        check("pause holds the position", !player.isPlaying && player.currentTime == held && held >= 0.5, "time \(held)")
+        player.seek(to: 1.5)
+        check("a seek while paused only moves", !player.isPlaying && player.currentTime == 1.5)
+        player.resume()
+        try? await Task.sleep(for: .milliseconds(300))
+        check("resume plays from the moved position", player.isPlaying && player.currentTime >= 1.5 && player.currentTime < 2.3,
+              "time \(player.currentTime)")
+
+        player.play(from: player.duration - 0.3)
+        await poll(timeout: 2) { _ = player.currentTime; return !player.isPlaying }
+        check("reaching the end stops playback at the end", !player.isPlaying && player.currentTime == player.duration,
+              "time \(player.currentTime) of \(player.duration)")
+        player.stop()
     }
 
     /// The Summary page: summary.md read back through the library, shown read-only in the

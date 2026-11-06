@@ -23,21 +23,22 @@ extension Metric {
 /// ("00:00 / 00:55"), and a waveform of 2 pt bars, 3 apart (unplayed `divider`, played
 /// `accent`, a 2 pt `text` playhead).
 ///
-/// Until audio is wired, `levels` are the transcript's speech levels (TranscriptLayout.activity)
-/// and a nil `play` draws the play button disabled. A click on the waveform calls `seek`
-/// with that time.
+/// `levels` are the transcript's speech levels (TranscriptLayout.activity). A nil `play`
+/// draws the play button disabled (a meeting with no audio); `isPlaying` shows pause. A
+/// click on the waveform calls `seek` with that time.
 struct PlayerStrip: View {
     var time: TimeInterval
     var duration: TimeInterval
     /// Heights from 0 to 1, spread over the waveform's width.
     var levels: [Double]
     var play: (() -> Void)?
+    var isPlaying = false
     var seek: ((TimeInterval) -> Void)?
 
     var body: some View {
         let shape = Capsule()
         HStack(spacing: Metric.playerGap) {
-            PlayButton(action: play)
+            PlayButton(action: play, isPlaying: isPlaying)
             Text("\(Clock.text(time)) / \(Clock.text(duration))")
                 .kitType(.monoSmall)
                 .foregroundStyle(Ink.textSecondary)
@@ -103,17 +104,20 @@ private struct Waveform: View {
 /// at 9. States as the icon button's (IconButton), plus the border.
 struct PlayButton: View {
     var action: (() -> Void)?
+    var isPlaying = false
 
     var body: some View {
         Button {
             action?()
         } label: {
-            KitIconView(.play)
+            KitIconView(isPlaying ? .pause : .play)
         }
         .buttonStyle(PlayButtonStyle())
         .disabled(action == nil)
-        .help(action == nil ? "Playback comes with recording" : "Play")
-        .accessibilityLabel("Play")
+        // Space plays and pauses while the transcript is on screen.
+        .keyboardShortcut(.space, modifiers: [])
+        .help(action == nil ? "No audio for this meeting" : isPlaying ? "Pause" : "Play")
+        .accessibilityLabel(isPlaying ? "Pause" : "Play")
     }
 }
 
