@@ -94,6 +94,16 @@ enum SelfTest {
         let placed = centers.count == 3 && zip(centers, expected).allSatisfy { abs($0.x - $1.x) <= 1 && abs($0.y - $1.y) <= 1 }
         check("the traffic lights sit within 1 pt of KIT.md's centers", placed, "\(centers)")
 
+        // Double-clicking the header follows the Desktop & Dock setting, without changing it.
+        let choices = [("Maximize", "zoom"), ("Minimize", "minimize"), ("None", "none"), (nil, "zoom")]
+        let wrong = choices.compactMap { setting, expected -> String? in
+            var called = "none"
+            TitleBarDoubleClick.handle(setting: setting, zoom: { called = "zoom" }, minimize: { called = "minimize" })
+            return called == expected ? nil : "\(setting ?? "unset") did \(called)"
+        }
+        check("double-clicking the header zooms, minimizes, or does nothing per the setting",
+              wrong.isEmpty, wrong.joined(separator: ", "))
+
         let item = menuItem(key: "s", modifiers: [.control, .command], in: NSApp.mainMenu)
         check("View has Hide Sidebar on ⌃⌘S", item?.title == "Hide Sidebar", item?.title ?? "missing")
         guard let item, let menu = item.menu else { return }

@@ -47,6 +47,7 @@ struct WindowChrome: NSViewRepresentable {
     final class ChromeView: NSView {
         var titlebarHeight: (CGFloat) -> Void = { _ in }
         private var observers: [NSObjectProtocol] = []
+        private var reportedTitlebar: CGFloat?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -76,11 +77,7 @@ struct WindowChrome: NSViewRepresentable {
             }
             placeButtons()
             // AppKit lays the title bar out once more after the window first shows.
-            DispatchQueue.main.async { [weak self] in
-                guard let self, let window = self.window else { return }
-                placeButtons()
-                titlebarHeight(window.frame.height - window.contentLayoutRect.height)
-            }
+            DispatchQueue.main.async { [weak self] in self?.placeButtons() }
         }
 
         override func viewDidChangeEffectiveAppearance() {
@@ -92,6 +89,14 @@ struct WindowChrome: NSViewRepresentable {
         /// window's top left. Leaves full screen alone: there the buttons live in the menu bar.
         private func placeButtons() {
             guard let window, !window.styleMask.contains(.fullScreen) else { return }
+            // The title bar's height can change after full screen; report it when it does.
+            let titlebar = window.frame.height - window.contentLayoutRect.height
+            if titlebar != reportedTitlebar {
+                reportedTitlebar = titlebar
+                // Later, never inside a SwiftUI update: the callback sets view state.
+                let report = titlebarHeight
+                DispatchQueue.main.async { report(titlebar) }
+            }
             let height = window.frame.height
             for (index, button) in Self.buttons(of: window).enumerated() {
                 guard let container = button.superview else { continue }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The window's frame, from design/KIT.md "Window": a 208 pt sidebar on `Ink.sidebar`, a
@@ -47,6 +48,9 @@ struct PaneLayout<WindowHeader: View, Sidebar: View, Header: View, Canvas: View>
                 .background(alignment: .top) { WindowDragArea() }
                 .frame(width: sidebarWidth, alignment: .leading)
                 .clipped()
+                // Hidden, the sidebar takes no clicks and no keyboard focus.
+                .allowsHitTesting(sidebarVisible)
+                .disabled(!sidebarVisible)
                 .accessibilityHidden(!sidebarVisible)
             VStack(spacing: 0) {
                 header
@@ -120,14 +124,64 @@ private struct CanvasEdge: Shape {
     }
 }
 
-/// The header's empty space moves the window, as a title bar would. Sits behind the
-/// header's controls, so it only gets the clicks they don't take.
+/// The header's empty space acts like a title bar: drag to move the window, double-click to
+/// zoom or minimize it as System Settings > Desktop & Dock says. It sits behind the header's
+/// controls, so it only gets the clicks they don't take. An AppKit view rather than SwiftUI
+/// gestures, so a drag and a double click never compete.
 private struct WindowDragArea: View {
     var body: some View {
-        Color.clear
+        HeaderClickView()
             .frame(height: Metric.headerHeight)
-            .contentShape(Rectangle())
-            .gesture(WindowDragGesture())
-            .allowsWindowActivationEvents(true)
+    }
+}
+
+private struct HeaderClickView: NSViewRepresentable {
+    func makeNSView(context: Context) -> ClickView { ClickView() }
+
+    func updateNSView(_ view: ClickView, context: Context) {}
+
+    final class ClickView: NSView {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            if event.clickCount == 2 {
+                TitleBarDoubleClick.perform(on: window)
+            } else {
+                window.performDrag(with: event)
+            }
+        }
+    }
+}
+
+/// What double-clicking a title bar does, from the person's setting (System Settings >
+/// Desktop & Dock > "Double-click a window's title bar to"). Unset means zoom, as macOS does.
+enum TitleBarDoubleClick: Equatable {
+    case zoom, minimize, none
+
+    static let defaultsKey = "AppleActionOnDoubleClick"
+
+    init(setting: String?) {
+        switch setting {
+        case "Minimize": self = .minimize
+        case "None": self = .none
+        default: self = .zoom
+        }
+    }
+
+    /// Runs the person's choice: `zoom` or `minimize` is called, or neither. The self-test
+    /// passes its own closures; `perform(on:)` passes the window's.
+    static func handle(setting: String?, zoom: () -> Void, minimize: () -> Void) {
+        switch TitleBarDoubleClick(setting: setting) {
+        case .zoom: zoom()
+        case .minimize: minimize()
+        case .none: break
+        }
+    }
+
+    static func perform(on window: NSWindow) {
+        handle(setting: UserDefaults.standard.string(forKey: defaultsKey),
+               zoom: { window.performZoom(nil) },
+               minimize: { window.performMiniaturize(nil) })
     }
 }
