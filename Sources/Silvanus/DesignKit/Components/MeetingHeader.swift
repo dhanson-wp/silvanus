@@ -19,7 +19,10 @@ extension Metric {
 /// text at x 221 (`Metric.contentX`) when the canvas starts at x 209.
 ///
 /// Click the title (or Tab to it and press Space) to rename the meeting; Return keeps the
-/// new title, Escape puts the old one back, and clicking away keeps it.
+/// new title, Escape puts the old one back, and clicking away keeps it. An empty title puts
+/// the old one back. Changing a request counter (`renameRequest`, `attendeesRequest`,
+/// `newFolderRequest`) does what its menu item asks: Meeting > Rename Meeting…, Show
+/// Attendees, and Move to Folder > New Folder….
 struct MeetingHeader: View {
     let title: String
     let date: Date
@@ -29,6 +32,9 @@ struct MeetingHeader: View {
     var folders: [String] = []
     var rename: (String) -> Void = { _ in }
     var chooseFolder: (String?) -> Void = { _ in }
+    var renameRequest = 0
+    var attendeesRequest = 0
+    var newFolderRequest = 0
 
     @State private var editing = false
     @State private var draft = ""
@@ -51,14 +57,25 @@ struct MeetingHeader: View {
             titleView
                 .capTop(Metric.headerTitleCapTop, .title)
             HStack(spacing: Metric.chipSpacing) {
-                DateChip(date: Self.dateText(date), attendees: attendees)
+                DateChip(date: Self.dateText(date), attendees: attendees, showRequest: attendeesRequest)
                     .fixedSize()
-                FolderChip(folder: folder, folders: folders, choose: chooseFolder)
+                FolderChip(folder: folder, folders: folders, newFolderRequest: newFolderRequest, choose: chooseFolder)
                     .layoutPriority(-1)
             }
             .padding(.top, Self.chipRowTop)
         }
         .padding(.horizontal, Metric.contentX - Metric.canvasX)
+        .onChange(of: renameRequest) { startEditing() }
+    }
+
+    private func startEditing() {
+        draft = title
+        editing = true
+    }
+
+    private func cancel() {
+        draft = title
+        editing = false
     }
 
     @ViewBuilder private var titleView: some View {
@@ -70,17 +87,14 @@ struct MeetingHeader: View {
                 .lineLimit(1)
                 .focused($fieldFocused)
                 .onSubmit(commit)
-                .onExitCommand { editing = false }
+                .onExitCommand(perform: cancel)
                 .onChange(of: fieldFocused) { _, focused in
                     if !focused && editing { commit() }
                 }
                 .onAppear { fieldFocused = true }
                 .accessibilityLabel("Meeting title")
         } else {
-            Button {
-                draft = title
-                editing = true
-            } label: {
+            Button(action: startEditing) {
                 Text(title)
                     .kitType(.title)
                     .lineLimit(1)
@@ -96,7 +110,12 @@ struct MeetingHeader: View {
     private func commit() {
         editing = false
         let cleaned = draft.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        if cleaned != title { rename(cleaned) }
+        // An empty title puts the old one back and saves nothing.
+        if cleaned.isEmpty || cleaned == title {
+            draft = title
+            return
+        }
+        rename(cleaned)
     }
 
     /// "Nov 6", with the year when it isn't this year's.

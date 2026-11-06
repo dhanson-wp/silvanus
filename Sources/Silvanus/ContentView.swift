@@ -2,7 +2,7 @@ import SilvanusKit
 import SwiftUI
 
 /// The main window: the kit's frame (DesignKit/Window), with the sidebar (Screens/SidebarView),
-/// the canvas header (view pill, folder chip, Quick Note, Start Recording), and the open
+/// the canvas header (view pill, Quick Note, Start Recording, More), and the open
 /// meeting's page (Screens/MeetingPage).
 struct ContentView: View {
     @Environment(AppModel.self) private var model
@@ -20,12 +20,9 @@ struct ContentView: View {
         } header: {
             CanvasHeader(mode: $model.canvasMode,
                          hasMeeting: meeting != nil,
-                         folder: meeting?.info.folder,
-                         folders: model.folders.map(\.name),
                          isRecording: model.isRecording,
-                         chooseFolder: { name in if let id = meeting?.id { model.setFolder(id, to: name) } },
-                         startRecording: model.startRecording,
-                         quickNote: model.quickNote)
+                         startRecording: recordAction(model.startRecording),
+                         quickNote: recordAction(model.quickNote))
         } canvas: {
             MeetingPage(meeting: meeting)
         }
@@ -33,5 +30,10 @@ struct ContentView: View {
             SelfTest.runIfRequested(model: model)
             Snapshot.runIfRequested(model: model, openSettings: openSettings)
         }
+    }
+
+    /// A recording action, or nil (the control shows disabled) until recording is wired in.
+    private func recordAction(_ action: @escaping () -> Void) -> (() -> Void)? {
+        model.canRecord ? action : nil
     }
 }

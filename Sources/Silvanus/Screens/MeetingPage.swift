@@ -37,7 +37,9 @@ struct MeetingPage: View {
             MeetingHeader(title: meeting.displayTitle, date: meeting.info.start, attendees: meeting.info.attendees,
                           folder: meeting.info.folder, folders: model.folders.map(\.name),
                           rename: { model.rename(meeting.id, to: $0) },
-                          chooseFolder: { model.setFolder(meeting.id, to: $0) })
+                          chooseFolder: { model.setFolder(meeting.id, to: $0) },
+                          renameRequest: model.renameRequest, attendeesRequest: model.attendeesRequest,
+                          newFolderRequest: model.newFolderRequest)
             body()
             Spacer(minLength: 0)
         }

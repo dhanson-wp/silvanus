@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// KIT.md "Meeting header" and "Canvas header": the chips' measures.
+/// KIT.md "Meeting header": the chips' measures.
 extension Metric {
     /// Chips are 28 tall and fully rounded, with a 0.5 pt divider border.
     static let chipBorder: CGFloat = 0.5
@@ -13,37 +13,31 @@ extension Metric {
     static let dateChipIconGap: CGFloat = 5.5
     static let dateChipAttendeesGap: CGFloat = 8
     static let dateChipCountGap: CGFloat = 4.5
-    /// Folder chip in the meeting header: padding 10.5, 6.5 from the icon to the name.
+    /// Folder chip: padding 10.5, 6.5 from the icon to the name.
     static let folderChipPadding: CGFloat = 10.5
     static let folderChipIconGap: CGFloat = 6.5
-    /// Folder chip in the canvas header: no border, 5.5 from its 15 pt icon to the name.
-    static let headerFolderIconGap: CGFloat = 5.5
 }
 
-/// A chip: a real button with KIT.md "Meeting header"'s states.
+/// A meeting header chip: a real button, 28 tall, fully rounded, with a 0.5 pt divider
+/// border and KIT.md "Meeting header"'s states. Chips sit on the canvas, so hover uses
+/// `controlHover` (`selection` matches the canvas).
 ///
 /// | State | Fill | Text |
 /// | rest | none | textSecondary |
-/// | hover | selection | text |
-/// | pressed | selection at 80% | text |
+/// | hover | controlHover | text |
+/// | pressed | controlHover at 80% | text |
 /// | focused | 2 pt focus ring | text |
 /// | disabled | none | textSecondary at 40% |
 ///
-/// `.bordered` is the meeting header's chip (fully rounded, 0.5 pt divider border);
-/// `.plain` is the canvas header's folder chip (no border, corner 7 like an icon button).
 /// Put the padding in the label: the chips differ. The gallery forces a state with
 /// `forcedPartState`.
 struct ChipButtonStyle: ButtonStyle {
-    enum Kind { case bordered, plain }
-    var kind: Kind = .bordered
-
     func makeBody(configuration: Configuration) -> some View {
-        Content(configuration: configuration, kind: kind)
+        Content(configuration: configuration)
     }
 
     private struct Content: View {
         let configuration: Configuration
-        let kind: Kind
         @Environment(\.forcedPartState) private var forced
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.isFocused) private var isFocused
@@ -56,19 +50,16 @@ struct ChipButtonStyle: ButtonStyle {
 
         private var fill: Color {
             switch state {
-            case .hover: Ink.selection
-            case .pressed: Ink.selection.opacity(0.8)
+            case .hover: Ink.controlHover
+            case .pressed: Ink.controlHover.opacity(0.8)
             default: .clear
             }
         }
 
         private var ringed: Bool { state == .focused || (isFocused && state != .disabled) }
 
-        private var shape: AnyShape {
-            kind == .bordered ? AnyShape(Capsule()) : AnyShape(RoundedRectangle(cornerRadius: Metric.iconButtonCorner))
-        }
-
         var body: some View {
+            let shape = Capsule()
             configuration.label
                 .foregroundStyle([.hover, .pressed, .focused].contains(state) ? Ink.text : Ink.textSecondary)
                 .opacity(state == .disabled ? 0.4 : 1)
@@ -76,9 +67,9 @@ struct ChipButtonStyle: ButtonStyle {
                 .background(fill, in: shape)
                 .overlay {
                     if ringed {
-                        shape.stroke(Ink.focus, lineWidth: Metric.focusRing)
-                    } else if kind == .bordered {
-                        Capsule().strokeBorder(Ink.divider, lineWidth: Metric.chipBorder)
+                        shape.strokeBorder(Ink.focus, lineWidth: Metric.focusRing)
+                    } else {
+                        shape.strokeBorder(Ink.divider, lineWidth: Metric.chipBorder)
                     }
                 }
                 .contentShape(shape)
@@ -90,8 +81,8 @@ struct ChipButtonStyle: ButtonStyle {
     }
 }
 
-/// The meeting header's date chip label: calendar icon, the date, then the attendees icon and
-/// their count. With no attendees it shows the date alone.
+/// The date chip's label: calendar icon, the date, then the attendees icon and their count.
+/// With no attendees it shows the date alone.
 struct DateChipLabel: View {
     let date: String
     let attendees: Int
@@ -120,77 +111,90 @@ struct DateChipLabel: View {
     }
 }
 
-/// A folder chip's label. `.bordered` (meeting header): 13 pt folder icon, 6.5 gap, the name,
-/// padding 10.5; with no folder it reads "Add to folder". `.plain` (canvas header): 15 pt icon,
-/// 5.5 gap, the name; with no folder the icon alone. The name truncates with an ellipsis.
+/// The folder chip's label: 13 pt folder icon, 6.5 gap, the name, padding 10.5. With no
+/// folder it reads "Add to folder". The name truncates with an ellipsis.
 struct FolderChipLabel: View {
     let folder: String?
-    var kind: ChipButtonStyle.Kind = .bordered
 
     var body: some View {
-        HStack(spacing: kind == .bordered ? Metric.folderChipIconGap : Metric.headerFolderIconGap) {
-            KitIconView(kind == .bordered ? .folderChip : .folderHeader)
-            if let text = folder ?? (kind == .bordered ? "Add to folder" : nil) {
-                Text(text)
-                    .kitType(.chip)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+        HStack(spacing: Metric.folderChipIconGap) {
+            KitIconView(.folderChip)
+            Text(folder ?? "Add to folder")
+                .kitType(.chip)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
-        .padding(.horizontal, kind == .bordered ? Metric.folderChipPadding : (Metric.iconButton - KitIcon.folderHeader.size) / 2)
+        .padding(.horizontal, Metric.folderChipPadding)
     }
 }
 
-/// A folder chip that opens the folder menu: each folder (the current one checked), Remove
-/// from Folder, and New Folder…, which asks for a name. `choose` gets the new folder, or nil
-/// to take the meeting out of its folder.
+/// The folder menu's items, shared by the folder chip and Meeting > Move to Folder: each
+/// folder (the current one checked), None, and New Folder…. `choose` gets the folder, or nil
+/// for None.
+struct FolderMenuItems: View {
+    let folder: String?
+    let folders: [String]
+    let choose: (String?) -> Void
+    let newFolder: () -> Void
+
+    var body: some View {
+        ForEach(folders, id: \.self) { name in
+            Toggle(name, isOn: Binding(get: { folder == name }, set: { if $0 { choose(name) } }))
+        }
+        Toggle("None", isOn: Binding(get: { folder == nil }, set: { if $0 { choose(nil) } }))
+        Divider()
+        Button("New Folder…", action: newFolder)
+    }
+}
+
+/// The folder chip, the one place a meeting's folder is set on screen: it opens the folder
+/// menu (`FolderMenuItems`). New Folder… asks for a name. A change to `newFolderRequest`
+/// (Meeting > Move to Folder > New Folder…) asks too.
 struct FolderChip: View {
     let folder: String?
     let folders: [String]
-    var kind: ChipButtonStyle.Kind = .bordered
+    var newFolderRequest = 0
     let choose: (String?) -> Void
 
     @State private var naming = false
     @State private var newName = ""
 
+    private var trimmed: String { newName.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     var body: some View {
         Menu {
-            ForEach(folders, id: \.self) { name in
-                Toggle(name, isOn: Binding(get: { folder == name }, set: { if $0 { choose(name) } }))
-            }
-            if !folders.isEmpty { Divider() }
-            if folder != nil {
-                Button("Remove from Folder") { choose(nil) }
-            }
-            Button("New Folder…") {
-                newName = ""
-                naming = true
-            }
+            FolderMenuItems(folder: folder, folders: folders, choose: choose, newFolder: askForName)
         } label: {
-            FolderChipLabel(folder: folder, kind: kind)
+            FolderChipLabel(folder: folder)
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonStyle(ChipButtonStyle(kind: kind))
+        .buttonStyle(ChipButtonStyle())
         .help(folder == nil ? "Add this meeting to a folder" : "Move this meeting to another folder")
         .accessibilityLabel(folder.map { "Folder: \($0)" } ?? "Add to folder")
+        .onChange(of: newFolderRequest) { askForName() }
         .alert("New Folder", isPresented: $naming) {
             TextField("Name", text: $newName)
-            Button("Create") {
-                let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty { choose(name) }
-            }
+            Button("Create") { choose(trimmed) }
+                .disabled(trimmed.isEmpty)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("The meeting moves into the new folder.")
         }
     }
+
+    private func askForName() {
+        newName = ""
+        naming = true
+    }
 }
 
-/// The date chip, with the attendees in a popover: a click lists who was there.
+/// The date chip, with the attendees in a popover: a click lists who was there. A change to
+/// `showRequest` (Meeting > Show Attendees) opens it too.
 struct DateChip: View {
     let date: String
     let attendees: [String]
+    var showRequest = 0
 
     @State private var showing = false
 
@@ -203,6 +207,7 @@ struct DateChip: View {
         .buttonStyle(ChipButtonStyle())
         .help(attendees.isEmpty ? "No attendees" : "Show who was there")
         .accessibilityLabel(accessibilityText)
+        .onChange(of: showRequest) { showing = true }
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             AttendeesList(attendees: attendees)
         }

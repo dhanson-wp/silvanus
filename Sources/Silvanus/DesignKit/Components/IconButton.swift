@@ -5,14 +5,15 @@ import SwiftUI
 ///
 /// | State | Fill | Icon |
 /// | rest | none | textSecondary |
-/// | hover | selection | text |
-/// | pressed | selection at 80% | text |
+/// | hover | selection (controlHover on the canvas) | text |
+/// | pressed | selection at 80% (controlHover on the canvas) | text |
 /// | focused | 2 pt focus ring, corner 7 | text |
 /// | disabled | none | textSecondary at 40% |
-/// | recording (the mic) | selection | recordingText |
+/// | recording (the mic) | controlHover | recordingText |
 ///
 /// `title` is the accessibility label; `help` the tooltip (what it does, then its shortcut).
 /// A nil action draws the button disabled: the feature hasn't landed, but its place has.
+/// Parts on the canvas set `.environment(\.onCanvas, true)` so hover shows there.
 struct IconButton: View {
     let icon: KitIcon
     let title: String
@@ -57,6 +58,7 @@ struct IconButtonStyle: ButtonStyle {
         @Environment(\.forcedPartState) private var forced
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.isFocused) private var isFocused
+        @Environment(\.onCanvas) private var onCanvas
         @State private var hovering = false
 
         private var state: PartState {
@@ -64,12 +66,14 @@ struct IconButtonStyle: ButtonStyle {
                 : hovering ? .hover : isFocused ? .focused : .rest)
         }
 
+        private var hoverFill: Color { onCanvas ? Ink.controlHover : Ink.selection }
+
         private var fill: Color {
             switch state {
-            case .hover: Ink.selection
-            case .pressed: Ink.selection.opacity(0.8)
+            case .hover: hoverFill
+            case .pressed: hoverFill.opacity(0.8)
             case .disabled: .clear
-            default: isRecording ? Ink.selection : .clear
+            default: isRecording ? hoverFill : .clear
             }
         }
 
@@ -96,5 +100,18 @@ struct IconButtonStyle: ButtonStyle {
                     withAnimation(Motion.hover) { hovering = inside }
                 }
         }
+    }
+}
+
+private struct OnCanvasKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True for parts that sit on `Ink.canvas`: their hover and pressed fills use
+    /// `Ink.controlHover`, since `Ink.selection` matches the canvas.
+    var onCanvas: Bool {
+        get { self[OnCanvasKey.self] }
+        set { self[OnCanvasKey.self] = newValue }
     }
 }

@@ -115,6 +115,11 @@ enum SelfTest {
                 }
             }
             check("every Ink text pair reads at 4.5:1 in both themes", weak.isEmpty, weak.joined(separator: ", "))
+            let hoverShows = [false, true].allSatisfy { dark in
+                InkToken.controlHover.rgb(.silvanus, dark: dark) != InkToken.canvas.rgb(.silvanus, dark: dark)
+                    && InkToken.controlHover.rgb(.reference, dark: dark) != InkToken.canvas.rgb(.reference, dark: dark)
+            }
+            check("controlHover differs from the canvas in both themes and sets", hoverShows)
             check("the kit's Silvanus colors come from the brand palette",
                   InkToken.missingFromBrand.isEmpty, InkToken.missingFromBrand.joined(separator: ", "))
 
@@ -220,12 +225,40 @@ enum SelfTest {
               model.meetings.count == before + 1 && created != nil && model.canvasMode == .notes
               && model.library.folderURL(for: created?.id ?? "") != nil,
               "count \(before) -> \(model.meetings.count), selected \(created?.id ?? "none")")
+        check("a new meeting is saved as Untitled meeting, not an empty title",
+              model.library.loadAll().meetings.first { $0.id == created?.id }?.info.title == Meeting.untitled)
         for (key, title) in [("r", "Start Recording"), ("n", "Quick Note")] {
             let modifiers: NSEvent.ModifierFlags = key == "r" ? [.shift, .command] : [.option, .command]
             let item = menuItem(key: key, modifiers: modifiers, in: NSApp.mainMenu)
-            check("File has \(title)", item?.title == title, item?.title ?? "missing")
+            check("File has \(title), disabled until recording is wired in",
+                  item?.title == title && item?.isEnabled == false && !model.canRecord, item?.title ?? "missing")
         }
         guard let id = created?.id else { return }
+        model.rename(id, to: "   ")
+        check("an empty title is ignored and nothing is written",
+              model.selectedMeeting?.info.title == Meeting.untitled
+              && model.library.loadAll().meetings.first { $0.id == id }?.info.title == Meeting.untitled)
+        NSApp.mainMenu?.update()
+        let meetingMenu = NSApp.mainMenu?.items.first { $0.title == "Meeting" }?.submenu
+        meetingMenu.map { $0.delegate?.menuNeedsUpdate?($0) }
+        try? await Task.sleep(for: .seconds(0.3))
+        let rename = menuItem(key: "r", modifiers: [.control, .command], in: NSApp.mainMenu)
+        let attendees = menuItem(key: "a", modifiers: [.control, .command], in: NSApp.mainMenu)
+        let move = meetingMenu?.items.first { $0.title == "Move to Folder" }
+        check("Meeting has Rename Meeting… (⌃⌘R), Show Attendees (⌃⌘A), and Move to Folder",
+              rename?.title == "Rename Meeting…" && attendees?.title == "Show Attendees" && move?.hasSubmenu == true,
+              "\(rename?.title ?? "missing"), \(attendees?.title ?? "missing"), \(move?.title ?? "missing")")
+        let renames = model.renameRequest, shows = model.attendeesRequest
+        for item in [rename, attendees] {
+            if let item, let menu = item.menu { menu.performActionForItem(at: menu.index(of: item)) }
+        }
+        try? await Task.sleep(for: .seconds(0.3))
+        check("Rename Meeting… and Show Attendees reach the meeting header",
+              model.renameRequest == renames + 1 && model.attendeesRequest == shows + 1)
+        // Close the rename field and the attendees popover the menu items opened.
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        for window in NSApp.windows where window.className.contains("Popover") { window.close() }
+        try? await Task.sleep(for: .seconds(0.3))
 
         model.rename(id, to: "  Acme   kickoff  ")
         let reread = model.library.loadAll().meetings.first { $0.id == id }
@@ -258,7 +291,7 @@ enum SelfTest {
         model.setFolder(id, to: HeadersGallery.longFolder)
         guard let window = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
         let names = ["hideSidebar", "search", "newMeeting", "filter",
-                     "headerPill", "headerFolder", "headerMic", "headerRecord", "headerMore"]
+                     "headerPill", "headerMic", "headerRecord", "headerMore"]
         // The traffic lights' right edge: the zoom button's center plus its 7 pt radius.
         let lightsEnd = Metric.trafficLightFirst.x + 2 * Metric.trafficLightPitch + 7
         for size in [Metric.windowDefault, Metric.windowMinimum] {

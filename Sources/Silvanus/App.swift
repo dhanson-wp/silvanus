@@ -92,25 +92,55 @@ struct SidebarCommand: Commands {
     }
 }
 
-/// File > New Meeting (⌘N), Start Recording (⇧⌘R), and Quick Note (⌥⌘N); View > Summary,
-/// My notes, and Transcript (⌘1, ⌘2, ⌘3), which switch the canvas like the view pill.
+/// File > New Meeting (⌘N), Start Recording (⇧⌘R), and Quick Note (⌥⌘N); Meeting > Rename
+/// Meeting… (⌃⌘R), Show Attendees (⌃⌘A), Move to Folder, Search (⌘F), and Filter (⌥⌘F);
+/// View > Summary, My notes, and Transcript (⌘1, ⌘2, ⌘3), which switch the canvas like the
+/// view pill. Meeting items are disabled with no meeting open; recording items until
+/// recording is wired in; Search and Filter until they land.
 struct MeetingCommands: Commands {
     let model: AppModel
 
     var body: some Commands {
+        let meeting = model.selectedMeeting
         CommandGroup(replacing: .newItem) {
             Button("New Meeting") { model.newMeeting() }
                 .keyboardShortcut("n")
             Button(model.isRecording ? "Stop" : "Start Recording", action: model.startRecording)
                 .keyboardShortcut("r", modifiers: [.shift, .command])
+                .disabled(!model.canRecord)
             Button("Quick Note", action: model.quickNote)
                 .keyboardShortcut("n", modifiers: [.option, .command])
+                .disabled(!model.canRecord)
+        }
+        CommandMenu("Meeting") {
+            Button("Rename Meeting…", action: model.requestRename)
+                .keyboardShortcut("r", modifiers: [.control, .command])
+                .disabled(meeting == nil)
+            Button("Show Attendees", action: model.requestAttendees)
+                .keyboardShortcut("a", modifiers: [.control, .command])
+                .disabled(meeting == nil)
+            Menu("Move to Folder") {
+                if let meeting {
+                    FolderMenuItems(folder: meeting.info.folder, folders: model.folders.map(\.name),
+                                    choose: { model.setFolder(meeting.id, to: $0) },
+                                    newFolder: model.requestNewFolder)
+                }
+            }
+            .disabled(meeting == nil)
+            Divider()
+            // Placeholders until search and filtering land.
+            Button("Search") {}
+                .keyboardShortcut("f")
+                .disabled(true)
+            Button("Filter") {}
+                .keyboardShortcut("f", modifiers: [.option, .command])
+                .disabled(true)
         }
         CommandGroup(before: .sidebar) {
             ForEach(CanvasMode.allCases) { mode in
                 Button(mode.title) { model.show(mode) }
                     .keyboardShortcut(KeyEquivalent(mode.shortcut))
-                    .disabled(model.selectedMeeting == nil)
+                    .disabled(meeting == nil)
             }
             Divider()
         }

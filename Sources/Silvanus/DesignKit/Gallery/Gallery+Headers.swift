@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The header family in the kit gallery: the icon button, the Record button and Quick Note
-/// mic, the chips, and the view pill in every state, then the canvas header and meeting header
-/// put together, with long titles, a long folder name, no folder, and zero attendees, at the
-/// default canvas width and at the window's minimum. Fictional words only.
+/// The header family in the kit gallery: the icon button (on the canvas), the Record button
+/// and Quick Note mic, the chips, and the view pill in every state, then the canvas header and
+/// meeting header put together, with long titles, a long folder name, no folder, and zero
+/// attendees, at the default canvas width and at the window's minimum. Fictional words only.
 struct HeadersGallery: View {
     private let states: [PartState] = [.rest, .hover, .pressed, .focused, .disabled]
 
@@ -50,8 +50,6 @@ struct HeadersGallery: View {
                     row("No attendees") { DateChip(date: MeetingHeader.dateText(Self.date), attendees: []) }
                     row("Folder chip") { FolderChip(folder: "Clients", folders: ["Clients"]) { _ in } }
                     row("No folder") { FolderChip(folder: nil, folders: []) { _ in } }
-                    row("Header folder") { FolderChip(folder: "Clients", folders: ["Clients"], kind: .plain) { _ in } }
-                    row("Header, no folder") { FolderChip(folder: nil, folders: [], kind: .plain) { _ in } }
                     ForEach(CanvasMode.allCases) { mode in
                         row("View pill, \(mode.title)") { ViewPill(mode: .constant(mode)) }
                     }
@@ -59,13 +57,18 @@ struct HeadersGallery: View {
                 }
                 VStack(alignment: .leading, spacing: Space.lg) {
                     sample("Canvas header, 910 pt window") {
-                        canvasHeader(width: Self.defaultWidth, mode: .notes, folder: "Clients")
+                        canvasHeader(width: Self.defaultWidth, mode: .notes)
                     }
-                    sample("Canvas header, 720 pt window, long folder name") {
-                        canvasHeader(width: Self.minimumWidth, mode: .transcript, folder: Self.longFolder)
+                    sample("Canvas header, 720 pt window") {
+                        canvasHeader(width: Self.minimumWidth, mode: .transcript)
                     }
-                    sample("Canvas header, recording, no folder") {
-                        canvasHeader(width: Self.minimumWidth, mode: .summary, folder: nil, recording: true)
+                    sample("Canvas header, recording") {
+                        canvasHeader(width: Self.minimumWidth, mode: .summary, recording: true)
+                    }
+                    sample("Canvas header, recording not available yet (as the app ships today)") {
+                        CanvasHeader(mode: .constant(.notes))
+                            .padding(.leading, Metric.contentX - Metric.canvasX)
+                            .frame(width: Self.minimumWidth, height: Metric.headerHeight)
                     }
                     sample("Canvas header, no meeting open") {
                         CanvasHeader(mode: .constant(.notes), hasMeeting: false)
@@ -110,6 +113,7 @@ struct HeadersGallery: View {
             ForEach(states, id: \.self) { state in
                 part()
                     .fixedSize()
+                    .environment(\.onCanvas, true)
                     .environment(\.forcedPartState, state)
                     .disabled(state == .disabled)
             }
@@ -121,8 +125,8 @@ struct HeadersGallery: View {
         }
     }
 
-    private func canvasHeader(width: CGFloat, mode: CanvasMode, folder: String?, recording: Bool = false) -> some View {
-        CanvasHeader(mode: .constant(mode), folder: folder, folders: folder.map { [$0] } ?? [], isRecording: recording)
+    private func canvasHeader(width: CGFloat, mode: CanvasMode, recording: Bool = false) -> some View {
+        CanvasHeader(mode: .constant(mode), isRecording: recording, startRecording: {}, quickNote: {})
             .padding(.leading, Metric.contentX - Metric.canvasX)
             .frame(width: width, height: Metric.headerHeight)
     }

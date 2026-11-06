@@ -11,13 +11,17 @@ extension Metric {
 /// The labeled Record button in the canvas header, from KIT.md "Record button and
 /// quick-note mic". It reads "Start Recording" and turns into "Stop" on the recording fill
 /// while a meeting records. It only calls `action`; what that does belongs to the caller
-/// (File > Start Recording, ⇧⌘R, does the same).
+/// (File > Start Recording, ⇧⌘R, does the same). A nil action draws it disabled, with a
+/// tooltip that says recording isn't available yet.
 struct RecordButton: View {
     var isRecording = false
-    var action: () -> Void
+    var action: (() -> Void)?
+
+    /// The tooltip on a recording control while recording isn't wired in.
+    static let unavailable = "Recording isn't available yet"
 
     var body: some View {
-        Button(action: action) {
+        Button { action?() } label: {
             HStack(spacing: Metric.recordIconGap) {
                 KitIconView(isRecording ? .stop : .record)
                 Text(isRecording ? "Stop" : "Start Recording")
@@ -27,7 +31,9 @@ struct RecordButton: View {
             }
         }
         .buttonStyle(RecordButtonStyle(isRecording: isRecording))
-        .help(isRecording ? "Stop recording; transcription starts (⇧⌘R)" : "Record this meeting (⇧⌘R)")
+        .disabled(action == nil)
+        .help(action == nil ? Self.unavailable
+            : isRecording ? "Stop recording; transcription starts (⇧⌘R)" : "Record this meeting (⇧⌘R)")
     }
 }
 
@@ -36,8 +42,8 @@ struct RecordButton: View {
 ///
 /// | State | Fill | Border | Label and icon |
 /// | rest | canvas | 1 pt divider | text |
-/// | hover | selection | 1 pt divider | text |
-/// | pressed | selection at 80% | 1 pt divider | text |
+/// | hover | controlHover | 1 pt divider | text |
+/// | pressed | controlHover at 80% | 1 pt divider | text |
 /// | recording | recording | none | onRecording |
 /// | focused | as rest | 2 pt focus ring | text |
 /// | disabled | canvas | divider at 40% | text at 40% |
@@ -68,8 +74,8 @@ struct RecordButtonStyle: ButtonStyle {
                 return state == .pressed ? Ink.recording.opacity(0.8) : Ink.recording
             }
             return switch state {
-            case .hover: Ink.selection
-            case .pressed: Ink.selection.opacity(0.8)
+            case .hover: Ink.controlHover
+            case .pressed: Ink.controlHover.opacity(0.8)
             default: Ink.canvas
             }
         }
@@ -104,13 +110,16 @@ struct RecordButtonStyle: ButtonStyle {
 
 /// The Quick Note mic: an `IconButton` with the `mic` icon, 8 before the Record button. It
 /// starts a new meeting that records right away (File > Quick Note, ⌥⌘N). While a meeting
-/// records, its icon turns `recordingText` on a selection fill.
+/// records, its icon turns `recordingText` on a controlHover fill. A nil action draws it
+/// disabled, with a tooltip that says recording isn't available yet.
 struct QuickNoteButton: View {
     var isRecording = false
-    var action: () -> Void
+    var action: (() -> Void)?
 
     var body: some View {
-        IconButton(.quickNoteMic, "Quick Note", help: "Start a new meeting and record right away (⌥⌘N)",
+        IconButton(.quickNoteMic, "Quick Note",
+                   help: action == nil ? RecordButton.unavailable : "Start a new meeting and record right away (⌥⌘N)",
                    isRecording: isRecording, action: action)
+            .environment(\.onCanvas, true)
     }
 }

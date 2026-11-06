@@ -62,7 +62,8 @@ Parts read only these. Each row gives the reference value (for the pixel-compare
 | Ink.textSecondary | #79736D | #928B86 | mutedInk | mutedIvory | times, folder line, descriptions, placeholders, sidebar icons |
 | Ink.textTertiary | #9A9592 | #77716C | mutedInk | mutedIvory | unselected view pill icons |
 | Ink.divider | #E7E5E4 | #4C4743 | parchment | mutedInk | pane divider, canvas border, button and chip borders |
-| Ink.selection | #F0F0EF | #443F3C | paper | raisedMidnight | selected row fill, icon button hover |
+| Ink.selection | #F0F0EF | #443F3C | paper | raisedMidnight | selected row fill, sidebar icon button hover |
+| Ink.controlHover | #F0F0EF | #443F3C | ivory | midnight | hover and pressed fills of controls on the canvas (header icon buttons, Record, chips) |
 | Ink.pillTrack | #E8E8E8 | #3A3532 | parchment | midnight | view pill track |
 | Ink.pillSegment | #FFFFFF | #443F3C | paper | raisedMidnight | view pill selected segment |
 | Ink.accent | #FC5156 | #BD4E50 | gold | gold | **fill only**: sidebar rule, event rule, today dot, played waveform |
@@ -79,6 +80,7 @@ Why these choices:
 - **Gold is fill only.** Gold on paper is 2.15:1 and on ivory 1.91:1, too low for text or a focus ring. In light, accent text and focus are midnight (17.37:1 on paper). In dark, gold reads well (7.03:1 on raisedMidnight, 8.06:1 on midnight), so dark uses gold for accent text and focus. Gold as fill: the sidebar rule, the Coming up event rule, the today dot, the played part of the waveform, and the selected tab underline if one is added.
 - **Sidebar uses `background`, not `navigation`.** The palette names midnight as `navigation` in light, but a midnight sidebar in the light theme would invert the measured structure (a light sidebar a step darker than the canvas). The sidebar takes ivory and the canvas takes paper, which keeps that one-step relationship. Revisit if the brand wants a dark navigation pane.
 - **Selection in light is paper, not parchment.** Secondary text on parchment is 4.00:1, which fails 4.5:1 for the time on a selected row. Paper on the ivory sidebar keeps it at 5.36:1 and stays as subtle as the reference's selection.
+- **Controls on the canvas hover with `controlHover`.** In Silvanus, selection equals the canvas (paper, raisedMidnight), so a selection fill on the canvas wouldn't show. controlHover takes the sidebar's ground, one step off the canvas in each theme; text on it still passes (mutedInk 4.75:1 on ivory).
 - **Recording red is ours.** recordRed #B42318 carries an ivory label at 5.65:1 in both themes, because the label always sits on the red fill. As text on its own, recordRed passes on paper (6.38:1) but not on raisedMidnight (2.38:1), so dark uses recordRedLight #FF8A80 (6.84:1).
 - Secondary text passes everywhere it's used: mutedInk 5.36:1 on paper and 4.75:1 on ivory; mutedIvory 7.79:1 on raisedMidnight and 8.93:1 on midnight.
 
@@ -266,22 +268,22 @@ All controls are 28 tall at y 9, centered in the 46 pt header.
 - More: three 2 pt dots 4 apart, ending at x 893; 28 × 28 hit area.
 - Labeled Record button (takes the reference's bordered-button slot, x 796 to 870): see Record button below.
 - Quick-note mic button: 28 × 28 icon button, 8 before the Record button. **Adapted**: the reference has no mic in this slot.
-- Folder chip: 15 pt folder icon, 5.5 gap, label `chip` in `Ink.textSecondary`, no border, ending about 10.5 before the next control. With no folder it shows the icon alone (measured at x 770.5 to 785.5). Click opens the folder menu.
+- Folder chip: 15 pt folder icon, 5.5 gap, label `chip` in `Ink.textSecondary`, no border, ending about 10.5 before the next control. With no folder it shows the icon alone (measured at x 770.5 to 785.5). Click opens the folder menu. **Not in Silvanus**: the meeting header's folder chip is the one place to set a folder, so the canvas header's trailing controls are the mic, Start Recording, and More.
 
 ### Record button and quick-note mic
 
-**Record** (labeled): 28 tall, corner 6, padding 7 before the icon and 10.5 after the label, icon 12, gap 7.5, label `button` (14 medium). Measured from the reference's bordered header button (74 wide with a five-letter label, x 796 to 870).
+**Record** (labeled): the label is "Start Recording" (docs/GLOSSARY.md), so the button is wider than the reference's five-letter slot (about 141 against 74); it keeps the trailing edge at x 870 and the controls before it move left. 28 tall, corner 6, padding 7 before the icon and 10.5 after the label, icon 12, gap 7.5, label `button` (14 medium). Measured from the reference's bordered header button (74 wide with a five-letter label, x 796 to 870).
 
 | State | Fill | Border | Label and icon |
 | --- | --- | --- | --- |
 | rest | canvas | 1 pt divider | text |
-| hover | selection | 1 pt divider | text |
-| pressed | selection, 80% | 1 pt divider | text |
+| hover | controlHover | 1 pt divider | text |
+| pressed | controlHover, 80% | 1 pt divider | text |
 | recording | recording | none | onRecording, label "Stop" |
 | focused | as rest | 2 pt focus ring | text |
 | disabled (no input device) | canvas | 1 pt divider at 40% | text at 40% |
 
-**Quick-note mic**: the 28 × 28 icon button (corner 7), `mic` icon. States as the sidebar header buttons, plus recording (icon `Ink.recordingText`, fill selection).
+**Quick-note mic**: the 28 × 28 icon button (corner 7), `mic` icon. States as the sidebar header buttons (on the canvas, hover and pressed use `controlHover`), plus recording (icon `Ink.recordingText`, fill controlHover).
 
 ### Meeting header
 
@@ -296,8 +298,8 @@ Organization part, adapted to this grid. It's the top of the canvas on a meeting
 | State | Fill | Text |
 | --- | --- | --- |
 | rest | none | textSecondary |
-| hover | selection | text |
-| pressed | selection, 80% | text |
+| hover | controlHover | text |
+| pressed | controlHover, 80% | text |
 | focused | 2 pt focus ring | text |
 | empty value | none | textSecondary, placeholder words |
 

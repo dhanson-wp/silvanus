@@ -74,6 +74,13 @@ final class AppModel {
     var canvasMode: CanvasMode = .notes
     /// True while a meeting records. Nothing sets it until recording is wired in.
     var isRecording = false
+    /// False until recording is wired in: Start Recording and Quick Note show disabled.
+    let canRecord = false
+    /// Bumped by Meeting > Rename Meeting…, Show Attendees, and Move to Folder > New Folder…;
+    /// the meeting header answers each change.
+    private(set) var renameRequest = 0
+    private(set) var attendeesRequest = 0
+    private(set) var newFolderRequest = 0
     /// Settings reopens on the last tab. Test and snapshot runs use their own defaults.
     var settingsTab: SettingsTab = SettingsTab(rawValue: AppDefaults.shared.string(forKey: "settings.tab") ?? "") ?? .general {
         didSet { AppDefaults.shared.set(settingsTab.rawValue, forKey: "settings.tab") }
@@ -131,7 +138,7 @@ extension AppModel {
     /// recording, filed in the folder the sidebar shows. It opens on My notes.
     @discardableResult
     func newMeeting(now: Date = Date()) -> Meeting? {
-        let meeting = Meeting(info: MeetingInfo(title: "", start: now, folder: folder))
+        let meeting = Meeting(info: MeetingInfo(title: Meeting.untitled, start: now, folder: folder))
         guard (try? library.save(meeting)) != nil else { return nil }
         let index = meetings.firstIndex { $0.info.start <= meeting.info.start } ?? meetings.endIndex
         meetings.insert(meeting, at: index)
@@ -140,10 +147,26 @@ extension AppModel {
         return meeting
     }
 
-    /// Renames a meeting on disk and in the sidebar. Spaces are tidied; an empty title shows
-    /// as "Untitled meeting". The folder on disk keeps its name.
+    /// Renames a meeting on disk and in the sidebar. Spaces are tidied; an empty title is
+    /// ignored (the old one stays, nothing is written). The folder on disk keeps its name.
     func rename(_ id: String, to title: String) {
-        update(id) { $0.info.title = MeetingTitle.clean(title) }
+        let cleaned = MeetingTitle.clean(title)
+        guard !cleaned.isEmpty else { return }
+        update(id) { $0.info.title = cleaned }
+    }
+
+    /// Meeting > Rename Meeting…: the open meeting's title turns editable. The header lives
+    /// on Summary and My notes, so Transcript switches to My notes first.
+    func requestRename() { revealHeader(); renameRequest += 1 }
+
+    /// Meeting > Show Attendees: opens the date chip's list of attendees.
+    func requestAttendees() { revealHeader(); attendeesRequest += 1 }
+
+    /// Meeting > Move to Folder > New Folder…: asks for a folder name.
+    func requestNewFolder() { revealHeader(); newFolderRequest += 1 }
+
+    private func revealHeader() {
+        if canvasMode == .transcript { show(.notes) }
     }
 
     /// Files a meeting in a sidebar folder, or takes it out of one (nil).
