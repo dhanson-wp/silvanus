@@ -33,9 +33,16 @@ struct RecorderNotice: Equatable {
 /// calls both get recorded. The phases are `RecorderState`'s (SilvanusKit), which has the
 /// tests; this class does the work each step names.
 ///
-/// It keeps recording through what it can: call audio that fails drops to the microphone
-/// alone, a microphone that changes restarts in a new segment, and a microphone that fails
-/// stops the recording and transcribes what was saved.
+/// It keeps recording through what it can, and says so honestly. Each track's health is
+/// watched on its own, from its writer's failures (never from silence): call audio that
+/// fails drops to the microphone alone ("Mic only", with Retry Call Audio in the menu bar),
+/// a microphone that changes restarts in a new segment, and a microphone that fails is an
+/// interruption ("Audio lost"): the captured time holds and nothing is saved until Retry
+/// brings it back or Stop ends the meeting with what was saved.
+///
+/// Pause holds the shared capture clock: both writers drop what they hear from the same
+/// moment, so nothing is saved, the tracks stay aligned, and the time (and the notes'
+/// margin times) leave the pause out. Resume goes on in the same meeting.
 @Observable
 final class Recorder {
     enum Failure: LocalizedError {
@@ -50,13 +57,21 @@ final class Recorder {
         }
     }
 
+    /// What the recording controls and the menu bar show. Stored apart from `state` and set
+    /// only when it changes, so the menu bar never redraws on transcription progress.
+    enum Mode: Equatable {
+        case idle, recording, paused, interrupted
+    }
+
     private(set) var state = RecorderState()
     var phase: RecorderPhase { state.phase }
     /// Kept apart from `state` and set only when it changes, so the menu bar item (its
     /// glyph and its menu) redraws when a recording starts or stops, never on progress.
+    /// True while paused or interrupted too: the recording is still under way.
     private(set) var isRecording = false
-    /// When the recording started, while it records.
-    private(set) var since: Date?
+    private(set) var mode: Mode = .idle
+    /// When the recording started (wall clock), while one is under way.
+    private(set) var startedAt: Date?
     /// The meeting being recorded.
     private(set) var meetingID: String?
     /// The meeting being transcribed.
@@ -64,17 +79,16 @@ final class Recorder {
     /// The banner over the canvas: the latest failure (with Retry when there's audio to
     /// transcribe again), or news.
     private(set) var notice: RecorderNotice?
-    /// Why the recording stopped early (a microphone that couldn't write). The pill stays up
-    /// with it until it's closed.
-    private(set) var recordingFailure: String?
     /// Every meeting whose transcription failed, with the reason, until Retry works. The
     /// meeting's page shows it with Retry.
     private(set) var failedMeetings: [String: String] = [:]
-    /// Shown in the pill and the banner while recording: call audio couldn't start or
-    /// stopped, or a side has been silent for 30 seconds. In the order they came.
+    /// Shown in the banner while recording: call audio couldn't start or stopped, or a side
+    /// has been silent for 30 seconds. In the order they came.
     private(set) var warnings: [String] = []
     var warning: String? { warnings.isEmpty ? nil : warnings.joined(separator: " ") }
-    /// The live level for the waves, sampled 10 times a second.
+    /// Why call audio isn't recording, while the microphone records on its own.
+    private(set) var callAudioDown: String?
+    /// The level bars, from both tracks' captured audio, sampled 10 times a second.
     let meter = LevelMeter()
 
     @ObservationIgnored weak var model: AppModel?
@@ -86,6 +100,7 @@ final class Recorder {
     @ObservationIgnored var micReady: () -> Bool = { Permissions.microphone == .allowed }
     /// The after-call pass for a meeting, reporting progress 0…1 from any thread.
     @ObservationIgnored var afterCall: (String, @escaping @Sendable (Double) -> Void) async throws -> Void
+    /// How often the level and the tracks' health are sampled: at most `LevelMath.maxRate`.
     @ObservationIgnored var sampleInterval: Duration = .milliseconds(100)
     /// A side silent this long while recording shows a warning.
     @ObservationIgnored var silenceWarning: TimeInterval = 30
@@ -106,8 +121,10 @@ final class Recorder {
     @ObservationIgnored private var system: AudioCapture?
     @ObservationIgnored private var micWriter: SegmentWriter?
     @ObservationIgnored private var systemWriter: SegmentWriter?
-    /// Call audio that failed mid-recording: what it saved, for tracks.json.
-    @ObservationIgnored private var droppedSystem: Tracks.Track?
+    /// The captured clock both writers share.
+    @ObservationIgnored private var clock: CaptureClock?
+    @ObservationIgnored private var audioDirectory: URL?
+    @ObservationIgnored private var level: Float = 0
     @ObservationIgnored private var sampler: Task<Void, Never>?
     @ObservationIgnored private var systemHeard = Date()
     @ObservationIgnored private var micHeard = Date()
@@ -125,6 +142,8 @@ final class Recorder {
     static let silentMic = "No microphone audio yet. Check the input in System Settings > Sound."
     static let micOnly = "Recording your microphone only."
     static let nothingRecorded = "Nothing was recorded."
+    /// The track names in "Audio lost" notes.
+    static let micTrack = "The microphone"
 
     init(library: MeetingLibrary) {
         afterCall = { id, progress in
@@ -143,11 +162,12 @@ final class Recorder {
         }
     }
 
-    /// Seconds into the recording when `id` is the meeting recording, else nil. The notes
-    /// stamp new lines with it.
+    /// Captured seconds when `id` is the meeting recording, else nil: pauses and
+    /// interruptions left out, so they match the saved audio. The notes stamp new lines
+    /// with it.
     func elapsed(for id: String) -> TimeInterval? {
-        guard isRecording, meetingID == id, let since else { return nil }
-        return Date().timeIntervalSince(since)
+        guard isRecording, meetingID == id else { return nil }
+        return state.elapsed(at: Date())
     }
 
     /// True while `id` records, transcribes, or waits to: it can't be moved to the Trash.
@@ -190,9 +210,10 @@ final class Recorder {
             startFailed(Failure.noFolder, made: made)
             throw Failure.noFolder
         }
+        let clock = CaptureClock(start: start)
         do {
             try FileManager.default.createDirectory(at: audio, withIntermediateDirectories: true)
-            let micWriter = SegmentWriter(directory: audio, name: "mic", recordingStart: start)
+            let micWriter = SegmentWriter(directory: audio, name: "mic", clock: clock)
             let mic = captures.mic()
             try mic.start(into: micWriter)
             self.mic = mic
@@ -201,20 +222,14 @@ final class Recorder {
             startFailed(error, made: made)
             throw error
         }
+        self.clock = clock
+        audioDirectory = audio
         warnings = []
-        droppedSystem = nil
-        recordingFailure = nil
-        let systemWriter = SegmentWriter(directory: audio, name: "system", recordingStart: start)
-        let system = captures.system()
-        do {
-            try system.start(into: systemWriter)
-            self.system = system
-            self.systemWriter = systemWriter
-            Permissions.markSystemAudioAsked()
-        } catch {
-            addWarning("\(Self.micOnly) \(error.localizedDescription)")
-        }
+        callAudioDown = nil
+        startSystem(into: SegmentWriter(directory: audio, name: "system", clock: clock))
         self.meetingID = id
+        startedAt = start
+        level = 0
         meter.reset()
         systemHeard = start
         micHeard = start
@@ -223,6 +238,24 @@ final class Recorder {
         callAppRunning = callAppAtStart
         apply(.started(start))
         startSampler()
+    }
+
+    /// Starts call audio into `writer`. A failure is a warning: the microphone records on
+    /// its own ("Mic only"), and Retry Call Audio can try again.
+    private func startSystem(into writer: SegmentWriter) {
+        let system = captures.system()
+        do {
+            try system.start(into: writer)
+            self.system = system
+            systemWriter = writer
+            callAudioDown = nil
+            warnings.removeAll { $0.hasPrefix(Self.micOnly) }
+            Permissions.markSystemAudioAsked()
+        } catch {
+            callAudioDown = error.localizedDescription
+            warnings.removeAll { $0.hasPrefix(Self.micOnly) }
+            addWarning("\(Self.micOnly) \(error.localizedDescription)")
+        }
     }
 
     /// A start that failed: say why in the banner (nothing to retry), and remove a meeting
@@ -243,9 +276,78 @@ final class Recorder {
         model.reload()
     }
 
+    /// Pause: both tracks stop saving from this moment, and the time holds. Only while
+    /// capturing (never while interrupted).
+    func pause() {
+        guard state.isCapturing else { return }
+        let now = Date()
+        clock?.hold(at: now)
+        apply(.pause(now))
+        level = 0
+        meter.reset()
+    }
+
+    /// Resume: the same meeting goes on, from the time it held.
+    func resume() {
+        guard state.isPaused else { return }
+        let now = Date()
+        micHeard = now
+        systemHeard = now
+        clock?.release(at: now)
+        apply(.resume(now))
+    }
+
+    /// The controls' Pause/Resume button.
+    func togglePause() {
+        if state.isPaused { resume() } else { pause() }
+    }
+
+    /// Retry while audio is lost: restarts the microphone into its track (and call audio, if
+    /// that's down too). Stays "Audio lost", with the new reason, while it can't start.
+    func retryCapture() {
+        guard case .interrupted = phase else { return }
+        if let reason = restartMic() {
+            apply(.interrupt(Date(), reason))
+            return
+        }
+        let now = Date()
+        micHeard = now
+        systemHeard = now
+        clock?.release(at: now)
+        apply(.recovered(now))
+        if callAudioDown != nil { retryCallAudio() }
+    }
+
+    /// Retry Call Audio (menu bar), while the microphone records on its own: starts call
+    /// audio again in its track, lined up with the recording's clock.
+    func retryCallAudio() {
+        guard state.isCapturing, system == nil, let audio = audioDirectory, let clock else { return }
+        let writer = systemWriter ?? SegmentWriter(directory: audio, name: "system", clock: clock)
+        writer.resume()
+        systemHeard = Date()
+        startSystem(into: writer)
+    }
+
+    /// Starts a new microphone capture in the same track. Nil when it runs, else why not.
+    private func restartMic() -> String? {
+        guard let writer = micWriter else { return "The meeting's folder isn't on disk." }
+        mic?.stop()
+        mic = nil
+        writer.resume()
+        let capture = captures.mic()
+        do {
+            try capture.start(into: writer)
+            mic = capture
+            return nil
+        } catch {
+            return "Couldn't restart the microphone: \(error.localizedDescription)"
+        }
+    }
+
     /// Stop: closes the captures and files, writes `tracks.json`, sets the meeting's end,
-    /// and queues the after-call pass. Nothing happens unless a meeting records. A
-    /// recording that never got a buffer isn't transcribed: the banner says so.
+    /// and queues the after-call pass. Works while recording, paused, or with audio lost;
+    /// nothing happens otherwise. A recording that never got a buffer isn't transcribed:
+    /// the banner says so.
     func stop() {
         guard isRecording, let id = meetingID else { return }
         apply(.stop)
@@ -266,8 +368,8 @@ final class Recorder {
     func terminateReply(confirm: () -> Bool) -> NSApplication.TerminateReply {
         guard isRecording, let id = meetingID else { return .terminateNow }
         guard confirm() else { return .terminateCancel }
-        // The recording may have ended while the question was up (a failure, the pill's
-        // Stop): it's already closed, and closing again could only lose what it wrote.
+        // The recording may have ended while the question was up (the controls' Stop): it's
+        // already closed, and closing again could only lose what it wrote.
         guard isRecording, meetingID == id else { return .terminateNow }
         apply(.stop)
         _ = closeRecording(id)
@@ -279,17 +381,15 @@ final class Recorder {
     private func closeRecording(_ id: String) -> Bool {
         // Already closed: tracks.json and the end time are written; never overwrite them
         // with empty tracks.
-        guard micWriter != nil || systemWriter != nil || droppedSystem != nil else { return false }
+        guard micWriter != nil || systemWriter != nil else { return false }
         sampler?.cancel()
         sampler = nil
         mic?.stop()
         system?.stop()
         micWriter?.finish()
         systemWriter?.finish()
-        let tracks = Tracks(mic: micWriter.map(Tracks.Track.init),
-                            system: systemWriter.map(Tracks.Track.init) ?? droppedSystem)
+        let tracks = Tracks(mic: micWriter.map(Tracks.Track.init), system: systemWriter.map(Tracks.Track.init))
         let recorded = (micWriter?.framesWritten ?? 0) + (systemWriter?.framesWritten ?? 0) > 0
-            || (droppedSystem?.seconds ?? 0) > 0
         if let audio = library?.audioURL(for: id) {
             do { try tracks.save(in: audio) } catch { print("RECORDER couldn't write tracks.json for \(id): \(error)") }
         }
@@ -301,41 +401,46 @@ final class Recorder {
         system = nil
         micWriter = nil
         systemWriter = nil
-        droppedSystem = nil
+        clock = nil
+        audioDirectory = nil
         meetingID = nil
+        startedAt = nil
         warnings = []
+        callAudioDown = nil
+        level = 0
         meter.reset()
         return recorded
     }
 
-    /// The microphone's writer failed mid-recording: stop, keep what was written, and say
-    /// why in the pill (until it's closed) and the banner. What was saved is transcribed.
-    private func failRecording(_ reason: String) {
-        guard isRecording, let id = meetingID else { return }
-        let recorded = closeRecording(id)
-        fail(reason)
-        recordingFailure = reason
-        notice = RecorderNotice(message: reason)
-        model?.reload()
-        if recorded { enqueue(id, recovered: false) }
+    /// A required track (the microphone) failed: hold the clock, so neither track saves,
+    /// and say so ("Audio lost", with Retry and Stop). Silence never comes here.
+    private func interrupt(_ reason: String) {
+        guard isRecording else { return }
+        let now = Date()
+        clock?.hold(at: now)
+        mic?.stop()
+        mic = nil
+        apply(.interrupt(now, reason))
+        level = 0
+        meter.reset()
+        print("RECORDER audio lost: \(reason)")
     }
 
-    /// Call audio failed mid-recording: keep what it saved, let it go, and record on with the
-    /// microphone alone.
+    /// Call audio failed mid-recording: keep what it saved in its track, let it go, and
+    /// record on with the microphone alone ("Mic only"). Retry Call Audio can bring it back.
     private func dropSystem(_ reason: String) {
         system?.stop()
-        systemWriter?.finish()
-        droppedSystem = systemWriter.map(Tracks.Track.init)
         system = nil
-        systemWriter = nil
+        callAudioDown = reason
         removeWarning(Self.silentCall)
+        warnings.removeAll { $0.hasPrefix(Self.micOnly) }
         addWarning("\(Self.micOnly) \(reason)")
         print("RECORDER call audio stopped: \(reason)")
     }
 
     private func startSampler() {
         sampler?.cancel()
-        let interval = sampleInterval
+        let interval = max(sampleInterval, .milliseconds(Int(1000 / LevelMath.maxRate)))
         sampler = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
@@ -345,27 +450,32 @@ final class Recorder {
         }
     }
 
-    /// Ten times a second while recording: the live level, a writer that failed, and a side
-    /// that stays silent.
+    /// Ten times a second while recording: the level bars, each track's health, and a side
+    /// that stays silent. The bars combine both tracks; health is per track, from the
+    /// writers' failures, never from silence.
     func sample() {
         samples += 1
-        let micPeak = micWriter?.samplePeak() ?? 0
-        let systemPeak = systemWriter?.samplePeak() ?? 0
-        meter.push(max(micPeak, systemPeak))
-        if let reason = micWriter?.failure {
-            failRecording(reason)
+        let mic = micWriter?.sampleLevels() ?? (peak: 0, rms: 0)
+        let call = systemWriter?.sampleLevels() ?? (peak: 0, rms: 0)
+        let capturing = state.isCapturing
+        let next = capturing ? max(LevelMath.level(rms: mic.rms), LevelMath.level(rms: call.rms)) : 0
+        level = capturing ? LevelMath.smooth(previous: level, next: next) : 0
+        meter.push(level)
+        if !state.isInterrupted, let reason = micWriter?.failure {
+            interrupt(reason)
             return
         }
-        if let reason = systemWriter?.failure { dropSystem(reason) }
+        if system != nil, let reason = systemWriter?.failure { dropSystem(reason) }
+        guard capturing else { return }
         let now = Date()
-        if micPeak > 0.001 {
+        if mic.peak > 0.001 {
             micHeard = now
             removeWarning(Self.silentMic)
         } else if now.timeIntervalSince(micHeard) > silenceWarning {
             addWarning(Self.silentMic)
         }
-        guard systemWriter != nil else { return }
-        if systemPeak > 0.001 { systemHeard = now }
+        guard system != nil else { return }
+        if call.peak > 0.001 { systemHeard = now }
         if CallAudioWarning.warning(quickNote: isQuickNote, callAppAtStart: callAppAtStart, callAppNow: callAppRunning,
                                     silentFor: now.timeIntervalSince(systemHeard), threshold: silenceWarning) != nil {
             addWarning(Self.silentCall)
@@ -457,10 +567,9 @@ final class Recorder {
         enqueue(id, recovered: false)
     }
 
-    /// Closes the banner (and the pill's failure, and clears a failed phase).
+    /// Closes the banner (and clears a failed phase).
     func dismissNotice() {
         notice = nil
-        recordingFailure = nil
         if case .failed = phase { apply(.dismiss) }
     }
 
@@ -508,249 +617,35 @@ final class Recorder {
     @discardableResult
     private func apply(_ event: RecorderEvent) -> Bool {
         guard state.apply(event) else { return false }
-        if isRecording != state.isRecording { isRecording = state.isRecording }
-        if since != state.since { since = state.since }
+        syncStored()
         return true
+    }
+
+    /// The stored copies the menu bar and the controls read, set only when they change.
+    private func syncStored() {
+        if isRecording != state.isRecording { isRecording = state.isRecording }
+        let next: Mode = switch state.phase {
+        case .recording: .recording
+        case .paused: .paused
+        case .interrupted: .interrupted
+        default: .idle
+        }
+        if mode != next { mode = next }
     }
 
     private func fail(_ reason: String) {
         apply(.fail(reason))
     }
 
-    /// Snapshots draw the recording and transcribing states without any capture.
-    func force(_ phase: RecorderPhase, meetingID: String? = nil, levels: [Float] = [], failure: String? = nil) {
+    /// Snapshots and the gallery draw the recording states without any capture.
+    func force(_ phase: RecorderPhase, meetingID: String? = nil, levels: [Float] = [], callAudioDown: String? = nil) {
         state = RecorderState(phase: phase)
-        isRecording = state.isRecording
-        since = state.since
+        syncStored()
         self.meetingID = state.isRecording ? meetingID : nil
+        startedAt = state.isRecording ? (startedAt ?? Date()) : nil
         transcribingID = { if case .transcribing = phase { meetingID } else { nil } }()
-        recordingFailure = failure
+        self.callAudioDown = callAudioDown
         meter.reset()
         for level in levels { meter.push(level) }
-    }
-}
-
-/// The floating recording pill's window: a small always-on-top panel, shown while a
-/// meeting records and the main window isn't the key window. It never takes focus from
-/// the app in front. It joins every Space, drags by the pill's body, and remembers where it
-/// was left (`PillPlacement`). Hovering widens the window leftward to fit the expanded
-/// capsule, then narrows it again once the pill has shrunk back.
-@MainActor
-final class RecordingPanel {
-    private let recorder: Recorder
-    private weak var model: AppModel?
-    private var panel: NSPanel?
-    private var observers: [NSObjectProtocol] = []
-    /// The capsule's top trailing corner, in screen points.
-    private(set) var anchor = NSPoint.zero
-    private var hovering = false
-    private var shrinkTask: Task<Void, Never>?
-    private var dragStart: (mouse: NSPoint, anchor: NSPoint)?
-    /// The window around the capsule, collapsed and expanded, measured from the pill at its
-    /// widest (an hour into the call).
-    private var collapsedSize = NSSize.zero
-    private var expandedSize = NSSize.zero
-    private let margin = Space.md
-
-    init(recorder: Recorder, model: AppModel) {
-        self.recorder = recorder
-        self.model = model
-        let center = NotificationCenter.default
-        let names: [Notification.Name] = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                                          NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
-        for name in names {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.update() }
-            })
-        }
-        // An unplugged display must never strand the pill off every screen.
-        observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
-                                            queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.screensChanged() }
-        })
-        track()
-        update()
-    }
-
-    /// Puts the pill back on a screen if the one it was on has gone, then re-places it.
-    func screensChanged() {
-        guard let panel else { return }
-        let screens = NSScreen.screens.map(\.visibleFrame)
-        let main = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        anchor = PillPlacement.resolve(saved: anchor, screens: screens, main: main)
-        place(size: panel.frame.width >= expandedSize.width ? expandedSize : collapsedSize)
-    }
-
-    /// Updates when the recorder's phase or warning changes.
-    private func track() {
-        withObservationTracking {
-            _ = recorder.isRecording
-            _ = recorder.phase
-            _ = recorder.warnings
-            _ = recorder.recordingFailure
-        } onChange: { [weak self] in
-            Task { @MainActor in
-                self?.update()
-                self?.track()
-            }
-        }
-    }
-
-    /// True when the main window is the key window. The self-test sets it: a run started
-    /// from a terminal may never be the active app.
-    var mainWindowIsKey: () -> Bool = {
-        NSApp.windows.contains { $0.isKeyWindow && $0.canBecomeMain && !($0 is NSPanel) }
-    }
-
-    func update() {
-        let key = mainWindowIsKey()
-        // A recording that stopped on a failure keeps the pill up, with the reason, until closed.
-        if recorder.state.showsPill(mainWindowIsKey: key) || (recorder.recordingFailure != nil && !key) {
-            show()
-        } else {
-            hide()
-        }
-    }
-
-    var isShowing: Bool { panel != nil }
-    /// The pill's window, for the checks and for telling it from the other floating panels.
-    var window: NSWindow? { panel }
-    static let windowID = NSUserInterfaceItemIdentifier("silvanus.recordingPill")
-    var frame: NSRect? { panel?.frame }
-    var isExpanded: Bool { panel.map { $0.frame.width >= expandedSize.width } ?? false }
-
-    private func show() {
-        guard panel == nil, let model else { return }
-        measure()
-        let view = RecordingPillHost(recorder: recorder, model: model, panel: self)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(margin)
-        let host = PillHostingView(rootView: view)
-        let screens = NSScreen.screens.map(\.visibleFrame)
-        let main = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        anchor = PillPlacement.resolve(saved: PillPlacement.saved(), screens: screens, main: main)
-        hovering = false
-        let p = NSPanel(contentRect: NSRect(origin: .zero, size: collapsedSize),
-                        styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
-        p.contentView = host
-        p.identifier = Self.windowID
-        p.isFloatingPanel = true
-        p.becomesKeyOnlyIfNeeded = true
-        p.level = .floating
-        p.backgroundColor = .clear
-        p.isOpaque = false
-        p.hasShadow = false
-        // The pill's body drags the window itself (a click there opens the meeting), so the
-        // window doesn't move by its background.
-        p.isMovableByWindowBackground = false
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.hidesOnDeactivate = false
-        p.isReleasedWhenClosed = false
-        panel = p
-        place(size: collapsedSize)
-        p.orderFrontRegardless()
-    }
-
-    private func hide() {
-        shrinkTask?.cancel()
-        panel?.orderOut(nil)
-        panel?.close()
-        panel = nil
-        dragStart = nil
-    }
-
-    /// The window sizes that fit the pill at rest and hovered, at its widest.
-    private func measure() {
-        guard collapsedSize == .zero else { return }
-        let meter = LevelMeter()
-        let since = Date().addingTimeInterval(-7199)
-        func size(_ hover: Bool) -> NSSize {
-            let fit = NSHostingView(rootView: RecordingPill(status: .recording(since: since), warning: "x", meter: meter,
-                                                            forcedHover: hover).padding(margin)).fittingSize
-            return NSSize(width: fit.width.rounded(.up), height: fit.height.rounded(.up))
-        }
-        collapsedSize = size(false)
-        expandedSize = size(true)
-    }
-
-    private func place(size: NSSize) {
-        guard let panel else { return }
-        let screens = NSScreen.screens.map(\.visibleFrame)
-        let visible = screens.first { $0.insetBy(dx: -1, dy: -1).contains(anchor) }
-        panel.setFrame(PillPlacement.frame(anchor: anchor, size: size, inset: margin, visible: visible), display: true)
-    }
-
-    /// The pointer entered or left the capsule. The window widens at once, so the capsule
-    /// has room to grow; it narrows after the capsule's shrink has played.
-    func hoverChanged(_ inside: Bool) {
-        hovering = inside
-        shrinkTask?.cancel()
-        if inside {
-            place(size: expandedSize)
-        } else {
-            shrinkTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(400))
-                guard let self, !Task.isCancelled, !self.hovering else { return }
-                self.place(size: self.collapsedSize)
-            }
-        }
-    }
-
-    /// Moves the window with the pointer while the body is dragged; the end saves the spot.
-    func drag(_ phase: PillDrag, mouse: NSPoint = NSEvent.mouseLocation) {
-        switch phase {
-        case .began:
-            dragStart = (mouse, anchor)
-        case .moved:
-            guard let start = dragStart, let panel else { return }
-            anchor = NSPoint(x: start.anchor.x + mouse.x - start.mouse.x, y: start.anchor.y + mouse.y - start.mouse.y)
-            place(size: panel.frame.width >= expandedSize.width ? expandedSize : collapsedSize)
-        case .ended:
-            dragStart = nil
-            if panel != nil { PillPlacement.save(anchor) }
-        }
-    }
-}
-
-/// Lets the first click act on the pill though the panel never becomes key.
-final class PillHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
-
-/// The pill with the recorder's values: the meeting's title, any warning, the elapsed time,
-/// Stop, and the body that brings the main window forward on the recording meeting.
-struct RecordingPillHost: View {
-    let recorder: Recorder
-    let model: AppModel
-    let panel: RecordingPanel
-
-    var body: some View {
-        RecordingPill(status: status, title: title, warning: recorder.warning, meter: recorder.meter,
-                      open: openMeeting,
-                      stop: recorder.stop,
-                      dismiss: recorder.dismissNotice,
-                      drag: { panel.drag($0) },
-                      hoverChanged: { panel.hoverChanged($0) })
-    }
-
-    private func openMeeting() {
-        if let id = recorder.meetingID, model.meetings.contains(where: { $0.id == id }) { model.selection = id }
-        NSApp.activate()
-        if let main = NSApp.windows.first(where: { $0.canBecomeMain && !($0 is NSPanel) }) {
-            main.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    private var status: RecordingPill.Status {
-        if let failure = recorder.recordingFailure { return .failed(failure) }
-        return switch recorder.phase {
-        case let .recording(since): .recording(since: since)
-        case let .failed(reason): .failed(reason)
-        default: .stopping
-        }
-    }
-
-    private var title: String {
-        recorder.meetingID.flatMap { id in model.meetings.first { $0.id == id }?.displayTitle } ?? "Recording"
     }
 }

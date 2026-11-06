@@ -85,7 +85,10 @@ struct ContentView: View {
 
     @ViewBuilder private var latest: some View {
         let recorder = model.recorder
-        if let notice = recorder.notice {
+        if case let .interrupted(_, reason) = recorder.phase {
+            NoticeBanner(message: "\(RecordingWords.audioLost). \(reason)", actionTitle: "Retry",
+                         action: recorder.retryCapture)
+        } else if let notice = recorder.notice {
             NoticeBanner(message: notice.message,
                          actionTitle: notice.retryMeetingID == nil ? nil : "Retry",
                          action: recorder.retry,

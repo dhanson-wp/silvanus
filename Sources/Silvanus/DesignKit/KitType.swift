@@ -8,6 +8,8 @@ enum KitType: String, CaseIterable {
     case rowTitle, rowTitleSelected, settingTitle, button, dayHeading
     case tab, chip, label, section, meta
     case monoTime, monoSmall, dayNumber
+    /// The recording controls and the Meeting detected prompt.
+    case barState, barTime, barNote, promptTitle, promptBody, promptButton
 
     var size: CGFloat {
         switch self {
@@ -18,15 +20,18 @@ enum KitType: String, CaseIterable {
         case .transcript, .rowTitle, .rowTitleSelected, .settingTitle, .button: 14
         case .chip: 12.5
         case .tab, .label, .section, .monoTime: 12
-        case .meta, .monoSmall: 11
+        case .meta, .monoSmall, .barState, .barTime: 11
         case .dayNumber: 28
+        case .promptTitle: 15
+        case .promptBody: 13
+        case .promptButton, .barNote: 12
         }
     }
 
     var weight: Font.Weight {
         switch self {
         case .title, .heading, .dayHeading: .bold
-        case .subheading: .semibold
+        case .subheading, .barState, .promptTitle, .promptButton: .semibold
         case .rowTitleSelected, .settingTitle, .button, .tab: .medium
         default: .regular
         }
@@ -44,8 +49,13 @@ enum KitType: String, CaseIterable {
         case .dayHeading: 19
         case .chip: 15
         case .tab, .label, .section, .monoTime: 14
-        case .meta, .monoSmall: 13
+        case .meta, .monoSmall, .barState, .barTime: 13
         case .dayNumber: 28
+        case .promptTitle: 21
+        case .promptBody: 21
+        case .promptButton: 14
+        // Taller than the face's own line, so it wraps instead of clamping to one line.
+        case .barNote: 16
         }
     }
 
@@ -61,11 +71,15 @@ enum KitType: String, CaseIterable {
 
     var isMonospaced: Bool { self == .monoTime || self == .monoSmall }
 
+    /// The system face with tabular digits, so a running time doesn't jitter.
+    var isTabular: Bool { self == .barTime }
+
     /// The settings list group label is set in capitals.
     var isUppercase: Bool { self == .section }
 
     var font: Font {
-        .system(size: size, weight: weight, design: isMonospaced ? .monospaced : .default)
+        let font = Font.system(size: size, weight: weight, design: isMonospaced ? .monospaced : .default)
+        return isTabular ? font.monospacedDigit() : font
     }
 
     /// The same face for AppKit text (the notes canvas).

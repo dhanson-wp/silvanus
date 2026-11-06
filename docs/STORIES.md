@@ -69,7 +69,7 @@ Acceptance:
 - [snap] The bar shows a red dot, the latest draft line with the speaker side (me or them), the elapsed time, Pause, and Stop.
 - [self] The draft line trails speech by under 3 seconds on this Mac.
 - [snap] In Transcript, draft lines are marked Draft and shown in a muted color.
-- [snap] While recording, a small floating pill (above all apps) shows an animated wave that moves with the audio, the elapsed time, and Stop; clicking the wave brings Silvanus forward. The recording bar uses the same wave.
+- [snap] While recording, the floating recording controls (above all apps) show five level bars that move with the captured audio, the state and captured time, Pause/Resume, and Stop (design/KIT.md "Recording controls").
 UX:
 - Flow: recording runs -> the recording bar shows the latest draft line -> Transcript shows the full draft at the end -> nothing to do
 - Surface: inline (the recording bar at the bottom of the meeting)

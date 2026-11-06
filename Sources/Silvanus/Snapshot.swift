@@ -14,7 +14,7 @@ import SwiftUI
 /// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
 /// notes canvas, "summary" for the Summary view, "transcript" for the Transcript view, "recording" for
-/// the recording states, the pill, and the permissions sheet, "settings" for Settings.
+/// the recording states, the recording controls, the Meeting detected prompt, and the permissions sheet, "settings" for Settings.
 /// "reference-main" (only when asked for by name) writes the reference-main page for the pixel
 /// compare (captureReferenceMain, tools/compare.sh).
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
@@ -268,7 +268,8 @@ enum Snapshot {
     ///   recording-<mode>.png     a seeded meeting recording: Stop with the red square, the live
     ///                            wave on the Transcript tab, timestamps in the notes' margin
     ///   transcribing-<mode>.png  after Stop: "Transcribing…" and its bar in the canvas header
-    ///   pill-<mode>.png          the floating recording pill (recording, stopping, failed)
+    ///   recording-controls-<mode>.png  the recording controls (recording, mic only, paused,
+    ///                            audio lost, quiet, a long call)
     ///   permissions-<mode>.png   the permissions sheet
     @MainActor private static func captureRecording(model: AppModel, to dir: String) async {
         guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
@@ -307,28 +308,27 @@ enum Snapshot {
         model.selection = nil
     }
 
-    /// The pill in its states, and the permissions sheet, drawn straight from the views
-    /// like the brand set: pill-<mode>.png and permissions-<mode>.png.
+    /// The recording controls in their states (recording, mic only, paused, audio lost,
+    /// quiet, a long call), and the permissions sheet, drawn straight from the views like the
+    /// brand set: recording-controls-<mode>.png and permissions-<mode>.png.
     @MainActor private static func renderRecordingParts(since: Date, levels: [Float], to dir: String) {
         let meter = LevelMeter(levels: levels)
         for mode in ["light", "dark"] {
             let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
             NSApp.appearance = appearance
-            let pills = VStack(alignment: .leading, spacing: Space.lg) {
-                RecordingPill(status: .recording(since: since), title: "Acme kickoff", meter: meter, forcedHover: false,
-                              open: {}, stop: {})
-                RecordingPill(status: .recording(since: since), title: "Acme kickoff", meter: meter, forcedHover: true,
-                              open: {}, stop: {})
-                RecordingPill(status: .recording(since: since), title: "Acme kickoff", warning: Recorder.silentCall,
-                              meter: meter, forcedHover: false, open: {}, stop: {})
-                RecordingPill(status: .stopping, title: "Acme kickoff", meter: meter, forcedHover: false, open: {}, stop: {})
-                RecordingPill(status: .failed("Couldn't write audio: The disk is full."), title: "Acme kickoff", meter: meter,
-                              forcedHover: false, open: {}, stop: {}, dismiss: {})
+            let controls = VStack(alignment: .leading, spacing: Space.lg) {
+                RecordingControls(status: .recording(since: since), meter: meter)
+                RecordingControls(status: .recording(since: since), callAudioDown: "The call audio device stopped.",
+                                  meter: meter)
+                RecordingControls(status: .paused(elapsed: 754), meter: meter)
+                RecordingControls(status: .lost(elapsed: 754, reason: "Couldn't restart the microphone."), meter: meter)
+                RecordingControls(status: .recording(since: since), meter: LevelMeter())
+                RecordingControls(status: .recording(since: Date().addingTimeInterval(-7199)), meter: meter)
             }
             .padding(Space.xxl)
             .background(Ink.background)
             let sheet = PermissionsView(request: .startRecording, start: {}, cancel: {})
-            for (name, view) in [("pill", AnyView(pills)), ("permissions", AnyView(sheet))] {
+            for (name, view) in [("recording-controls", AnyView(controls)), ("permissions", AnyView(sheet))] {
                 let host = NSHostingView(rootView: view)
                 host.appearance = appearance
                 host.frame = NSRect(origin: .zero, size: host.fittingSize)
@@ -433,7 +433,10 @@ enum Snapshot {
         for mode in ["light", "dark"] {
             let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
             NSApp.appearance = appearance
-            let host = NSHostingView(rootView: MeetingPrompt(start: {}, dismiss: {})
+            let host = NSHostingView(rootView: VStack(alignment: .leading, spacing: Space.lg) {
+                MeetingPrompt(appName: "Callbox", record: {}, notNow: {})
+                MeetingPrompt(appName: nil, record: {}, notNow: {})
+            }
                 .padding(Space.xxl)
                 .background(Ink.background))
             host.appearance = appearance

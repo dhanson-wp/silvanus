@@ -2,10 +2,22 @@ import Foundation
 
 /// Where the recorder is. One recording at a time; a finished recording's transcription
 /// can go on behind the next one (a back-to-back call).
+///
+/// A recording under way is `recording`, `paused`, or `interrupted`. Its time is captured
+/// time: pauses and interruptions don't count, so it matches the saved audio, the
+/// transcript, and the notes' margin times.
 public enum RecorderPhase: Equatable, Sendable {
     case idle
     case starting
+    /// Capturing. `since` is the clock origin: the captured time is now − `since`. At the
+    /// start it's when the recording started; each Resume or Retry moves it later by the
+    /// time that wasn't captured.
     case recording(since: Date)
+    /// Pause: both tracks drop what they hear; `elapsed` is the captured time, held.
+    case paused(elapsed: TimeInterval)
+    /// A required track stopped (the microphone): nothing is saved until Retry works.
+    /// `elapsed` is the captured time, held; `reason` says what stopped.
+    case interrupted(elapsed: TimeInterval, reason: String)
     case stopping
     case transcribing(progress: Double)
     case failed(String)
@@ -17,7 +29,15 @@ public enum RecorderEvent: Equatable, Sendable {
     case start
     /// The captures are running.
     case started(Date)
-    /// Stop.
+    /// Pause, at a moment.
+    case pause(Date)
+    /// Resume after Pause, at a moment.
+    case resume(Date)
+    /// A required track's capture failed, at a moment.
+    case interrupt(Date, String)
+    /// Retry worked: the track captures again, at a moment.
+    case recovered(Date)
+    /// Stop. Allowed while recording, paused, or interrupted.
     case stop
     /// The captures and files are closed; transcription begins.
     case stopped
@@ -39,13 +59,36 @@ public struct RecorderState: Equatable, Sendable {
         self.phase = phase
     }
 
+    /// True while a recording is under way: capturing, paused, or interrupted. The menu bar,
+    /// ⌘Q, and Move to Trash treat all three alike.
     public var isRecording: Bool {
+        switch phase {
+        case .recording, .paused, .interrupted: true
+        default: false
+        }
+    }
+
+    /// True only while audio is being saved.
+    public var isCapturing: Bool {
         if case .recording = phase { true } else { false }
     }
 
-    /// When the recording started, while it records.
-    public var since: Date? {
-        if case let .recording(since) = phase { since } else { nil }
+    public var isPaused: Bool {
+        if case .paused = phase { true } else { false }
+    }
+
+    public var isInterrupted: Bool {
+        if case .interrupted = phase { true } else { false }
+    }
+
+    /// The captured time at `date` while a recording is under way, else nil. Held while
+    /// paused or interrupted.
+    public func elapsed(at date: Date) -> TimeInterval? {
+        switch phase {
+        case let .recording(since): max(0, date.timeIntervalSince(since))
+        case let .paused(elapsed), let .interrupted(elapsed, _): elapsed
+        default: nil
+        }
     }
 
     /// Applies an event; false when it doesn't fit the phase (the phase stays).
@@ -55,7 +98,15 @@ public struct RecorderState: Equatable, Sendable {
         // Start while recording (or getting there, or wrapping up) is refused.
         case (.idle, .start), (.transcribing, .start), (.failed, .start): .starting
         case let (.starting, .started(date)): .recording(since: date)
-        case (.recording, .stop): .stopping
+        case let (.recording(since), .pause(date)): .paused(elapsed: max(0, date.timeIntervalSince(since)))
+        case let (.paused(elapsed), .resume(date)): .recording(since: date.addingTimeInterval(-elapsed))
+        case let (.recording(since), .interrupt(date, reason)):
+            .interrupted(elapsed: max(0, date.timeIntervalSince(since)), reason: reason)
+        // A track can fail while paused (a device unplugged): Resume would only lie.
+        case let (.paused(elapsed), .interrupt(_, reason)), let (.interrupted(elapsed, _), .interrupt(_, reason)):
+            .interrupted(elapsed: elapsed, reason: reason)
+        case let (.interrupted(elapsed, _), .recovered(date)): .recording(since: date.addingTimeInterval(-elapsed))
+        case (.recording, .stop), (.paused, .stop), (.interrupted, .stop): .stopping
         case (.stopping, .stopped): .transcribing(progress: 0)
         case let (.transcribing, .progress(p)): .transcribing(progress: min(1, max(0, p)))
         case (.transcribing, .finished): .idle
@@ -69,15 +120,8 @@ public struct RecorderState: Equatable, Sendable {
         return true
     }
 
-    /// The floating recording pill shows while a meeting records (or is stopping) and the
-    /// main window isn't the key window.
-    public func showsPill(mainWindowIsKey: Bool) -> Bool {
-        guard !mainWindowIsKey else { return false }
-        return switch phase {
-        case .recording, .stopping: true
-        default: false
-        }
-    }
+    /// The recording controls show for the whole recording, whichever app is in front.
+    public var showsControls: Bool { isRecording }
 }
 
 /// The rules around starting a recording and finding one cut off by a quit or crash.

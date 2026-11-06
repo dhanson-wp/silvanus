@@ -36,12 +36,16 @@ final class AppModel {
     let library: MeetingLibrary
     /// Recording and the after-call pass (Recorder.swift).
     let recorder: Recorder
-    /// The floating recording pill's window, made once per process.
-    @ObservationIgnored private(set) var pill: RecordingPanel?
+    /// The recording controls' window, made once per process.
+    @ObservationIgnored private(set) var controls: RecordingPanel?
     /// Notices a meeting starting (CallDetector.swift), made once per process.
     @ObservationIgnored private(set) var detector: CallDetector?
     /// The "Meeting detected" prompt's window.
     @ObservationIgnored private(set) var meetingPrompt: MeetingPromptPanel?
+    /// A call the detector noticed while Silvanus wasn't recording, until it ends or a
+    /// recording starts. The menu bar's Record Meeting stays while it waits, so the prompt's
+    /// offer is still there after Not now.
+    var detectedCall: DetectedCall?
     /// Every meeting on disk, newest first. Setting it rebuilds the sidebar's folders and days.
     var meetings: [Meeting] = [] {
         didSet {
@@ -150,7 +154,10 @@ final class AppModel {
     var promptOnMeeting: Bool = AppDefaults.promptOnMeeting {
         didSet {
             AppDefaults.promptOnMeeting = promptOnMeeting
-            if !promptOnMeeting { meetingPrompt?.hide() }
+            if !promptOnMeeting {
+                meetingPrompt?.hide()
+                detectedCall = nil
+            }
         }
     }
 }
@@ -158,13 +165,13 @@ final class AppModel {
 extension AppModel {
     @ObservationIgnored private static var servicesStarted = false
 
-    /// Once per process, when the app's model is made: the recording pill's window, and the
+    /// Once per process, when the app's model is made: the recording controls' window, and the
     /// launch pass that finishes recordings cut off by a quit or crash (not in checks or
     /// snapshots, which drive the recorder themselves).
     func startRecordingServices() {
         guard !Self.servicesStarted else { return }
         Self.servicesStarted = true
-        pill = RecordingPanel(recorder: recorder, model: self)
+        controls = RecordingPanel(recorder: recorder, model: self)
         meetingPrompt = MeetingPromptPanel(model: self)
         detector = makeDetector()
         if !SelfTest.requested && !Snapshot.requested {
@@ -174,14 +181,40 @@ extension AppModel {
         }
     }
 
-    /// A call detector wired to this model: a meeting start shows the prompt, and each poll
-    /// tells the recorder whether a call app runs.
+    /// A call detector wired to this model: a meeting start shows the prompt (and the menu
+    /// bar's Record Meeting), the call's end takes both away, and each poll tells the
+    /// recorder whether a call app runs.
     func makeDetector(probe: CallDetector.Probe = .live) -> CallDetector {
         let detector = CallDetector(probe: probe, isRecording: { [weak self] in self?.recorder.isRecording ?? false },
                                     isEnabled: { [weak self] in self?.promptOnMeeting ?? false })
-        detector.meetingStarted = { [weak self] in self?.meetingPrompt?.show() }
+        detector.meetingStarted = { [weak self] appName in self?.callDetected(appName: appName) }
+        detector.meetingEnded = { [weak self] in self?.callEnded() }
         detector.callAppsChanged = { [weak self] running in self?.recorder.callAppRunning = running }
         return detector
+    }
+
+    /// A call started while Silvanus isn't recording: offer to record it, once.
+    func callDetected(appName: String?) {
+        guard !recorder.isRecording else { return }
+        detectedCall = DetectedCall(appName: appName)
+        meetingPrompt?.show(appName: appName)
+    }
+
+    /// The call ended: a prompt still up is stale.
+    func callEnded() {
+        detectedCall = nil
+        meetingPrompt?.hide()
+    }
+
+    /// The prompt's Record meeting and the menu bar's Record Meeting: records like ⇧⌘R,
+    /// after checking that it can (the permissions sheet opens in the main window if not).
+    func recordDetectedCall() {
+        meetingPrompt?.hide()
+        record(.startRecording)
+        if permissionsRequest != nil {
+            NSApp.activate()
+            NSApp.windows.first { $0.canBecomeMain && !($0 is NSPanel) }?.makeKeyAndOrderFront(nil)
+        }
     }
 
     /// Seeds when asked (scratch stores only), then reads the meetings from disk.
@@ -370,6 +403,7 @@ extension AppModel {
         do {
             try recorder.start(into: request == .quickNote ? nil : recordingTarget, quickNote: request == .quickNote)
             meetingPrompt?.hide()
+            detectedCall = nil
         } catch {
             print("RECORDER couldn't start: \(error.localizedDescription)")
         }
@@ -394,6 +428,11 @@ extension AppModel {
         guard meeting.info != meetings[index].info, (try? library.saveInfo(meeting)) != nil else { return }
         meetings[index] = meeting
     }
+}
+
+/// A call waiting to be recorded: the app using the microphone, when detection can name it.
+struct DetectedCall: Equatable {
+    var appName: String?
 }
 
 /// What the permissions sheet starts once access is given.

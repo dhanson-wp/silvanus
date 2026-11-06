@@ -123,6 +123,12 @@ struct KitGallery: View {
         case .monoTime: "09:30"
         case .monoSmall: "00:00 / 00:55"
         case .dayNumber: "5"
+        case .barState: "Recording"
+        case .barTime: "12:34 elapsed"
+        case .barNote: "Audio isn't being saved."
+        case .promptTitle: "Meeting detected"
+        case .promptBody: "Start recording this meeting?"
+        case .promptButton: "Record meeting"
         }
     }
 }
