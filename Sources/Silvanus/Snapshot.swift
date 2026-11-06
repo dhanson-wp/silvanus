@@ -14,6 +14,8 @@ enum Snapshot {
     static func runIfRequested(model: AppModel, openSettings: OpenSettingsAction) {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["APP_SNAPSHOT"], !dir.isEmpty else { return }
+        // The editor spike takes its own snapshots (runEditorSpikeIfRequested).
+        if EditorSpike.enabled { return }
         // Snapshots never run against the real meetings folder.
         guard Store.isOverridden else {
             print("SNAPSHOT refused: set APP_STORE to a folder in /tmp")
@@ -22,13 +24,7 @@ enum Snapshot {
         }
         let only = env["APP_SNAPSHOT_PAGES"].map { Set($0.split(separator: ",").map(String.init)) }
         Task {
-            // A sleeping display gives screencapture nothing. Declaring user
-            // activity wakes it; the assertion keeps it on until the run quits.
-            var activity: IOPMAssertionID = 0
-            IOPMAssertionDeclareUserActivity("Snapshots" as CFString, kIOPMUserActiveLocal, &activity)
-            var awake: IOPMAssertionID = 0
-            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
-                                        IOPMAssertionLevel(kIOPMAssertionLevelOn), "Snapshots" as CFString, &awake)
+            keepDisplayAwake()
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             try? await Task.sleep(for: .seconds(1.5))
             for mode in ["light", "dark"] {
@@ -56,6 +52,76 @@ enum Snapshot {
             print("SNAPSHOT done \(dir)")
             // An open sheet refuses terminate, and the run would wait forever.
             for window in NSApp.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// A sleeping display gives screencapture nothing. Declaring user
+    /// activity wakes it; the assertion keeps it on until the run quits.
+    private static func keepDisplayAwake() {
+        var activity: IOPMAssertionID = 0
+        IOPMAssertionDeclareUserActivity("Snapshots" as CFString, kIOPMUserActiveLocal, &activity)
+        var awake: IOPMAssertionID = 0
+        IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                                    IOPMAssertionLevel(kIOPMAssertionLevelOn), "Snapshots" as CFString, &awake)
+    }
+
+    /// The editor spike (APP_EDITOR_SPIKE=1): editor-heading-<mode>.png with the
+    /// caret on the H1 (its markers shown, the others faded), editor-plain-<mode>.png
+    /// with the caret on a plain line (every marker faded), and editor-find-<mode>.png
+    /// with the find bar open. Prints whether TextKit 2 stayed on, then quits.
+    static func runEditorSpikeIfRequested() {
+        let env = ProcessInfo.processInfo.environment
+        guard let dir = env["APP_SNAPSHOT"], !dir.isEmpty else { return }
+        guard Store.isOverridden else {
+            print("SNAPSHOT refused: set APP_STORE to a folder in /tmp")
+            NSApp.terminate(nil)
+            return
+        }
+        Task {
+            keepDisplayAwake()
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let window = EditorSpike.window, let view = EditorSpike.textView else {
+                print("SNAPSHOT no editor window")
+                NSApp.terminate(nil)
+                return
+            }
+            print("SNAPSHOT TextKit 2 after setup: \(view.isTextKit2)")
+            let text = view.string as NSString
+            let heading = 5
+            let plain = text.range(of: "Plain closing line").location + 6
+            for mode in ["light", "dark"] {
+                NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+                window.makeFirstResponder(view)
+                for (name, caret) in [("heading", heading), ("plain", plain)] {
+                    view.setSelectedRange(NSRange(location: caret, length: 0))
+                    view.scrollRangeToVisible(view.selectedRange())
+                    try? await Task.sleep(for: .seconds(0.6))
+                    capture(to: "\(dir)/editor-\(name)-\(mode).png", window: window)
+                }
+            }
+            // The find bar, searching for a name, then the TextKit 2 check.
+            let item = NSMenuItem()
+            let first = text.range(of: "Priya")
+            let second = text.range(of: "Priya", range: NSRange(location: NSMaxRange(first), length: text.length - NSMaxRange(first)))
+            for mode in ["light", "dark"] {
+                NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+                view.setSelectedRange(first)
+                for action in [NSTextFinder.Action.showFindInterface, .setSearchString] {
+                    item.tag = Int(action.rawValue)
+                    view.performTextFinderAction(item)
+                }
+                try? await Task.sleep(for: .seconds(0.4))
+                item.tag = Int(NSTextFinder.Action.nextMatch.rawValue)
+                view.performTextFinderAction(item)
+                try? await Task.sleep(for: .seconds(0.6))
+                let found = view.selectedRange()
+                print("SNAPSHOT find next match: \(found == second ? "PASS" : "FAIL") (selected \(found), expected \(second))")
+                capture(to: "\(dir)/editor-find-\(mode).png", window: window)
+            }
+            print("SNAPSHOT TextKit 2 after find: \(view.isTextKit2)")
+            print("SNAPSHOT done \(dir)")
             NSApp.terminate(nil)
         }
     }

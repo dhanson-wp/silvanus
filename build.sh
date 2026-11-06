@@ -1,5 +1,6 @@
 #!/bin/zsh
-# Builds Silvanus into the dev bundle ~/Library/Developer/Silvanus/Silvanus.app.
+# Builds Silvanus into the dev bundle ~/Library/Developer/Silvanus/Silvanus.app
+# (SILVANUS_DEV_DIR moves it, so a second checkout can build side by side).
 # Build products live in ~/Library/Developer/Silvanus, outside the repo
 # (and outside Dropbox or iCloud, which would try to sync them).
 # A plain build never touches ~/Applications.
@@ -14,7 +15,7 @@
 set -euo pipefail
 here=${0:A:h}
 name="Silvanus"
-dev="$HOME/Library/Developer/$name"
+dev="${SILVANUS_DEV_DIR:-$HOME/Library/Developer/$name}"
 scratch="$dev/build"
 config=release
 install=0

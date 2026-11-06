@@ -8,6 +8,8 @@ import SwiftUI
 //   Silvanus --selftest           run the self-test on a /tmp folder and quit with 0 or 1 (tools/selftest.sh)
 //   APP_ACCENT=<id> Silvanus      run with another accent from Theme.all (UI/Theme.swift)
 //   APP_GRID=1 Silvanus           draw the 8 pt grid and the layout probes over the window
+//   APP_EDITOR_SPIKE=1 Silvanus   open the native editor spike (Editor/EditorSpikeWindow.swift);
+//                                 APP_EDITOR_CHECK=1 and APP_EDITOR_BENCH=1 run its checks and benchmark headless
 // Test runs read and write their own defaults (AppDefaults.swift).
 
 @main
@@ -40,10 +42,16 @@ struct SilvanusApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // The editor's checks and benchmark run before any window opens, then quit.
+        if let code = EditorSpike.runHeadlessIfRequested() { exit(code) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Started from a terminal, the process is not a foreground app yet.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
+        EditorSpike.openIfRequested()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
