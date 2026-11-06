@@ -1,0 +1,36 @@
+# Build output
+.build/
+DerivedData/
+*.xcuserstate
+.swiftpm/
+Resources/AppIcon.icns
+Resources/Assets.car
+
+# Reference screenshots of other apps stay local
+design/reference/
+
+# Audio and meeting data never go in the repo
+*.caf
+*.wav
+*.m4a
+*.mp3
+*.aac
+
+# Snapshots, logs, scratch
+snapshots/
+*.log
+.DS_Store
+.claude/
+scratch/
+tmp/
+
+# Secrets and signing material
+.env*
+*.p12
+*.cer
+*.pem
+*.key
+*.mobileprovision
+*.xcodeproj/
+xcuserdata/
+/shots/
