@@ -35,7 +35,10 @@ public enum GranolaImport {
                            writeTranscript: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) })
         -> GranolaImportResult {
         var result = GranolaImportResult()
-        var known = Set(library.loadAll().meetings.compactMap(\.info.granolaID))
+        // Both a note's own id and its UUID, so a gap note and the API note for the
+        // same meeting are never imported twice, in either order or across runs.
+        var known = Set(library.loadAll().meetings.flatMap { [$0.info.granolaID, $0.info.granolaUUID] }
+            .compactMap { $0?.lowercased() })
         let folders = FolderIndex(files: [archive.appending(path: "folders.json"),
                                           archive.appending(path: "mcp-folders.json")])
         func jsonFiles(_ sub: String) -> [URL] {
@@ -51,8 +54,6 @@ public enum GranolaImport {
         }
         let gaps = jsonFiles("mcp-gaps").sorted { $0.lastPathComponent < $1.lastPathComponent }
         let files = raw.map { ($0, false) } + gaps.map { ($0, true) }
-        // UUIDs of notes already seen in raw/, so a gap file for the same meeting is skipped.
-        var seenUUIDs = Set<String>()
 
         for (file, isGap) in files {
             let name = file.lastPathComponent
@@ -61,13 +62,11 @@ public enum GranolaImport {
                 result.failures.append(.init(file: name, reason: describe(error)))
                 continue
             }
-            if isGap ? (known.contains(note.id) || seenUUIDs.contains(note.id.lowercased()))
-                     : known.contains(note.id) {
-                if !isGap, let u = note.uuid { seenUUIDs.insert(u) }
+            let keys = [note.id.lowercased(), note.uuid?.lowercased()].compactMap { $0 }
+            if keys.contains(where: known.contains) {
                 result.skipped += 1
                 continue
             }
-            if !isGap, let u = note.uuid { seenUUIDs.insert(u) }
             let (meeting, transcript) = note.meeting(me: me, folder: folders.name(for: note), now: now)
             do {
                 let folder = try library.save(meeting)
@@ -75,7 +74,7 @@ public enum GranolaImport {
                     try writeTranscript(try MeetingInfo.encoder().encode(transcript),
                                         folder.appending(path: MeetingFolder.transcriptJSON))
                 }
-                known.insert(note.id)
+                known.formUnion(keys)
                 result.imported += 1
             } catch {
                 // Leave nothing behind, so a re-run imports it fresh.
@@ -135,10 +134,14 @@ struct RawNote {
     let privateNotes: String
     let summary: String
     let segments: [Segment]
-    /// Gap notes carry a ready-made transcript with times counted from the start.
-    var lines: [TranscriptLine]?
-    /// The one remote speaker's name in a gap note's 1:1, else nil.
-    var themName: String?
+    /// Gap notes carry their transcript as parsed lines (times from the start), sorted by time.
+    var gapLines: [GapLine]?
+
+    struct GapLine {
+        var stamp: TimeInterval
+        var speaker: String
+        var text: String
+    }
 
     struct Segment {
         var text: String
@@ -223,9 +226,8 @@ struct RawNote {
         summary = (note["summary"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         segments = []
         let parsed = Self.parseTranscript(note["transcript"] as? String ?? "")
-        lines = parsed.lines
-        themName = parsed.themName
-        end = parsed.lastStamp.map { start.addingTimeInterval($0) }
+        gapLines = parsed
+        end = parsed.last.map { start.addingTimeInterval($0.stamp) }
     }
 
     /// "Sam Rivera, Priya Natarajan and Jordan Lee" to three names.
@@ -233,24 +235,44 @@ struct RawNote {
         text.replacingOccurrences(of: " and ", with: ",")
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .map { $0.hasPrefix("and ") ? String($0.dropFirst(4)).trimmingCharacters(in: .whitespaces) : $0 }
             .filter { !$0.isEmpty }
     }
 
     private static let genericSpeakers: Set<String> = ["them", "system audio", "system", "speaker", "unknown", "remote", "other"]
+    private static let stampPattern = try! NSRegularExpression(pattern: #"^\[(\d+):(\d{2})(?::(\d{2}))?\]\s*(.*)$"#)
 
-    /// Reads `[m:ss] Speaker: text` lines (`[h:mm:ss]` past an hour). A line
-    /// with no timestamp continues the one before it.
-    static func parseTranscript(_ text: String) -> (lines: [TranscriptLine], themName: String?, lastStamp: TimeInterval?) {
-        struct Raw { var stamp: TimeInterval; var speaker: String; var text: String }
-        var raws: [Raw] = []
-        let pattern = try! NSRegularExpression(pattern: #"^\[(\d+):(\d{2})(?::(\d{2}))?\]\s*(.*)$"#)
+    /// Splits "Speaker: text" at the first ": " outside parentheses. A bare
+    /// "Me:" or "Microphone:" with nothing after it is a speaker with no text yet.
+    static func splitSpeaker(_ rest: String) -> (speaker: String, text: String) {
+        var depth = 0
+        var i = rest.startIndex
+        while i < rest.endIndex {
+            let c = rest[i]
+            if c == "(" || c == "[" { depth += 1 } else if c == ")" || c == "]" { depth = max(0, depth - 1) }
+            else if c == ":", depth == 0 {
+                let next = rest.index(after: i)
+                if next == rest.endIndex || rest[next] == " " {
+                    return (String(rest[..<i]).trimmingCharacters(in: .whitespaces),
+                            String(rest[next...]).trimmingCharacters(in: .whitespaces))
+                }
+            }
+            i = rest.index(after: i)
+        }
+        return ("", rest)
+    }
+
+    /// Reads `[m:ss] Speaker: text` lines (`[h:mm:ss]` past an hour), sorted by
+    /// time (ties keep their order). A line with no timestamp continues the one
+    /// before it; before any timestamp it becomes a speakerless line at 0.
+    static func parseTranscript(_ text: String) -> [GapLine] {
+        var raws: [GapLine] = []
         for lineText in text.split(whereSeparator: \.isNewline) {
             let line = lineText.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
             let ns = line as NSString
-            guard let m = pattern.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else {
-                if !raws.isEmpty { raws[raws.count - 1].text += " " + line }
+            guard let m = stampPattern.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else {
+                if raws.isEmpty { raws.append(GapLine(stamp: 0, speaker: "", text: line)) }
+                else { raws[raws.count - 1].text += raws[raws.count - 1].text.isEmpty ? line : " " + line }
                 continue
             }
             func group(_ i: Int) -> String? {
@@ -258,22 +280,27 @@ struct RawNote {
             }
             let a = Double(group(1) ?? "") ?? 0, b = Double(group(2) ?? "") ?? 0
             let stamp = group(3).map { a * 3600 + b * 60 + (Double($0) ?? 0) } ?? (a * 60 + b)
-            let rest = group(4) ?? ""
-            if let colon = rest.range(of: ": ") {
-                raws.append(Raw(stamp: stamp, speaker: String(rest[..<colon.lowerBound]).trimmingCharacters(in: .whitespaces),
-                                text: String(rest[colon.upperBound...])))
-            } else {
-                raws.append(Raw(stamp: stamp, speaker: "", text: rest))
-            }
+            let (speaker, body) = splitSpeaker(group(4) ?? "")
+            raws.append(GapLine(stamp: stamp, speaker: speaker, text: body))
         }
+        return raws.enumerated()
+            .sorted { $0.element.stamp != $1.element.stamp ? $0.element.stamp < $1.element.stamp : $0.offset < $1.offset }
+            .map(\.element)
+    }
+
+    /// Turns parsed gap lines into transcript lines. The mic side is "Microphone",
+    /// "Me", or the user's own name (`me`). The other side's name is kept only
+    /// when every line from it has the same single, non-generic name.
+    static func transcriptLines(_ raws: [GapLine], me: String) -> (lines: [TranscriptLine], themName: String?) {
+        let mine = me.trimmingCharacters(in: .whitespaces).lowercased()
         var lines: [TranscriptLine] = []
         var themNames = Set<String>()
         for (i, r) in raws.enumerated() {
             let speaker = r.speaker.lowercased()
-            let isMe = speaker == "microphone" || speaker == "me"
+            let isMe = speaker == "microphone" || speaker == "me" || (!mine.isEmpty && speaker == mine)
             let count = r.text.split(whereSeparator: \.isWhitespace).count
             guard count > 0 else { continue }
-            let end = i + 1 < raws.count ? raws[i + 1].stamp : r.stamp + Double(count) / 8 * 3
+            let end = max(i + 1 < raws.count ? raws[i + 1].stamp : r.stamp + Double(count) / 8 * 3, r.stamp)
             lines.append(TranscriptLine(side: isMe ? .me : .them,
                                         words: GranolaImport.words(r.text, start: r.stamp, end: end)))
             if !isMe { themNames.insert(r.speaker) }
@@ -282,14 +309,15 @@ struct RawNote {
         if themNames.count == 1, let n = themNames.first, !n.isEmpty, !genericSpeakers.contains(n.lowercased()) {
             themName = n
         }
-        return (lines, themName, raws.last?.stamp)
+        return (lines, themName)
     }
 
     /// The meeting, and its transcript when there is anything to say.
     func meeting(me: String, folder: String?, now: Date) -> (Meeting, Transcript?) {
-        if let lines {
+        if let gapLines {
+            let (lines, themName) = Self.transcriptLines(gapLines, me: me)
             let transcript = lines.isEmpty ? nil : Transcript(lines: lines, engine: "granola", processedAt: now)
-            return (build(me: me, folder: folder, transcript: transcript), transcript)
+            return (build(me: me, them: themName, folder: folder, transcript: transcript), transcript)
         }
         // Segment times are absolute; the transcript counts from the first one.
         let t0 = segments.compactMap(\.start).min()
@@ -305,14 +333,14 @@ struct RawNote {
         }
         lines = lines.enumerated().sorted { $0.element.start != $1.element.start ? $0.element.start < $1.element.start : $0.offset < $1.offset }.map(\.element)
         let transcript = lines.isEmpty ? nil : Transcript(lines: lines, engine: "granola", processedAt: now)
-        return (build(me: me, folder: folder, transcript: transcript), transcript)
+        return (build(me: me, them: nil, folder: folder, transcript: transcript), transcript)
     }
 
-    private func build(me: String, folder: String?, transcript: Transcript?) -> Meeting {
+    private func build(me: String, them themName: String?, folder: String?, transcript: Transcript?) -> Meeting {
         let them = themName ?? "Them"
         let info = MeetingInfo(
             title: title, start: start, end: end, attendees: attendees,
-            folder: folderNames.first ?? folder, source: "granola", granolaID: id,
+            folder: folderNames.first ?? folder, source: "granola", granolaID: id, granolaUUID: uuid?.lowercased(),
             speakers: ["me": me, "them": them])
         let summaryText = summary.isEmpty ? "" : "\(GranolaImport.importedSummaryHeading)\n\n\(summary)\n"
         return Meeting(info: info, notes: privateNotes, summary: summaryText,

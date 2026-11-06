@@ -298,7 +298,7 @@ func gapNamedOneToOne() throws {
     let m = try #require(byTitle["Acme renewal call"])
     #expect(m.info.speakers == ["me": "Sam Rivera", "them": "Jordan Lee"])
     #expect(m.transcriptMarkdown.contains("**Jordan Lee:** Glad to."))
-    #expect(m.transcriptMarkdown.contains("[1:02:10]") || m.transcriptMarkdown.contains("62:10"))
+    #expect(m.transcriptMarkdown.contains("[1:02:10] **Jordan Lee:** One more thing about pricing"))
 }
 
 @Test("Generic or mixed them speakers fall back to Them")
@@ -374,4 +374,100 @@ func gapFailures() throws {
     #expect(result.failed == ["a.json", "b.json"])
     #expect(result.failures[0].reason.hasPrefix("no uuid"))
     #expect(result.failures[1].reason.hasPrefix("no start time"))
+}
+
+// MARK: - Never import a meeting twice; parser edge cases
+
+private func gapArchive(_ transcripts: [String: String]) throws -> URL {
+    let dir = scratch()
+    let gaps = dir.appending(path: "mcp-gaps")
+    try FileManager.default.createDirectory(at: gaps, withIntermediateDirectories: true)
+    for (uuid, transcript) in transcripts {
+        let body = ["uuid": uuid, "title": "T \(uuid)", "meeting_at": "2026-03-04T10:30:00.000-06:00",
+                    "attendees": [] as [String], "transcript": transcript] as [String: Any]
+        try JSONSerialization.data(withJSONObject: body).write(to: gaps.appending(path: "\(uuid).json"))
+    }
+    return dir
+}
+
+private func apiArchive() throws -> URL {
+    let dir = scratch()
+    try FileManager.default.createDirectory(at: dir.appending(path: "raw"), withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: archive.appending(path: "raw/not_GlobexWeekly0002.json"),
+                                     to: dir.appending(path: "raw/not_GlobexWeekly0002.json"))
+    return dir
+}
+
+private let globexUUID = "11111111-2222-4333-8444-555555555552"
+
+@Test("A gap imported first, then the API note with the same UUID in a later run, imports once")
+func gapThenAPI() throws {
+    let lib = library(scratch())
+    let gap = try gapArchive([globexUUID.uppercased(): ""])
+    #expect(runGranola(gap, lib) == GranolaImportResult(imported: 1, skipped: 0))
+    let m = try #require(lib.loadAll().meetings.first)
+    #expect(m.info.granolaUUID == globexUUID)
+    #expect(runGranola(try apiArchive(), library(lib.root)) == GranolaImportResult(imported: 0, skipped: 1))
+    #expect(lib.loadAll().meetings.count == 1)
+}
+
+@Test("An API note imported first, then a gap with the same UUID in a later run, imports once")
+func apiThenGap() throws {
+    let lib = library(scratch())
+    #expect(runGranola(try apiArchive(), lib) == GranolaImportResult(imported: 1, skipped: 0))
+    #expect(try #require(lib.loadAll().meetings.first).info.granolaUUID == globexUUID)
+    #expect(runGranola(try gapArchive([globexUUID: ""]), library(lib.root)) == GranolaImportResult(imported: 0, skipped: 1))
+    #expect(lib.loadAll().meetings.count == 1)
+}
+
+private func runGranola(_ dir: URL, _ lib: MeetingLibrary, me: String = "Me") -> GranolaImportResult {
+    GranolaImport.run(archive: dir, library: lib, me: me)
+}
+
+private func gapTranscript(_ text: String, me: String = "Me") throws -> (Meeting, Transcript?) {
+    let lib = library(scratch())
+    _ = GranolaImport.run(archive: try gapArchive(["g1": text]), library: lib, me: me)
+    let m = try #require(lib.loadAll().meetings.first)
+    let folder = try #require(lib.folderURL(for: m.id))
+    let data = try? Data(contentsOf: folder.appending(path: "transcript.json"))
+    return (m, data.flatMap { try? MeetingInfo.decoder().decode(Transcript.self, from: $0) })
+}
+
+@Test("The user's own name in a gap transcript is the me side, case-insensitively")
+func gapOwnName() throws {
+    let (m, t) = try gapTranscript("[0:01] sam rivera: hello there\n[0:04] Jordan Lee: hi", me: "Sam Rivera")
+    #expect(try #require(t).lines.map(\.side) == [.me, .them])
+    #expect(m.info.speakers == ["me": "Sam Rivera", "them": "Jordan Lee"])
+}
+
+@Test("A leading untimestamped line becomes a line at 0 and a continuation joins the line before")
+func gapLeadingAndContinuation() throws {
+    let (_, t) = try gapTranscript("Preamble words\n[0:05] Jordan Lee: first part\nsecond part\n[0:09] Me: end")
+    let lines = try #require(t).lines
+    #expect(lines.map(\.text) == ["Preamble words", "first part second part", "end"])
+    #expect(lines[0].start == 0 && lines[0].side == .them)
+}
+
+@Test("Me: or Microphone: with nothing after it is a speaker line that a continuation fills")
+func gapEmptySpeakerText() throws {
+    let (_, t) = try gapTranscript("[0:01] Microphone:\nhello from the mic\n[0:05] Jordan Lee: hi")
+    let lines = try #require(t).lines
+    #expect(lines.map(\.side) == [.me, .them])
+    #expect(lines[0].text == "hello from the mic")
+}
+
+@Test("Out-of-order stamps are sorted before times are spread")
+func gapOutOfOrder() throws {
+    let (_, t) = try gapTranscript("[0:10] Jordan Lee: later words\n[0:02] Me: earlier words here")
+    let lines = try #require(t).lines
+    #expect(lines.map(\.text) == ["earlier words here", "later words"])
+    #expect(lines[0].end == 10 && lines.allSatisfy { $0.end >= $0.start })
+}
+
+@Test("CRLF line endings, a colon in a speaker name, and a stamp inside the text")
+func gapOddText() throws {
+    let (m, t) = try gapTranscript("[0:01] Jordan Lee (Acme: Sales): Agenda: see [1:23] on the deck\r\n[0:09] Me: ok\r\n")
+    let lines = try #require(t).lines
+    #expect(lines.map(\.text) == ["Agenda: see [1:23] on the deck", "ok"])
+    #expect(m.info.speakers["them"] == "Jordan Lee (Acme: Sales)")
 }
