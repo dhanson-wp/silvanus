@@ -44,8 +44,10 @@ final class AppModel {
     /// Folders that hold no readable meeting.json.
     var unreadable: [URL] = []
     var sidebar: SidebarItem? = .all
-    /// The selected meeting's id.
-    var selection: String?
+    /// The selected meeting's id. A header request waiting for the old meeting is dropped.
+    var selection: String? {
+        didSet { if selection != oldValue { headerRequest = nil } }
+    }
     /// The sidebar folder the meeting list shows; nil is All meetings.
     var folder: String? {
         didSet { if folder != oldValue { regroup() } }

@@ -250,13 +250,15 @@ enum SelfTest {
               "\(rename?.title ?? "missing"), \(attendees?.title ?? "missing"), \(move?.title ?? "missing")")
         // Each Meeting item works from Transcript, where the header isn't on screen yet: the
         // request waits for the header to mount, and the header acts on it.
-        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        let mainWindow = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet })
+        check("the main window is open for the Meeting menu checks", mainWindow != nil, "no main window")
         let newFolderItem = move?.submenu?.items.first { $0.title == "New Folder…" }
         let cases: [(HeaderRequest, String, NSMenuItem?)] = [
             (.rename, "Rename Meeting…", rename), (.attendees, "Show Attendees", attendees),
             (.newFolder, "Move to Folder > New Folder…", newFolderItem),
         ]
         for (kind, title, item) in cases {
+            guard let main = mainWindow else { break }
             model.canvasMode = .transcript
             try? await Task.sleep(for: .seconds(0.4))
             let handledBefore = model.handledHeaderRequests.count
@@ -279,6 +281,24 @@ enum SelfTest {
             for panel in NSApp.windows where panel.isVisible && panel is NSPanel { panel.close() }
             try? await Task.sleep(for: .seconds(0.4))
         }
+        // A request waiting for the header never carries over to another meeting.
+        let second = Meeting(info: MeetingInfo(title: "Weekly sync", start: Date().addingTimeInterval(-3_600)))
+        _ = try? model.library.save(second)
+        model.meetings.append(second)
+        let other = model.meetings.first { $0.id != model.selection }?.id
+        model.requestRename()
+        let pending = model.headerRequest
+        model.selection = other
+        check("changing the open meeting drops a waiting header request",
+              other != nil && pending == .rename && model.headerRequest == nil,
+              "other \(other ?? "none"), pending \(String(describing: pending)), now \(String(describing: model.headerRequest))")
+        model.selection = id
+        try? model.library.moveToTrash(second.id)
+        model.meetings.removeAll { $0.id == second.id }
+        model.show(.notes)
+        try? await Task.sleep(for: .seconds(0.3))
+        mainWindow?.makeFirstResponder(nil)
+
         // ⌘F stays Edit > Find for the notes canvas; the Search placeholder has no shortcut.
         let find = menuItem(key: "f", modifiers: [.command], in: NSApp.mainMenu)
         let search = meetingMenu?.items.first { $0.title == "Search" }
@@ -316,7 +336,12 @@ enum SelfTest {
         // Review Focus 2: the longest title and folder name at both sizes.
         model.rename(id, to: HeadersGallery.longTitle)
         model.setFolder(id, to: HeadersGallery.longFolder)
-        guard let window = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        guard let window = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else {
+            check("the main window is open for the header layout checks", false, "no main window")
+            try? model.library.moveToTrash(id)
+            model.reload()
+            return
+        }
         let names = ["hideSidebar", "search", "newMeeting", "filter",
                      "headerPill", "headerMic", "headerRecord", "headerMore"]
         // The traffic lights' right edge: the zoom button's center plus its 7 pt radius.
