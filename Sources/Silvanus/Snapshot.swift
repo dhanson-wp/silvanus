@@ -12,7 +12,7 @@ import SwiftUI
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
-/// notes canvas, "settings" for Settings.
+/// notes canvas, "transcript" for the Transcript view, "settings" for Settings.
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
 /// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
 enum Snapshot {
@@ -58,6 +58,9 @@ enum Snapshot {
             }
             if only == nil || only?.contains("canvas") == true {
                 await captureCanvas(model: model, to: dir)
+            }
+            if only == nil || only?.contains("transcript") == true {
+                await captureTranscript(model: model, to: dir)
             }
             if only == nil || only?.contains("settings") == true {
                 // Settings takes the main window, so each pane is the window itself.
@@ -149,6 +152,59 @@ enum Snapshot {
         let other = model.meetings.last?.notes ?? ""
         print("SNAPSHOT canvas after picking another meeting: \(open.count) editor, showing it: \(open.map(\.string) == [other])")
         model.selection = nil
+    }
+
+    /// The Transcript view (⌘3) at 910 × 600:
+    ///   transcript-<mode>.png           the recorded seed meeting, low-confidence words underlined
+    ///   transcript-selected-<mode>.png  after a click on a word: the word filled, its time in the strip
+    ///   transcript-empty-<mode>.png     a meeting with no transcript yet
+    @MainActor private static func captureTranscript(model: AppModel, to dir: String) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        model.sidebar = .all
+        model.sidebarVisible = true
+        main.setContentSize(Metric.windowDefault)
+        let empty = model.meetings.first { $0.id != SeedData.recordedID }?.id
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            // Open the meeting on My notes first, then switch, as ⌘3 does.
+            model.selection = SeedData.recordedID
+            model.show(.notes)
+            try? await Task.sleep(for: .seconds(0.8))
+            model.show(.transcript)
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/transcript-\(mode).png", window: main)
+            // A click on the second block's timestamp (the end of its label row), then on a
+            // word in its first line, found from the block's layout frames.
+            let row = GridProbes.shared.probes["area:transcriptLabel-1"]
+            let text = GridProbes.shared.probes["area:transcriptText-1"]
+            if let row { click(main, at: CGPoint(x: row.x + row.width - Metric.timestampGap, y: row.y + row.height / 2)) }
+            try? await Task.sleep(for: .seconds(0.4))
+            // The second turn starts at 00:14 (SeedData.kickoffTranscript).
+            print("SNAPSHOT transcript timestamp click: \(model.lastSeek == 14 ? "PASS" : "FAIL") (seek to \(model.lastSeek.map { "\($0)" } ?? "nothing"))")
+            if let text { click(main, at: CGPoint(x: text.x + 4 * Space.xl, y: text.y + KitType.transcript.lineBox / 2)) }
+            try? await Task.sleep(for: .seconds(0.6))
+            // Any word after the turn's first one.
+            let word = model.lastSeek ?? 0
+            print("SNAPSHOT transcript word click: \(word > 14 && word < 22 ? "PASS" : "FAIL") (seek to \(word))")
+            capture(to: "\(dir)/transcript-selected-\(mode).png", window: main)
+            model.selection = empty
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/transcript-empty-\(mode).png", window: main)
+        }
+        model.show(.notes)
+        model.selection = nil
+    }
+
+    /// A left click at a point in the window's content, from its top left.
+    @MainActor private static func click(_ window: NSWindow, at point: CGPoint) {
+        let height = window.contentView?.bounds.height ?? 0
+        let location = NSPoint(x: point.x, y: height - point.y)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                window.sendEvent(event)
+            }
+        }
     }
 
     /// The brand set: About in light and dark, and the menu bar glyphs (idle and

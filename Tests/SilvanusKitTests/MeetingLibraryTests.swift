@@ -316,3 +316,21 @@ private func names(_ folder: URL) -> [String] {
     #expect(!lib.folderExists(for: "one"))
     #expect(!lib.folderExists(for: "missing"))
 }
+
+@Test func transcriptRoundTripsThroughTheSidecar() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    let lib = library(root)
+    #expect(lib.readTranscript(id: "one") == nil)
+    let t = Transcript(lines: [TranscriptLine(side: .them, words: [Word(text: "Hello", start: 1, end: 1.4, confidence: 0.4)])],
+                       engine: "test", processedAt: start)
+    try lib.saveTranscript(t, for: "one")
+    #expect(FileManager.default.fileExists(atPath: folder.appending(path: MeetingFolder.transcriptJSON).path))
+    // A fresh library finds the folder on disk.
+    #expect(library(root).readTranscript(id: "one") == t)
+    #expect(lib.readTranscript(id: "missing") == nil)
+    #expect(throws: MeetingLibrary.NotFound.self) { try lib.saveTranscript(t, for: "missing") }
+    // Unreadable JSON is no transcript, not an error.
+    try Data("{".utf8).write(to: folder.appending(path: MeetingFolder.transcriptJSON))
+    #expect(lib.readTranscript(id: "one") == nil)
+}

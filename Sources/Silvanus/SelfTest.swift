@@ -129,6 +129,7 @@ enum SelfTest {
             await checkHeaders(model: model)
             await checkSettings(model: model)
             await checkNotesAcrossViews(model: model)
+            await checkTranscript(model: model)
 
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
@@ -673,6 +674,32 @@ enum SelfTest {
         check("the sidebar row's Move to Trash goes through AppModel.trash",
               item != nil && model.trashRequests.last == meeting.id && !model.meetings.contains { $0.id == meeting.id },
               "menu \(menu?.items.map(\.title) ?? []), tried \(tried.joined(separator: ", "))")
+    }
+
+    /// The Transcript view's data: transcript.json read back through the library, and one
+    /// block per turn with the default speaker names. What ⌘3 draws, and a click on a word,
+    /// are checked by the snapshot run (tools/snap.sh, "transcript").
+    private static func checkTranscript(model: AppModel) async {
+        let recorded = Meeting(info: MeetingInfo(id: "selftest-recorded", title: "Acme kickoff", start: Date(timeIntervalSince1970: 1_793_975_400)))
+        let plain = Meeting(info: MeetingInfo(id: "selftest-plain", title: "Weekly sync", start: Date(timeIntervalSince1970: 1_793_971_800)))
+        _ = try? model.library.save(recorded)
+        _ = try? model.library.save(plain)
+        try? model.library.saveTranscript(SeedData.kickoffTranscript, for: recorded.id)
+        model.reload()
+        let read = model.library.readTranscript(id: recorded.id)
+        check("transcript.json reads back as it was written", read == SeedData.kickoffTranscript)
+        check("a meeting without transcript.json has no transcript", model.library.readTranscript(id: plain.id) == nil)
+        let names = SpeakerNames.resolve(info: recorded.info, defaultMe: AppDefaults.meName)
+        let layout = read.map { TranscriptView.Layout($0, me: names.me, them: names.them) }
+        check("the transcript groups into turns named Me and Them",
+              layout?.blocks.first?.speaker == "Me" && layout?.blocks.dropFirst().first?.speaker == "Them"
+              && zip(layout?.blocks ?? [], (layout?.blocks ?? []).dropFirst()).allSatisfy { $0.side != $1.side },
+              layout?.blocks.map(\.speaker).joined(separator: ", ") ?? "none")
+        check("low-confidence words are found", (layout?.words.filter(TranscriptLayout.isLowConfidence).count ?? 0) == 6)
+
+        try? model.library.moveToTrash(recorded.id)
+        try? model.library.moveToTrash(plain.id)
+        model.reload()
     }
 
     private static func menuItem(title: String, in menu: NSMenu?) -> NSMenuItem? {

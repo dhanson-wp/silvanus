@@ -3,7 +3,8 @@ import SwiftUI
 
 /// The canvas for the open meeting, by the view pill's mode. Summary and My notes start with
 /// the meeting header (title and chips). On My notes the header is the top of the notes'
-/// scroll content (NotesCanvas); Summary and Transcript show their empty states until they land.
+/// scroll content (NotesCanvas); Summary shows its empty state until it lands; Transcript
+/// is TranscriptView, without the header.
 struct MeetingPage: View {
     @Environment(AppModel.self) private var model
     let meeting: Meeting?
@@ -18,12 +19,7 @@ struct MeetingPage: View {
             case .notes:
                 NotesCanvas(meeting: meeting, documents: documents, header: AnyView(header(meeting)))
             case .transcript:
-                VStack(alignment: .leading, spacing: 0) {
-                    emptyLine("No transcript yet")
-                        .padding(.top, Space.xl)
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                MeetingTranscript(meeting: meeting)
             }
         } else {
             Text("Pick a meeting or start one")

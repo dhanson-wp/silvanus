@@ -58,6 +58,13 @@ extension AppDefaults {
     static let appearanceKey = "appearance.mode"
     static let showInDockKey = "general.showInDock"
     static let settingsPaneKey = "settings.pane"
+    static let meNameKey = "meName"
+
+    /// The name the transcript shows for the mic side. "Me" until a name is set.
+    static var meName: String {
+        let name = shared.string(forKey: meNameKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "Me" : name
+    }
 
     static var appearance: AppearanceChoice {
         get { AppearanceChoice(rawValue: shared.string(forKey: appearanceKey) ?? "") ?? .system }

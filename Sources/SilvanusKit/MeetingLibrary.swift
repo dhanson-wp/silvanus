@@ -87,6 +87,20 @@ public final class MeetingLibrary {
         try Data(notes.utf8).write(to: url, options: .atomic)
     }
 
+    /// The meeting's `transcript.json`, or nil when the meeting is unknown or it has no
+    /// readable transcript yet.
+    public func readTranscript(id: String) -> Transcript? {
+        guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.transcriptJSON),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? MeetingInfo.decoder().decode(Transcript.self, from: data)
+    }
+
+    /// Writes only `transcript.json`, atomically.
+    public func saveTranscript(_ t: Transcript, for id: String) throws {
+        guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { throw NotFound(id: id) }
+        try MeetingInfo.encoder().encode(t).write(to: folder.appending(path: MeetingFolder.transcriptJSON), options: .atomic)
+    }
+
     /// Writes only `meeting.json`, atomically: a rename or other detail change never
     /// rewrites the notes, summary, to-dos, or transcript from an older copy.
     public func saveInfo(_ m: Meeting) throws {

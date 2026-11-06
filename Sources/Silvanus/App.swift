@@ -13,6 +13,7 @@ import SwiftUI
 //   APP_GRID=1 Silvanus           draw the 8 pt grid and the layout probes over the window
 //   APP_EDITOR_SPIKE=1 Silvanus   open the native editor spike (Editor/EditorSpikeWindow.swift);
 //                                 APP_EDITOR_CHECK=1 and APP_EDITOR_BENCH=1 run its checks and benchmark headless
+//   APP_TRANSCRIPT_BENCH=1 APP_STORE=/tmp/<dir> Silvanus   time a 20,000-word transcript opening and scrolling, quit
 // Test runs read and write their own defaults (AppDefaults.swift).
 
 @main
@@ -187,6 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The Granola import, the editor's checks, and the benchmark run before any window opens, then quit.
         if let code = ImportCommand.runIfRequested() { exit(code) }
         if let code = EditorSpike.runHeadlessIfRequested() { exit(code) }
+        if let code = TranscriptBench.runHeadlessIfRequested() { exit(code) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
