@@ -15,8 +15,8 @@ enum Snapshot {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["APP_SNAPSHOT"], !dir.isEmpty else { return }
         // Snapshots never run against the real meetings folder.
-        guard Store.isOverridden else {
-            print("SNAPSHOT refused: set APP_STORE to a folder in /tmp")
+        guard Store.isScratch else {
+            print("SNAPSHOT refused: set APP_STORE to a folder under /tmp")
             NSApp.terminate(nil)
             return
         }

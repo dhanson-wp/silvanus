@@ -1,4 +1,5 @@
 import Foundation
+import SilvanusKit
 
 /// The sidebar pages. Snapshot mode walks through every case.
 enum SidebarItem: String, CaseIterable, Identifiable {
@@ -24,13 +25,33 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 /// App-wide state that menus, toolbars, and views share.
 @Observable
 final class AppModel {
-    /// Meeting titles, a stand-in until the real meeting type and the folder
-    /// store arrive. Empty, so every page shows its empty state.
-    var meetings: [String] = []
+    init(library: MeetingLibrary) { self.library = library }
+
+    let library: MeetingLibrary
+    /// Every meeting on disk, newest first.
+    var meetings: [Meeting] = []
+    /// Folders that hold no readable meeting.json.
+    var unreadable: [URL] = []
     var sidebar: SidebarItem? = .all
+    /// The selected meeting's id.
     var selection: String?
     /// Settings reopens on the last tab. Test and snapshot runs use their own defaults.
     var settingsTab: SettingsTab = SettingsTab(rawValue: AppDefaults.shared.string(forKey: "settings.tab") ?? "") ?? .general {
         didSet { AppDefaults.shared.set(settingsTab.rawValue, forKey: "settings.tab") }
+    }
+}
+
+extension AppModel {
+    /// Seeds when asked (scratch stores only), then reads the meetings from disk.
+    convenience init(root: URL) {
+        self.init(library: MeetingLibrary(root: root))
+        SeedData.seedIfRequested(library: library)
+        reload()
+    }
+
+    func reload() {
+        let loaded = library.loadAll()
+        meetings = loaded.meetings
+        unreadable = loaded.unreadable
     }
 }

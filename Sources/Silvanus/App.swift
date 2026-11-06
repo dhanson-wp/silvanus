@@ -4,6 +4,7 @@ import SwiftUI
 // Silvanus
 //   Silvanus                      the app
 //   APP_STORE=<dir> Silvanus      use another meetings folder (tests, experiments)
+//   APP_SEED=1 APP_STORE=/tmp/<dir> Silvanus   fill an empty /tmp store with fictional meetings
 //   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings tab in light and dark mode, then quit
 //   Silvanus --selftest           run the self-test on a /tmp folder and quit with 0 or 1 (tools/selftest.sh)
 //   APP_ACCENT=<id> Silvanus      run with another accent from Theme.all (UI/Theme.swift)
@@ -13,7 +14,7 @@ import SwiftUI
 @main
 struct SilvanusApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var model = AppModel()
+    @State private var model = AppModel(root: Store.root)
 
     var body: some Scene {
         Window("Silvanus", id: "main") {
@@ -54,11 +55,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Where the data lives. Meetings are folders of plain files; the folder
-/// store comes with the meeting type.
+/// Where the data lives. Meetings are folders of plain files under
+/// `<root>/meetings/` (SilvanusKit's `MeetingLibrary`).
 enum Store {
+    /// APP_STORE when set (tests and snapshots), else ~/Silvanus, resolved at runtime.
+    static var root: URL {
+        if let path = ProcessInfo.processInfo.environment["APP_STORE"], !path.isEmpty {
+            return URL(fileURLWithPath: path)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appending(path: "Silvanus")
+    }
+
     /// True when APP_STORE points somewhere else (tests and snapshots).
     static var isOverridden: Bool {
         !(ProcessInfo.processInfo.environment["APP_STORE"] ?? "").isEmpty
+    }
+
+    /// True when APP_STORE is set and lives under /tmp. Seeding, snapshots,
+    /// and the self-test run only then, so they can never touch real meetings.
+    static var isScratch: Bool {
+        guard isOverridden else { return false }
+        let path = root.standardizedFileURL.resolvingSymlinksInPath().path
+        return path.hasPrefix("/private/tmp/") || path.hasPrefix("/tmp/")
     }
 }

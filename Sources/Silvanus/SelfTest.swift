@@ -1,4 +1,5 @@
 import AppKit
+import SilvanusKit
 
 /// Self-test for agents: runs the app's real functions on a test folder,
 /// prints PASS or FAIL per check, and quits with exit code 0 or 1.
@@ -17,8 +18,8 @@ enum SelfTest {
         guard requested else { return }
         // Print each line at once, so a crash keeps the lines before it.
         setvbuf(stdout, nil, _IOLBF, 0)
-        guard Store.isOverridden else {
-            print("SELFTEST refused: set APP_STORE to a folder in /tmp")
+        guard Store.isScratch else {
+            print("SELFTEST refused: set APP_STORE to a folder under /tmp")
             finish(code: 1)
             return
         }
@@ -27,6 +28,18 @@ enum SelfTest {
 
             check("test runs use their own defaults", AppDefaults.isTest && AppDefaults.shared !== UserDefaults.standard)
             check("the library starts empty", model.meetings.isEmpty)
+            // The folder store, on the /tmp store: save, reload, trash.
+            let meeting = Meeting(info: MeetingInfo(title: "Acme kickoff", start: Date(timeIntervalSince1970: 1_793_975_400),
+                                                    attendees: ["Sam Rivera"]), notes: "Agenda")
+            let folder = try? model.library.save(meeting)
+            model.reload()
+            check("a saved meeting lands in a folder under the store",
+                  folder?.path.hasPrefix(Store.root.standardizedFileURL.path) == true
+                  && FileManager.default.fileExists(atPath: folder?.appending(path: "meeting.json").path ?? ""))
+            check("the saved meeting is listed after a reload", model.meetings.map(\.id) == [meeting.id])
+            try? model.library.moveToTrash(meeting.id)
+            model.reload()
+            check("a trashed meeting is gone from the list", model.meetings.isEmpty)
             check("All Meetings is selected", model.sidebar == .all)
 
             let saved = UserDefaults.standard.string(forKey: "settings.tab")

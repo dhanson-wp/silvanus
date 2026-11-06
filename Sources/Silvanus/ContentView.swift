@@ -1,3 +1,4 @@
+import SilvanusKit
 import SwiftUI
 
 struct ContentView: View {
@@ -34,15 +35,20 @@ struct MeetingList: View {
     let page: SidebarItem
 
     /// Nothing is starred yet: starring arrives with the meeting type.
-    private var visible: [String] {
+    private var visible: [Meeting] {
         page == .starred ? [] : model.meetings
     }
 
     var body: some View {
         @Bindable var model = model
-        List(visible, id: \.self, selection: $model.selection) { title in
-            Text(title)
-                .tag(title)
+        List(visible, selection: $model.selection) { meeting in
+            VStack(alignment: .leading, spacing: 2) {
+                Text(meeting.displayTitle)
+                Text(meeting.info.start.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .tag(meeting.id)
         }
         .overlay {
             if visible.isEmpty {
@@ -61,8 +67,8 @@ struct MeetingDetail: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if let title = model.selection {
-            Text(title)
+        if let id = model.selection, let meeting = model.meetings.first(where: { $0.id == id }) {
+            Text(meeting.displayTitle)
                 .font(.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

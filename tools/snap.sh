@@ -11,4 +11,4 @@ store=/tmp/Silvanus-test
 shots=/tmp/Silvanus-shots
 rm -rf $store $shots
 mkdir -p $store
-APP_STORE=$store APP_SNAPSHOT=$shots $app -ApplePersistenceIgnoreState YES
+APP_SEED=1 APP_STORE=$store APP_SNAPSHOT=$shots $app -ApplePersistenceIgnoreState YES
