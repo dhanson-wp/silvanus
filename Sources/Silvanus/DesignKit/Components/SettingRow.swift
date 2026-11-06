@@ -24,6 +24,7 @@ struct SettingRow<Control: View>: View {
             .lineLimit(2)
             Spacer(minLength: Space.lg)
             control
+                .accessibilityHint(description ?? "")
         }
         .frame(minHeight: Metric.settingRowPitch)
         .accessibilityElement(children: .contain)
@@ -38,7 +39,6 @@ extension SettingRow where Control == AnyView {
             AnyView(
                 Toggle(title, isOn: isOn)
                     .toggleStyle(KitSwitchStyle())
-                    .labelsHidden()
                     .disabled(!isEnabled)
                     .help(help ?? "")
                     .accessibilityLabel(title)

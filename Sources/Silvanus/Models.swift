@@ -164,6 +164,7 @@ extension AppModel {
 
     /// Switches the canvas, sliding the view pill's segment with the kit's selection curve.
     func show(_ mode: CanvasMode) {
+        settingsOpen = false
         withAnimation(Motion.select) { canvasMode = mode }
     }
 
@@ -173,6 +174,7 @@ extension AppModel {
     func newMeeting(now: Date = Date()) -> Meeting? {
         let meeting = Meeting(info: MeetingInfo(title: Meeting.untitled, start: now, folder: folder))
         guard (try? library.save(meeting)) != nil else { return nil }
+        settingsOpen = false
         let index = meetings.firstIndex { $0.info.start <= meeting.info.start } ?? meetings.endIndex
         meetings.insert(meeting, at: index)
         open(meeting.id)

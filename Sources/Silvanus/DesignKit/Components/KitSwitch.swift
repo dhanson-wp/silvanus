@@ -22,7 +22,7 @@ struct KitSwitchStyle: ToggleStyle {
         let configuration: Configuration
         @Environment(\.forcedPartState) private var forced
         @Environment(\.isEnabled) private var isEnabled
-        @Environment(\.isFocused) private var isFocused
+        @State private var isFocused = false
         @State private var hovering = false
         @State private var pressing = false
 
@@ -47,19 +47,35 @@ struct KitSwitchStyle: ToggleStyle {
         }
 
         var body: some View {
-            let shape = Capsule()
+            let shape = RoundedRectangle(cornerRadius: Metric.switchHeight / 2)
             let travel = Metric.switchWidth - Metric.switchKnob - 2 * Metric.switchInset
             Button {
                 configuration.isOn.toggle()
             } label: {
-                shape
+                switchBody(shape: shape, travel: travel)
+                    // The Toggle's label is the button's accessibility label; nothing shows.
+                    .background { configuration.label.frame(width: 0, height: 0).opacity(0) }
+            }
+            .buttonStyle(SwitchPressStyle(pressing: $pressing, focused: $isFocused))
+            .opacity(state == .disabled ? 0.4 : 1)
+            .focusEffectDisabled()
+            .animation(Motion.select, value: isOn)
+            .onHover { inside in
+                withAnimation(Motion.hover) { hovering = inside }
+            }
+            .accessibilityAddTraits(.isToggle)
+            .accessibilityValue(isOn ? "On" : "Off")
+        }
+
+        private func switchBody(shape: RoundedRectangle, travel: CGFloat) -> some View {
+            shape
                     .fill(track)
                     .frame(width: Metric.switchWidth, height: Metric.switchHeight)
                     .overlay {
                         if ringed {
-                            shape.strokeBorder(Ink.focus, lineWidth: Metric.focusRing)
+                            shape.inset(by: Metric.focusRing / 2).stroke(Ink.focus, lineWidth: Metric.focusRing)
                         } else if !isOn {
-                            shape.strokeBorder(border, lineWidth: Metric.hairline)
+                            shape.inset(by: Metric.hairline / 2).stroke(border, lineWidth: Metric.hairline)
                         }
                     }
                     .overlay(alignment: .leading) {
@@ -70,26 +86,30 @@ struct KitSwitchStyle: ToggleStyle {
                             .offset(x: isOn ? travel : 0) // grid: ok knob travel
                     }
                     .contentShape(shape)
-            }
-            .buttonStyle(SwitchPressStyle(pressing: $pressing))
-            .opacity(state == .disabled ? 0.4 : 1)
-            .focusEffectDisabled()
-            .animation(Motion.select, value: isOn)
-            .onHover { inside in
-                withAnimation(Motion.hover) { hovering = inside }
-            }
-            .accessibilityAddTraits(.isToggle)
-            .accessibilityValue(isOn ? "On" : "Off")
         }
     }
 
-    /// Reports the press to the switch and adds nothing to the look.
+    /// Reports the press and the keyboard focus to the switch and adds nothing to the look.
+    /// Focus is read here, inside the button, where SwiftUI sets it.
     private struct SwitchPressStyle: ButtonStyle {
         @Binding var pressing: Bool
+        @Binding var focused: Bool
 
         func makeBody(configuration: Configuration) -> some View {
-            configuration.label
-                .onChange(of: configuration.isPressed) { _, new in pressing = new }
+            Report(configuration: configuration, pressing: $pressing, focused: $focused)
+        }
+
+        private struct Report: View {
+            let configuration: Configuration
+            @Binding var pressing: Bool
+            @Binding var focused: Bool
+            @Environment(\.isFocused) private var isFocused
+
+            var body: some View {
+                configuration.label
+                    .onChange(of: configuration.isPressed) { _, new in pressing = new }
+                    .onChange(of: isFocused, initial: true) { _, new in focused = new }
+            }
         }
     }
 }

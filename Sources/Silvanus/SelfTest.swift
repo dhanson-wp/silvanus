@@ -214,9 +214,6 @@ enum SelfTest {
         check("⌃⌘S again shows the sidebar", model.sidebarVisible)
     }
 
-    /// The headers (task 4): New Meeting, renaming and filing a meeting, the view menu's
-    /// ⌘1 to ⌘3, and the canvas header's controls clear of the traffic lights and each other
-    /// at the default and minimum sizes with a 120-character title (Review Focus 2).
     /// Settings inside the window: ⌘, and the back button and Escape, the appearance choice
     /// (saved, and applied to every window), and the Show in Dock stub.
     private static func checkSettings(model: AppModel) async {
@@ -235,6 +232,7 @@ enum SelfTest {
         check("openSettings picks the pane", model.settingsOpen && model.settingsPane == .appearance)
 
         let original = NSApp.appearance
+        let realAppearance = UserDefaults.standard.string(forKey: AppDefaults.appearanceKey)
         model.appearance = .dark
         check("choosing Dark applies to the app and is saved",
               NSApp.appearance?.name == .darkAqua && AppDefaults.shared.string(forKey: AppDefaults.appearanceKey) == "dark")
@@ -244,7 +242,7 @@ enum SelfTest {
         model.appearance = .system
         check("choosing System follows the Mac again", NSApp.appearance == nil && AppDefaults.appearance == .system)
         check("the real defaults are left alone by the appearance choice",
-              UserDefaults.standard.string(forKey: AppDefaults.appearanceKey) != "dark")
+              UserDefaults.standard.string(forKey: AppDefaults.appearanceKey) == realAppearance)
         NSApp.appearance = original
 
         check("Show in Dock starts on", model.showInDock)
@@ -252,10 +250,21 @@ enum SelfTest {
         check("Show in Dock is saved and nothing else changes yet",
               AppDefaults.shared.object(forKey: AppDefaults.showInDockKey) as? Bool == false)
         model.showInDock = true
+        // Meeting commands never act behind Settings: New Meeting closes it first.
+        model.openSettings()
+        model.newMeeting()
+        check("New Meeting closes Settings first", !model.settingsOpen)
+        model.openSettings()
+        model.show(.summary)
+        check("a view mode closes Settings first", !model.settingsOpen && model.canvasMode == .summary)
+        model.show(.notes)
         model.closeSettings()
         model.settingsPane = .general
     }
 
+    /// The headers (task 4): New Meeting, renaming and filing a meeting, the view menu's
+    /// ⌘1 to ⌘3, and the canvas header's controls clear of the traffic lights and each other
+    /// at the default and minimum sizes with a 120-character title (Review Focus 2).
     private static func checkHeaders(model: AppModel) async {
         let before = model.meetings.count
         let newItem = menuItem(key: "n", modifiers: [.command], in: NSApp.mainMenu)

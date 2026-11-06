@@ -85,7 +85,6 @@ struct SettingsGallery: View {
             ForEach(states, id: \.self) { state in
                 Toggle(title, isOn: .constant(isOn))
                     .toggleStyle(KitSwitchStyle())
-                    .labelsHidden()
                     .environment(\.forcedPartState, state)
                     .disabled(state == .disabled)
             }

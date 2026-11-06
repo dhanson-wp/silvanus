@@ -5,7 +5,7 @@ import SwiftUI
 //   Silvanus                      the app
 //   APP_STORE=<dir> Silvanus      use another meetings folder (tests, experiments)
 //   APP_SEED=1 APP_STORE=/tmp/<dir> Silvanus   fill an empty /tmp store with fictional meetings
-//   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings tab in light and dark mode, then quit
+//   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings pane in light and dark mode, then quit
 //   Silvanus --selftest           run the self-test on a /tmp folder and quit with 0 or 1 (tools/selftest.sh)
 //   APP_KIT_GALLERY=1 Silvanus    show the design kit's gallery instead of the pages (DesignKit/KitGallery.swift);
 //                                 APP_COLORS=reference draws the kit in the reference colors
@@ -96,6 +96,9 @@ struct MeetingCommands: Commands {
 
     var body: some Commands {
         let meeting = model.selectedMeeting
+        // Settings covers the meeting, so its commands wait (New Meeting and the view modes
+        // close Settings first instead).
+        let noMeeting = meeting == nil || model.settingsOpen
         CommandGroup(replacing: .newItem) {
             Button("New Meeting") { model.newMeeting() }
                 .keyboardShortcut("n")
@@ -109,10 +112,10 @@ struct MeetingCommands: Commands {
         CommandMenu("Meeting") {
             Button("Rename Meeting…", action: model.requestRename)
                 .keyboardShortcut("r", modifiers: [.control, .command])
-                .disabled(meeting == nil)
+                .disabled(noMeeting)
             Button("Show Attendees", action: model.requestAttendees)
                 .keyboardShortcut("a", modifiers: [.control, .command])
-                .disabled(meeting == nil)
+                .disabled(noMeeting)
             Menu("Move to Folder") {
                 if let meeting {
                     FolderMenuItems(folder: meeting.info.folder, folders: model.folders.map(\.name),
@@ -120,7 +123,7 @@ struct MeetingCommands: Commands {
                                     newFolder: model.requestNewFolder)
                 }
             }
-            .disabled(meeting == nil)
+            .disabled(noMeeting)
             Divider()
             // Placeholders until search and filtering land. No shortcuts yet: ⌘F and ⌥⌘F
             // belong to Edit > Find and Find and Replace in the notes canvas.

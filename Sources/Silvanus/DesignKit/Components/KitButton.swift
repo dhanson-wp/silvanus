@@ -9,7 +9,7 @@ import SwiftUI
 /// | pressed | sidebar at 80% | 1 pt textSecondary | text |
 /// | selected | primaryControl | none | onPrimary |
 /// | focused | as rest | 2 pt focus ring | text |
-/// | disabled | as rest | divider at 40% | text at 40% |
+/// | disabled | as rest | divider | everything at 40% |
 ///
 /// `isSelected` marks the chosen one of a group (Settings > Appearance). The gallery forces a
 /// state with `forcedPartState`.
@@ -49,7 +49,7 @@ struct KitButtonStyle: ButtonStyle {
                         shape.strokeBorder(Ink.focus, lineWidth: Metric.focusRing)
                     } else if !selected {
                         let line = [.hover, .pressed].contains(state) ? Ink.textSecondary : Ink.divider
-                        shape.strokeBorder(line.opacity(state == .disabled ? 0.4 : 1), lineWidth: Metric.hairline)
+                        shape.strokeBorder(line, lineWidth: Metric.hairline)
                     }
                 }
                 .opacity(state == .disabled ? 0.4 : 1)
