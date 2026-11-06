@@ -15,7 +15,7 @@ struct MeetingPage: View {
                 page(meeting) { emptyLine("No summary yet") }
             case .notes:
                 // The notes canvas (stream B) puts the header at the top of its own scroll view.
-                page(meeting) { Color.clear }
+                page(meeting) { NotesCanvas() }
             case .transcript:
                 VStack(alignment: .leading, spacing: 0) {
                     emptyLine("No transcript yet")

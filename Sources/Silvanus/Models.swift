@@ -49,8 +49,18 @@ final class AppModel {
     var sidebar: SidebarItem? = .all
     /// The selected meeting's id. A header request waiting for the old meeting is dropped.
     var selection: String? {
-        didSet { if selection != oldValue { headerRequest = nil } }
+        didSet {
+            if selection != oldValue {
+                headerRequest = nil
+                selectionChanged?(selection)
+            }
+        }
     }
+    /// Called after the selection changes (the notes canvas closes the old meeting's notes).
+    @ObservationIgnored var selectionChanged: ((String?) -> Void)?
+    /// Called with a meeting's id just before it's trashed, so the notes canvas can save
+    /// typing still in it first.
+    @ObservationIgnored var beforeTrash: ((String) -> Void)?
     /// The sidebar folder the meeting list shows; nil is All meetings.
     var folder: String? {
         didSet { if folder != oldValue { regroup() } }
@@ -135,6 +145,21 @@ extension AppModel {
     /// The back button and Escape: back to the meeting.
     func closeSettings() {
         settingsOpen = false
+    }
+
+    /// Moves a meeting to the Trash, after its open notes are saved, and reloads.
+    func moveToTrash(_ id: String) throws {
+        beforeTrash?(id)
+        try library.moveToTrash(id)
+        if selection == id { selection = nil }
+        reload()
+    }
+
+    /// The notes canvas saved a meeting's notes: keep the app's copy the same, so nothing
+    /// that saves the meeting later writes older notes.
+    func notesSaved(_ text: String, for id: String) {
+        guard let index = meetings.firstIndex(where: { $0.id == id }) else { return }
+        meetings[index].notes = text
     }
 
     func reload() {

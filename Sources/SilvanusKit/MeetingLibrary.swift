@@ -61,6 +61,92 @@ public final class MeetingLibrary {
     /// The meeting's folder, once it has been loaded or saved.
     public func folderURL(for id: String) -> URL? { folders[id] }
 
+    /// No meeting with this id is on disk.
+    public struct NotFound: Error, Equatable {
+        public let id: String
+    }
+
+    /// The meeting's `notes.md`, found on disk if this instance has not loaded it yet.
+    public func notesURL(for id: String) -> URL? {
+        if folders[id] == nil, let found = findFolder(for: id) { folders[id] = found }
+        return folders[id]?.appending(path: MeetingFolder.notes)
+    }
+
+    /// The meeting's notes as they are on disk now, or nil when the meeting is unknown or
+    /// `notes.md` can't be read (missing, mid-replace, not UTF-8). Nil is never "empty".
+    public func readNotes(for id: String) -> String? {
+        guard let url = notesURL(for: id) else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Writes only `notes.md`, atomically. The notes canvas saves this way so a summary,
+    /// transcript, or details another app changed meanwhile are never overwritten with
+    /// an older copy.
+    public func saveNotes(_ notes: String, for id: String) throws {
+        guard let url = notesURL(for: id) else { throw NotFound(id: id) }
+        try Data(notes.utf8).write(to: url, options: .atomic)
+    }
+
+    /// Writes only `meeting.json`, atomically: a rename or other detail change never
+    /// rewrites the notes, summary, to-dos, or transcript from an older copy.
+    public func saveInfo(_ m: Meeting) throws {
+        if folders[m.id] == nil, let found = findFolder(for: m.id) { folders[m.id] = found }
+        guard let folder = folders[m.id] else { throw NotFound(id: m.id) }
+        try MeetingInfo.encoder().encode(m.info).write(to: folder.appending(path: MeetingFolder.info), options: .atomic)
+    }
+
+    /// True when the meeting's folder is on disk now.
+    public func folderExists(for id: String) -> Bool {
+        guard let notes = notesURL(for: id) else { return false }
+        var isDirectory: ObjCBool = false
+        return fm.fileExists(atPath: notes.deletingLastPathComponent().path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// Typing that had nowhere to go (its meeting's folder was trashed or vanished) is
+    /// kept as `<root>/recovered/<meeting id>-<yyyyMMdd-HHmmss>.md`. Pass the URL an
+    /// earlier call returned as `replacing` to overwrite that file (atomically) instead of
+    /// starting another. Returns where it went.
+    @discardableResult
+    public func saveRecoveredNotes(_ text: String, for id: String, at date: Date = Date(), replacing earlier: URL? = nil) throws -> URL {
+        let folder = root.appending(path: "recovered")
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        if let earlier {
+            try Data(text.utf8).write(to: earlier, options: .atomic)
+            return earlier
+        }
+        return try writeUnique(text, in: folder, base: "\(MeetingFolder.safeSeries(id))-\(stamp(date))")
+    }
+
+    private func stamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: date)
+    }
+
+    /// Writes `<base>.md`, or `<base>-2.md` and so on when that's taken, atomically.
+    private func writeUnique(_ text: String, in folder: URL, base: String) throws -> URL {
+        var url = folder.appending(path: "\(base).md")
+        var n = 2
+        while fm.fileExists(atPath: url.path) {
+            url = folder.appending(path: "\(base)-\(n).md")
+            n += 1
+        }
+        try Data(text.utf8).write(to: url, options: .atomic)
+        return url
+    }
+
+    /// Keeps another app's version of the notes beside `notes.md`, as
+    /// `notes.conflict-<yyyyMMdd-HHmmss>.md` (a number added if that name is taken), when
+    /// it couldn't be merged with unsaved typing. Returns where it went.
+    @discardableResult
+    public func saveConflictCopy(_ text: String, for id: String, at date: Date = Date()) throws -> URL {
+        guard let notes = notesURL(for: id) else { throw NotFound(id: id) }
+        return try writeUnique(text, in: notes.deletingLastPathComponent(), base: "notes.conflict-\(stamp(date))")
+    }
+
     /// Moves the whole meeting folder to the Trash, so it can be put back, and
     /// removes its series folder if that is now empty. An id the library has
     /// not loaded or saved is a no-op.

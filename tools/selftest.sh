@@ -9,4 +9,13 @@ app=${SILVANUS_DEV_DIR:-$HOME/Library/Developer/Silvanus}/Silvanus.app/Contents/
 store=${SILVANUS_SELFTEST_STORE:-/tmp/Silvanus-self}
 rm -rf "$store"
 mkdir -p "$store"
-APP_STORE=$store "$app" -ApplePersistenceIgnoreState YES --selftest
+log=$(mktemp -t silvanus-selftest)
+APP_STORE=$store "$app" -ApplePersistenceIgnoreState YES --selftest 2>&1 | tee "$log"
+code=${pipestatus[1]}
+# On a failure, repeat the failed checks last, where they can't scroll away.
+if (( code != 0 )); then
+  echo "--- failed checks (exit $code):"
+  grep '^FAIL' "$log" || echo "(no FAIL lines: the run ended early)"
+fi
+rm -f "$log"
+exit $code

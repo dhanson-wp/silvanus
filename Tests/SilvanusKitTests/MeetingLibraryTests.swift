@@ -221,3 +221,98 @@ private func names(_ folder: URL) -> [String] {
     #expect(try library(root).save(renamed) == first)
     #expect(library(root).loadAll().meetings.count == 1)
 }
+
+@Test func saveNotesWritesOnlyNotes() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    var m = kickoff(id: "one")
+    m.summary = "Old summary"
+    let folder = try library(root).save(m)
+    // Another app rewrites the summary; saving notes must leave it alone.
+    try Data("New summary".utf8).write(to: folder.appending(path: MeetingFolder.summary))
+    let lib = library(root)
+    #expect(lib.readNotes(for: "one") == m.notes)
+    try lib.saveNotes("# Acme kickoff\n- Scope\n", for: "one")
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.notes), encoding: .utf8) == "# Acme kickoff\n- Scope\n")
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.summary), encoding: .utf8) == "New summary")
+    #expect(lib.readNotes(for: "one") == "# Acme kickoff\n- Scope\n")
+    #expect(lib.notesURL(for: "one") == folder.appending(path: MeetingFolder.notes))
+    // Atomic: no temporary files are left beside it.
+    let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+    #expect(Set(names) == [MeetingFolder.notes, MeetingFolder.summary, MeetingFolder.todo,
+                           MeetingFolder.transcript, MeetingFolder.info])
+}
+
+@Test func saveNotesForAnUnknownMeetingThrows() {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    #expect(throws: MeetingLibrary.NotFound.self) { try library(root).saveNotes("x", for: "missing") }
+    #expect(library(root).readNotes(for: "missing") == nil)
+}
+
+@Test func readNotesOfAMissingFileIsNil() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    try FileManager.default.removeItem(at: folder.appending(path: MeetingFolder.notes))
+    #expect(library(root).readNotes(for: "one") == nil)
+    try Data().write(to: folder.appending(path: MeetingFolder.notes))
+    #expect(library(root).readNotes(for: "one") == "")
+}
+
+@Test func saveInfoWritesOnlyMeetingJSON() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    var m = kickoff(id: "one")
+    let folder = try library(root).save(m)
+    // Other apps change the other files; saving details must leave them alone.
+    let others = [MeetingFolder.notes, MeetingFolder.summary, MeetingFolder.todo, MeetingFolder.transcript]
+    for name in others { try Data("changed \(name)".utf8).write(to: folder.appending(path: name)) }
+    try Data("{}".utf8).write(to: folder.appending(path: MeetingFolder.transcriptJSON))
+    m.info.title = "Acme kickoff, renamed"
+    m.notes = "stale copy"
+    let lib = library(root)
+    try lib.saveInfo(m)
+    for name in others {
+        #expect(try String(contentsOf: folder.appending(path: name), encoding: .utf8) == "changed \(name)")
+    }
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.transcriptJSON), encoding: .utf8) == "{}")
+    #expect(library(root).loadAll().meetings.first?.info.title == "Acme kickoff, renamed")
+    #expect(throws: MeetingLibrary.NotFound.self) { try lib.saveInfo(kickoff(id: "missing")) }
+}
+
+@Test func conflictCopySitsBesideTheNotes() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    let lib = library(root)
+    let first = try lib.saveConflictCopy("Theirs\n", for: "one", at: start)
+    #expect(first == folder.appending(path: "notes.conflict-20261106-143000.md"))
+    #expect(try String(contentsOf: first, encoding: .utf8) == "Theirs\n")
+    let second = try lib.saveConflictCopy("Again\n", for: "one", at: start)
+    #expect(second != first)
+    #expect(try String(contentsOf: first, encoding: .utf8) == "Theirs\n")
+    #expect(lib.loadAll().meetings.count == 1)
+}
+
+@Test func recoveredNotesGoUnderTheStore() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let lib = library(root)
+    // Works for a meeting whose folder is gone, or was never known.
+    let url = try lib.saveRecoveredNotes("Typed before the folder went\n", for: "gone", at: start)
+    #expect(url == root.appending(path: "recovered/gone-20261106-143000.md"))
+    #expect(try String(contentsOf: url, encoding: .utf8) == "Typed before the folder went\n")
+    let again = try lib.saveRecoveredNotes("More\n", for: "gone", at: start)
+    #expect(again != url)
+    // A document that already has a recovery file keeps writing to it.
+    let reused = try lib.saveRecoveredNotes("Latest\n", for: "gone", at: start, replacing: url)
+    #expect(reused == url)
+    #expect(try String(contentsOf: url, encoding: .utf8) == "Latest\n")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "recovered").path).count == 2)
+    #expect(lib.loadAll().meetings.isEmpty)
+}
+
+@Test func folderExistsFollowsTheDisk() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    let lib = library(root)
+    #expect(lib.folderExists(for: "one"))
+    try FileManager.default.removeItem(at: folder)
+    #expect(!lib.folderExists(for: "one"))
+    #expect(!lib.folderExists(for: "missing"))
+}

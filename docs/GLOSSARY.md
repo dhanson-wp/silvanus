@@ -42,3 +42,5 @@ Every word Silvanus puts on screen. One name per idea.
 | Open at login | The General switch that starts Silvanus when you log in; "Coming soon" for now | Launch at startup |
 | Theme | The Appearance choice: System, Light, or Dark | Mode, Color scheme |
 | Model | The Transcription pane's speech model, "Parakeet TDT v2, on this Mac" | Engine |
+| Couldn't save notes: (reason) | The banner over My notes when writing notes.md fails; the reason is the system's | Save error, Sync failed |
+| Retry | Try the failed save again, from that banner | Try again, Resave |

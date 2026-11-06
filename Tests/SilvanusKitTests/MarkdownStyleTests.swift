@@ -156,3 +156,17 @@ struct MarkdownStyleTests {
         #expect(runs.contains { $0.role == .heading(level: 1) && $0.range == 10..<14 })
     }
 }
+
+@Suite("Markdown block kinds")
+struct MarkdownBlockKindTests {
+    @Test("List items and heading levels are named on the kind")
+    func kindHelpers() {
+        #expect(MarkdownStyle.BlockKind.bullet.isListItem)
+        #expect(MarkdownStyle.BlockKind.numbered.isListItem)
+        #expect(MarkdownStyle.BlockKind.task(done: true).isListItem)
+        #expect(!MarkdownStyle.BlockKind.quote.isListItem)
+        #expect(!MarkdownStyle.BlockKind.heading(level: 1).isListItem)
+        #expect(MarkdownStyle.BlockKind.heading(level: 2).headingLevel == 2)
+        #expect(MarkdownStyle.BlockKind.paragraph.headingLevel == nil)
+    }
+}

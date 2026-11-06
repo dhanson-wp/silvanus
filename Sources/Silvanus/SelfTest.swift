@@ -38,7 +38,7 @@ enum SelfTest {
                   folder?.path.hasPrefix(Store.root.standardizedFileURL.path) == true
                   && FileManager.default.fileExists(atPath: folder?.appending(path: "meeting.json").path ?? ""))
             check("the saved meeting is listed after a reload", model.meetings.map(\.id) == [meeting.id])
-            try? model.library.moveToTrash(meeting.id)
+            try? model.moveToTrash(meeting.id)
             model.reload()
             check("a trashed meeting is gone from the list", model.meetings.isEmpty)
             check("All Meetings is selected", model.sidebar == .all)
@@ -182,7 +182,8 @@ enum SelfTest {
         check("View has Hide Sidebar on ⌃⌘S", item?.title == "Hide Sidebar", item?.title ?? "missing")
         guard let item, let menu = item.menu else { return }
         menu.performActionForItem(at: menu.index(of: item))
-        try? await Task.sleep(for: .seconds(0.5))
+        // Wait for the sidebar to hide and the header to settle, up to 2 s.
+        await poll { !model.sidebarVisible && headerArea(at: CGPoint(x: 150, y: Metric.trafficLightFirst.y), in: window) == "canvas" }
         // Hidden, the sidebar's header takes nothing: under the toggle (x 100) the button
         // still wins, and where the sidebar's other buttons were (x 150, x 200) the canvas
         // header's empty space does (no meeting is open, so no view pill there).
@@ -200,9 +201,11 @@ enum SelfTest {
         check("with the sidebar hidden, its header refuses clicks", !sidebarViews.isEmpty && claims.isEmpty,
               "\(sidebarViews.count) views, \(claims.count) still take clicks")
         // SwiftUI refreshes menu titles when the menu is about to open.
-        NSApp.mainMenu?.update()
-        menu.delegate?.menuNeedsUpdate?(menu)
-        try? await Task.sleep(for: .seconds(0.3))
+        await poll {
+            NSApp.mainMenu?.update()
+            menu.delegate?.menuNeedsUpdate?(menu)
+            return menuItem(key: "s", modifiers: [.control, .command], in: NSApp.mainMenu)?.title == "Show Sidebar"
+        }
         let hidden = !model.sidebarVisible
         let showTitle = menuItem(key: "s", modifiers: [.control, .command], in: NSApp.mainMenu)?.title
         check("⌃⌘S hides the sidebar and the item turns to Show Sidebar", hidden && showTitle == "Show Sidebar",
@@ -210,7 +213,7 @@ enum SelfTest {
         if let again = menuItem(key: "s", modifiers: [.control, .command], in: NSApp.mainMenu), let menu = again.menu {
             menu.performActionForItem(at: menu.index(of: again))
         }
-        try? await Task.sleep(for: .seconds(0.3))
+        await poll { model.sidebarVisible }
         check("⌃⌘S again shows the sidebar", model.sidebarVisible)
     }
 
@@ -459,6 +462,13 @@ enum SelfTest {
                 .usingColorSpace(.sRGB) else { return nil }
         return String(format: "#%02X%02X%02X", Int(color.redComponent * 255), Int(color.greenComponent * 255),
                       Int(color.blueComponent * 255))
+    }
+
+    /// Waits until `condition` holds, checking every 50 ms, for at most `timeout` seconds.
+    /// The check that follows reports what it finds either way.
+    private static func poll(timeout: TimeInterval = 2, _ condition: () -> Bool) async {
+        let end = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < end { try? await Task.sleep(for: .milliseconds(50)) }
     }
 
     /// Which header click target AppKit hits at a point measured from the window's top left:

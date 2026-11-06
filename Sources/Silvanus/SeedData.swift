@@ -26,7 +26,24 @@ enum SeedData {
                     id: "seed-acme-kickoff", title: "Acme kickoff", series: "Acme kickoff",
                     start: base.addingTimeInterval(-2 * 3_600), end: base.addingTimeInterval(-3_600),
                     attendees: ["Sam Rivera", "Priya Natarajan", "Jordan Lee"], folder: "Clients"),
-                notes: "Agenda\n- Scope\n- Dates\n- Who owns what\n",
+                notes: """
+                    Thursday with Sam Rivera, Priya Natarajan, and Jordan Lee.
+
+                    ## Agenda
+                    - Scope
+                    - Dates
+                    - Who owns what
+
+                    ## Notes
+                    - Priya owns the integration plan
+                    - Sam shares the `staging` checklist by Friday
+                    - Launch target is **March**, with _one_ buffer week
+
+                    ### To-dos
+                    [ ] Send the deck to Priya
+                    [x] Book the room for the review
+
+                    """,
                 summary: "Agreed on scope and a first milestone.",
                 todo: "- [ ] Sam sends the project plan\n"),
             Meeting(
