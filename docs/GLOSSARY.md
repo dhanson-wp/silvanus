@@ -23,14 +23,14 @@ Every word Silvanus puts on screen. One name per idea.
 | Speaker | One voice in the call audio, named or numbered | Participant, Voice (in labels) |
 | Name Speakers | Assign names to the voices in a meeting | Identify, Label |
 | Recording pill | The small floating bar with the time, Pause, and Stop, shown while recording when Silvanus's window isn't in front | toolbar, HUD, Recording bar |
-| Meeting detected | The small floating prompt shown when a call app starts using the microphone while Silvanus isn't recording; its buttons are Start Recording and Dismiss, and it hides itself after 20 seconds | Call detected, Incoming meeting, Notification |
+| Meeting detected | The small floating prompt shown when a call app starts using the microphone while Silvanus isn't recording; its line reads "A call is using the microphone.", its buttons are Start Recording and Dismiss, and it hides itself after 20 seconds | Call detected, Incoming meeting, Notification |
 | Recording since (time) | The menu bar item's line while recording ("Recording since 10:30 AM"); a clock time, never a running timer | Recording for, Live |
 | Open Silvanus | The menu bar item that brings the window forward; "Show Silvanus" is the recording pill's live button | Show App |
 | Timestamp | The time a note line or transcript block starts, from the start of the meeting | time code |
 | Microphone access / System audio access | The two macOS permissions Silvanus needs | Mic permission, Screen Recording |
 | Silvanus needs two permissions to record | The sheet the first Start Recording opens when access is missing; its buttons are Allow Microphone Access, Allow System Audio Access, Open System Settings…, Not Now, and Start Recording (or Quick Note) | Grant access, Setup |
 | Recording your microphone only. (reason) | The warning when call audio couldn't start; the microphone records on its own | Mic-only mode |
-| Nobody on the call is audible yet. Check System Audio access in Settings. | The warning when call audio stays silent for 30 seconds during a call; never for Quick Note, nor for a recording with no call app running at its start or since | No call audio yet, No system audio |
+| Nobody on the call is audible yet. Check System Audio access in Settings. | The warning when call audio stays silent for 30 seconds during a call; never for Quick Note, nor for a recording with no call app using the microphone at its start or since (a browser that's merely open doesn't count) | No call audio yet, No system audio |
 | No microphone audio yet. Check the input in System Settings > Sound. | The warning when the microphone stays silent for 30 seconds while recording | Mic muted |
 | Nothing was recorded. | The banner after a Stop that came before any audio; nothing is transcribed | Empty recording |
 | Couldn't restart the microphone: (reason) | Why a recording stopped after the microphone changed and couldn't come back | Device error |
@@ -55,7 +55,7 @@ Every word Silvanus puts on screen. One name per idea.
 | Pick a meeting or start one | The canvas with no meeting open | Nothing selected |
 | Settings | The panes that open inside the main window (⌘,): General, Appearance, About, Transcription | Preferences, Options |
 | Show in Dock | The General switch that keeps Silvanus's icon in the Dock | Dock icon |
-| Prompt when a meeting starts | The General switch (on by default) that shows Meeting detected when a call app starts using the microphone | Auto-detect meetings, Meeting notifications |
+| Prompt when a meeting starts | The General switch (on by default) that shows Meeting detected when a call app starts using the microphone; its description reads "When a call app starts using the microphone, offer to start recording." | Auto-detect meetings, Meeting notifications |
 | Open at login | The General switch that starts Silvanus when you log in; "Coming soon" for now | Launch at startup |
 | Theme | The Appearance choice: System, Light, or Dark | Mode, Color scheme |
 | Model | The Transcription pane's speech model, "Parakeet TDT v2, on this Mac" | Engine |

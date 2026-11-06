@@ -73,6 +73,66 @@ struct CallDetectionTests {
     }
 }
 
+@Suite("Call apps using input")
+struct CallAppsUsingInputTests {
+    private let me: Int32 = 100
+
+    @Test func browserAndCallAppHelpersCountAsTheirApp() {
+        let cases: [(String, String)] = [
+            ("com.google.Chrome.helper", "com.google.Chrome"),
+            ("com.google.Chrome", "com.google.Chrome"),
+            ("company.thebrowser.browser.helper", "company.thebrowser.Browser"),
+            ("org.mozilla.firefox.plugincontainer", "org.mozilla.firefox"),
+            ("com.microsoft.edgemac.helper", "com.microsoft.edgemac"),
+            ("us.zoom.CptHost", "us.zoom.xos"),
+            ("com.microsoft.teams2.helper", "com.microsoft.teams2"),
+            ("com.tinyspeck.slackmacgap.helper", "com.tinyspeck.slackmacgap"),
+            ("com.apple.avconferenced", "com.apple.FaceTime"),
+        ]
+        for (id, app) in cases {
+            #expect(CallApps.app(for: InputProcess(pid: 7, bundleID: id), ownPID: me) == app, "\(id)")
+        }
+    }
+
+    @Test func lookalikesAndOtherAppsDoNotCount() {
+        for id in ["com.google.Chromium", "com.apple.VoiceMemos", "com.apple.Siri", "com.microsoft.teamsX",
+                   "us.zoomer.app", "", "com.apple.SafariTechnologyPreviewX"] {
+            #expect(CallApps.app(for: InputProcess(pid: 7, bundleID: id), ownPID: me) == nil, "\(id)")
+        }
+        #expect(CallApps.app(for: InputProcess(pid: 7, bundleID: nil), ownPID: me) == nil)
+    }
+
+    @Test func webKitCountsOnlyForSafari() {
+        let gpu = "com.apple.WebKit.GPU"
+        #expect(CallApps.app(for: InputProcess(pid: 7, bundleID: gpu, responsibleBundleID: "com.apple.Safari"), ownPID: me)
+            == "com.apple.Safari")
+        #expect(CallApps.app(for: InputProcess(pid: 7, bundleID: gpu,
+                                               path: "/Applications/Safari.app/Contents/XPCServices/x"), ownPID: me)
+            == "com.apple.Safari")
+        #expect(CallApps.app(for: InputProcess(pid: 7, bundleID: gpu, responsibleBundleID: "com.apple.mail"), ownPID: me) == nil)
+        #expect(CallApps.app(for: InputProcess(pid: 7, bundleID: gpu), ownPID: me) == nil)
+    }
+
+    @Test func ourOwnProcessNeverCounts() {
+        let processes = [InputProcess(pid: me, bundleID: "com.google.Chrome"),
+                         InputProcess(pid: 8, bundleID: "com.apple.VoiceMemos")]
+        #expect(CallApps.usingInput(processes, ownPID: me).isEmpty)
+        let call = processes + [InputProcess(pid: 9, bundleID: "us.zoom.xos")]
+        #expect(CallApps.usingInput(call, ownPID: me) == ["us.zoom.xos"])
+    }
+
+    /// Chrome open but not using input (an in-person meeting): no call, so no prompt and no
+    /// call-audio warning.
+    @Test func anInPersonRecordingWithChromeOpenNeverWarns() {
+        let usingInput = CallApps.usingInput([InputProcess(pid: me, bundleID: "com.derekhanson.silvanus")], ownPID: me)
+        #expect(usingInput.isEmpty)
+        #expect(CallAudioWarning.warning(quickNote: false, callAppAtStart: !usingInput.isEmpty, callAppNow: !usingInput.isEmpty,
+                                         silentFor: 600, threshold: 30) == nil)
+        let (_, event) = CallDetection.step(previous: .armed, micInUse: !usingInput.isEmpty, callApps: usingInput, recording: false)
+        #expect(event == nil)
+    }
+}
+
 @Suite("Call audio warning")
 struct CallAudioWarningTests {
     @Test func quickNoteNeverWarnsAboutCallAudio() {

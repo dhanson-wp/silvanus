@@ -1158,14 +1158,14 @@ enum SelfTest {
         model.show(.notes)
     }
 
-    /// MicCapture through a device switch, on a fake engine with fake configuration-change
-    /// notifications: no device opens.
     /// The call detector with a fake probe: "Meeting detected" once per call, never with no
     /// call app, never while recording, not when the setting is off, and gone after its time.
     private static func checkMeetingDetection(model: AppModel) async {
+        // `mic` is any process using input; `apps` the call apps among them.
         final class Fake { var mic = false; var apps: Set<String> = [] }
         let fake = Fake()
-        let detector = model.makeDetector(probe: .init(micInUseElsewhere: { fake.mic }, runningCallApps: { fake.apps }))
+        let detector = model.makeDetector(probe: .init(callAppsUsingInput: { fake.mic ? fake.apps : [] },
+                                                       micInUseElsewhere: { fake.mic }, runningCallApps: { fake.apps }))
         guard let prompt = model.meetingPrompt else {
             check("the Meeting detected prompt exists", false)
             return
@@ -1212,9 +1212,22 @@ enum SelfTest {
         check("the prompt hides itself after its time", up && !prompt.isShowing)
         prompt.seconds = Metric.meetingPromptSeconds
         prompt.hide()
+        // A browser open but not using input (an in-person meeting): no call.
+        let chromeOpen = CallDetector.Probe(callAppsUsingInput: { [] }, micInUseElsewhere: { true },
+                                            runningCallApps: { ["com.google.Chrome"] })
+        check("a call app that's open but not using input isn't a call",
+              !chromeOpen.callInProgress(recording: false) && !chromeOpen.callInProgress(recording: true))
+        let noList = CallDetector.Probe(callAppsUsingInput: { nil }, micInUseElsewhere: { true },
+                                        runningCallApps: { ["us.zoom.xos"] })
+        check("without the process list, the input device running while a call app runs is a call",
+              noList.callInProgress(recording: false))
+        let live = CallDetector.liveCallAppsUsingInput()
+        check("Core Audio's process list can be read", live != nil)
         model.recorder.callAppRunning = false
     }
 
+    /// MicCapture through a device switch, on a fake engine with fake configuration-change
+    /// notifications: no device opens.
     private static func checkMicRestarts() async {
         let dir = Store.root.appending(path: "mic-restarts")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

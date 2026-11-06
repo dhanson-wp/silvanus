@@ -34,7 +34,6 @@ struct MeetingPrompt: View {
                 Spacer(minLength: 0)
                 Button("Dismiss", action: dismiss)
                     .buttonStyle(KitButtonStyle())
-                    .keyboardShortcut(.cancelAction)
                     .help("Hide this prompt")
                 Button("Start Recording", action: start)
                     .buttonStyle(KitButtonStyle(isSelected: true))

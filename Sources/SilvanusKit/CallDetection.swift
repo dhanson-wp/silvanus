@@ -17,15 +17,73 @@ public enum CallApps {
         "com.microsoft.edgemac",
     ]
 
-    /// The call apps among running apps' bundle ids.
+    /// The call apps among running apps' bundle ids. Only the fallback uses it: a running
+    /// app isn't a call.
     public static func running(in bundleIDs: some Sequence<String?>) -> Set<String> {
         Set(bundleIDs.compactMap { $0 }.filter { self.bundleIDs.contains($0) })
+    }
+
+    /// Bundle id roots, each with the call app it stands for. A process matches a root when
+    /// its id is the root or starts with the root and a dot, so browser and call-app helpers
+    /// (com.google.Chrome.helper, us.zoom.CptHost) count as their app.
+    public static let roots: [(root: String, app: String)] = [
+        ("us.zoom", "us.zoom.xos"),
+        ("com.microsoft.teams2", "com.microsoft.teams2"),
+        ("com.microsoft.teams", "com.microsoft.teams"),
+        ("com.tinyspeck.slackmacgap", "com.tinyspeck.slackmacgap"),
+        ("com.apple.FaceTime", "com.apple.FaceTime"),
+        // FaceTime's calls run their audio in this daemon.
+        ("com.apple.avconferenced", "com.apple.FaceTime"),
+        ("com.cisco.webexmeetingsapp", "com.cisco.webexmeetingsapp"),
+        ("com.webex.meetingmanager", "com.cisco.webexmeetingsapp"),
+        ("com.google.Chrome", "com.google.Chrome"),
+        ("company.thebrowser", "company.thebrowser.Browser"),
+        ("com.apple.Safari", "com.apple.Safari"),
+        ("org.mozilla", "org.mozilla.firefox"),
+        ("com.microsoft.edgemac", "com.microsoft.edgemac"),
+    ]
+
+    static let safari = "com.apple.Safari"
+
+    /// The call app a process using audio input belongs to, or nil. Silvanus's own process
+    /// never counts. WebKit's processes (com.apple.WebKit.*) serve every app that shows a web
+    /// page, so they count only when the app responsible for them is Safari.
+    public static func app(for process: InputProcess, ownPID: Int32) -> String? {
+        guard process.pid != ownPID, let id = process.bundleID, !id.isEmpty else { return nil }
+        if id.hasPrefix("com.apple.WebKit.") {
+            let safari = process.responsibleBundleID.map { $0 == Self.safari || $0.hasPrefix(Self.safari + ".") } ?? false
+                || process.path?.contains("/Safari.app/") == true
+            return safari ? Self.safari : nil
+        }
+        return roots.first { id == $0.root || id.hasPrefix($0.root + ".") }?.app
+    }
+
+    /// The call apps whose processes are using audio input now.
+    public static func usingInput(_ processes: [InputProcess], ownPID: Int32) -> Set<String> {
+        Set(processes.compactMap { app(for: $0, ownPID: ownPID) })
+    }
+}
+
+/// A process Core Audio reports as using audio input, with what's known about it.
+public struct InputProcess: Equatable, Sendable {
+    public var pid: Int32
+    public var bundleID: String?
+    /// The bundle id of the app responsible for the process (Safari for its WebKit processes).
+    public var responsibleBundleID: String?
+    /// The process's executable path.
+    public var path: String?
+
+    public init(pid: Int32, bundleID: String?, responsibleBundleID: String? = nil, path: String? = nil) {
+        self.pid = pid
+        self.bundleID = bundleID
+        self.responsibleBundleID = responsibleBundleID
+        self.path = path
     }
 }
 
 /// Noticing a meeting start, with no audio and no UI: the app's `CallDetector` polls every
-/// 2 seconds and steps this. A meeting starts when the microphone is in use while a call
-/// app runs. It's announced once per call, never while Silvanus records, and the detector
+/// 2 seconds and steps this. A meeting starts when a call app's process is using audio
+/// input (`callApps` is those apps). It's announced once per call, never while Silvanus records, and the detector
 /// re-arms only after the microphone has been free for 10 seconds (so a call that drops
 /// the mic for a moment, or a recording stopped mid-call, isn't announced again).
 public enum CallDetection {
@@ -67,8 +125,8 @@ public enum CallDetection {
 }
 
 /// When the call-audio warning ("Nobody on the call is audible yet…") may show. Quick Note
-/// is a voice note, never a call; and a recording with no call app running at its start,
-/// and none now, has no call to hear. The microphone-silence warning shows for every
+/// is a voice note, never a call; and a recording with no call app using audio input at its
+/// start, and none now, has no call to hear (an in-person meeting with a browser open). The microphone-silence warning shows for every
 /// recording.
 public enum CallAudioWarning {
     public static let text = "Nobody on the call is audible yet. Check System Audio access in Settings."

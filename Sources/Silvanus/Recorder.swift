@@ -91,11 +91,12 @@ final class Recorder {
     @ObservationIgnored var silenceWarning: TimeInterval = 30
     /// For the checks: how many times the level was sampled.
     @ObservationIgnored private(set) var samples = 0
-    /// Whether a call app runs now. The call detector sets it every 2 seconds; the samples
-    /// only read it.
+    /// Whether a call app is using audio input now. The call detector sets it every 2
+    /// seconds; the samples only read it.
     @ObservationIgnored var callAppRunning = false
-    /// Whether a call app runs, read once as a recording starts. The self-test fakes it.
-    @ObservationIgnored var callAppProbe: () -> Bool = { !CallDetector.liveCallApps().isEmpty }
+    /// Whether a call app is using audio input, read once as a recording starts (before our
+    /// own microphone opens). The self-test fakes it.
+    @ObservationIgnored var callAppProbe: () -> Bool = { CallDetector.Probe.live.callInProgress(recording: false) }
     /// The recording was started by Quick Note: a voice note, never a call.
     @ObservationIgnored private var isQuickNote = false
     /// A call app ran when the recording started.

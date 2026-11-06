@@ -72,13 +72,13 @@ extension AppDefaults {
         set { shared.set(newValue.rawValue, forKey: appearanceKey) }
     }
 
-    /// Saved only for now; the Dock icon follows it once that behavior lands.
     /// Settings > General > Prompt when a meeting starts. On until it's turned off.
     static var promptOnMeeting: Bool {
         get { shared.object(forKey: promptOnMeetingKey) as? Bool ?? true }
         set { shared.set(newValue, forKey: promptOnMeetingKey) }
     }
 
+    /// Saved only for now; the Dock icon follows it once that behavior lands.
     static var showInDock: Bool {
         get { shared.object(forKey: showInDockKey) as? Bool ?? true }
         set { shared.set(newValue, forKey: showInDockKey) }
