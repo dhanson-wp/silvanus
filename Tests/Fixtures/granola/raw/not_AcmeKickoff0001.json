@@ -1,0 +1,43 @@
+{
+ "exported_at": "2026-03-12T09:00:00-07:00",
+ "list_item": {
+  "id": "not_AcmeKickoff0001",
+  "title": "Acme kickoff",
+  "created_at": "2026-03-10T15:00:00Z"
+ },
+ "note": {
+  "id": "not_AcmeKickoff0001",
+  "title": "Acme kickoff",
+  "created_at": "2026-03-10T15:00:00Z",
+  "deleted_at": null,
+  "web_url": "https://notes.example.com/d/11111111-2222-4333-8444-555555555551",
+  "owner": {"name": "Sam Rivera", "email": "sam.rivera@example.com"},
+  "calendar_event": {
+   "event_title": "Acme kickoff call",
+   "scheduled_start_time": "2026-03-10T15:00:00Z",
+   "scheduled_end_time": "2026-03-10T15:30:00Z"
+  },
+  "attendees": [
+   {"name": "Sam Rivera", "email": "sam.rivera@example.com"},
+   {"name": "Priya Natarajan", "email": "priya.natarajan@example.com"},
+   {"name": null, "email": "jordan.lee@example.com"}
+  ],
+  "folder_membership": [{"id": "fol_0001", "name": "Clients"}],
+  "private_notes_markdown": "Agenda\n- scope\n- dates\n",
+  "summary_markdown": "### Decisions\n- Launch in April\n\n### Next steps\n- Sam sends the plan"
+ },
+ "transcript": [
+  {"text": "Thanks for joining everyone, let's start with the plan.",
+   "start_time": "2026-03-10T15:00:05Z", "end_time": "2026-03-10T15:00:11Z",
+   "speaker": {"source": "microphone", "attribution": "me"}},
+  {"text": "Happy to be here. We have three priorities for launch.",
+   "start_time": "2026-03-10T15:00:12Z", "end_time": "2026-03-10T15:00:18Z",
+   "speaker": {"source": "system", "attribution": "them"}},
+  {"text": "   ",
+   "start_time": "2026-03-10T15:00:18Z", "end_time": "2026-03-10T15:00:19Z",
+   "speaker": {"source": "microphone", "attribution": "me"}},
+  {"text": "Great, send the dates over.",
+   "start_time": "2026-03-10T15:00:20Z", "end_time": "2026-03-10T15:00:25Z",
+   "speaker": {"source": "microphone", "attribution": "me"}}
+ ]
+}
