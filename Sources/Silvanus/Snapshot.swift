@@ -7,14 +7,14 @@ import SwiftUI
 ///     ~/Library/Developer/Silvanus/Silvanus.app/Contents/MacOS/Silvanus -ApplePersistenceIgnoreState YES
 /// writes <page>-light.png and <page>-dark.png for every sidebar page, the window frame at
 /// its default and minimum sizes and with the sidebar hidden (captureFrames), and
-/// settings-<tab>-light.png and settings-<tab>-dark.png for every Settings tab, then quits.
+/// settings-<pane>-light.png and settings-<pane>-dark.png for every Settings pane (Settings is
+/// open in the main window), then quits.
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "settings" for Settings.
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
-/// Add APP_ACCENT=<id> to see the pages in another accent.
 /// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
 enum Snapshot {
-    static func runIfRequested(model: AppModel, openSettings: OpenSettingsAction) {
+    static func runIfRequested(model: AppModel) {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["APP_SNAPSHOT"], !dir.isEmpty else { return }
         // The editor spike takes its own snapshots (runEditorSpikeIfRequested).
@@ -37,6 +37,8 @@ enum Snapshot {
             return
         }
         let only = env["APP_SNAPSHOT_PAGES"].map { Set($0.split(separator: ",").map(String.init)) }
+        // A selected row, so the pages show the sidebar's selection.
+        if model.selection == nil { model.selection = model.meetings.first?.id }
         Task {
             keepDisplayAwake()
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -53,18 +55,19 @@ enum Snapshot {
                 await captureFrames(model: model, to: dir)
             }
             if only == nil || only?.contains("settings") == true {
-                let main = NSApp.windows.first { $0.canBecomeMain && !$0.isSheet }
-                openSettings()
-                try? await Task.sleep(for: .seconds(1))
+                // Settings takes the main window, so each pane is the window itself.
+                model.sidebar = .all
+                model.openSettings()
+                try? await Task.sleep(for: .seconds(0.8))
                 for mode in ["light", "dark"] {
                     NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
-                    for tab in SettingsTab.allCases {
-                        model.settingsTab = tab
+                    for pane in SettingsPane.allCases {
+                        model.settingsPane = pane
                         try? await Task.sleep(for: .seconds(0.8))
-                        let settings = NSApp.windows.first { $0.isVisible && $0 !== main && !$0.isSheet }
-                        capture(to: "\(dir)/settings-\(tab.rawValue)-\(mode).png", window: settings)
+                        capture(to: "\(dir)/settings-\(pane.rawValue)-\(mode).png")
                     }
                 }
+                model.closeSettings()
             }
             if only == nil || only?.contains("brand") == true {
                 renderBrand(to: dir)
@@ -81,23 +84,37 @@ enum Snapshot {
     ///   window-<mode>.png            910 × 600, the default and pixel-compare size
     ///   window-min-<mode>.png        720 × 480, the minimum: nothing in the header overlaps
     ///   window-collapsed-<mode>.png  910 × 600 with the sidebar hidden
+    ///   window-long-<mode>.png       910 × 600, the open meeting with a 120-character title
+    ///                                and a long folder name (Review Focus 1 and 2)
+    ///   window-min-long-<mode>.png   the same at 720 × 480
+    /// The long title and folder are set in memory only, never saved.
     @MainActor private static func captureFrames(model: AppModel, to dir: String) async {
         guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
-        let frames: [(name: String, size: CGSize, sidebar: Bool)] = [
-            ("window", Metric.windowDefault, true),
-            ("window-min", Metric.windowMinimum, true),
-            ("window-collapsed", Metric.windowDefault, false),
+        let frames: [(name: String, size: CGSize, sidebar: Bool, long: Bool)] = [
+            ("window", Metric.windowDefault, true, false),
+            ("window-min", Metric.windowMinimum, true, false),
+            ("window-collapsed", Metric.windowDefault, false, false),
+            ("window-long", Metric.windowDefault, true, true),
+            ("window-min-long", Metric.windowMinimum, true, true),
         ]
         model.sidebar = .all
+        let original = model.meetings
         for mode in ["light", "dark"] {
             NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
             for frame in frames {
                 model.sidebarVisible = frame.sidebar
+                if frame.long, let index = model.meetings.firstIndex(where: { $0.id == model.selection }) {
+                    model.meetings[index].info.title = HeadersGallery.longTitle
+                    model.meetings[index].info.folder = HeadersGallery.longFolder
+                } else if model.meetings != original {
+                    model.meetings = original
+                }
                 main.setContentSize(frame.size)
                 try? await Task.sleep(for: .seconds(0.8))
                 capture(to: "\(dir)/\(frame.name)-\(mode).png", window: main)
             }
         }
+        model.meetings = original
         model.sidebarVisible = true
         main.setContentSize(Metric.windowDefault)
     }
@@ -112,7 +129,7 @@ enum Snapshot {
             let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
             NSApp.appearance = appearance
             // About: the same view the About window shows, on the window background.
-            let host = NSHostingView(rootView: BrandAboutView().themed())
+            let host = NSHostingView(rootView: BrandAboutView())
             host.appearance = appearance
             host.frame = NSRect(origin: .zero, size: host.fittingSize)
             host.layoutSubtreeIfNeeded()

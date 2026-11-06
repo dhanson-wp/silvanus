@@ -26,4 +26,19 @@ Every word Silvanus puts on screen. One name per idea.
 | Timestamp | The time a note line or transcript block starts, from the start of the meeting | time code |
 | Microphone access / System audio access | The two macOS permissions Silvanus needs | Mic permission, Screen Recording |
 | Folder | A group of meetings the user makes | Project, Space, Tag |
+| All meetings | The sidebar's list with no folder chosen: every meeting | All Notes, Everything, Inbox |
+| Folders | The sidebar section that lists every folder, under the meetings | Collections, Groups |
+| Today / Yesterday | Sidebar day headings; older days show the weekday, then the date ("Mon, Nov 2") | Recent, Earlier |
+| No meetings yet | The sidebar when there are no meetings at all | Empty, Nothing here |
+| No meetings in this folder | The sidebar when the chosen folder holds no meetings | Folder is empty |
 | Move to Trash | Remove a meeting so it can be restored from the Trash | Delete (unless it can't come back) |
+| Attendees | The people in a meeting, listed from the date chip; "No attendees" when there are none | Participants, Guests |
+| Add to folder | The folder chip on a meeting that isn't in a folder; its menu (and Meeting > Move to Folder) has the folders, None, and New Folder… | Move to Project, Tag |
+| No summary yet | The Summary view before a meeting has one | Nothing here |
+| No transcript yet | The Transcript view before a meeting has one | No captions |
+| Pick a meeting or start one | The canvas with no meeting open | Nothing selected |
+| Settings | The panes that open inside the main window (⌘,): General, Appearance, About, Transcription | Preferences, Options |
+| Show in Dock | The General switch that keeps Silvanus's icon in the Dock | Dock icon |
+| Open at login | The General switch that starts Silvanus when you log in; "Coming soon" for now | Launch at startup |
+| Theme | The Appearance choice: System, Light, or Dark | Mode, Color scheme |
+| Model | The Transcription pane's speech model, "Parakeet TDT v2, on this Mac" | Engine |

@@ -6,9 +6,8 @@ import SwiftUI
 //   APP_STORE=<dir> Silvanus      use another meetings folder (tests, experiments)
 //   APP_SEED=1 APP_STORE=/tmp/<dir> Silvanus   fill an empty /tmp store with fictional meetings
 //   APP_IMPORT_GRANOLA=<dir> APP_STORE=/tmp/<dir> Silvanus   import the Granola archive, print the counts, quit
-//   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings tab in light and dark mode, then quit
+//   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings pane in light and dark mode, then quit
 //   Silvanus --selftest           run the self-test on a /tmp folder and quit with 0 or 1 (tools/selftest.sh)
-//   APP_ACCENT=<id> Silvanus      run with another accent from Theme.all (UI/Theme.swift)
 //   APP_KIT_GALLERY=1 Silvanus    show the design kit's gallery instead of the pages (DesignKit/KitGallery.swift);
 //                                 APP_COLORS=reference draws the kit in the reference colors
 //   APP_GRID=1 Silvanus           draw the 8 pt grid and the layout probes over the window
@@ -27,7 +26,7 @@ struct SilvanusApp: App {
                 if KitGallery.enabled { KitGalleryPage() } else { ContentView() }
             }
                 .environment(model)
-                .themed()
+                .noInitialFocus()
                 .overlay { if GridOverlay.enabled { GridOverlay() } }
                 .windowChrome()
         }
@@ -37,12 +36,15 @@ struct SilvanusApp: App {
         .defaultSize(Metric.windowDefault)
         .commands {
             SidebarCommand(model: model)
+            MeetingCommands(model: model)
             AboutCommand()
+            SettingsCommand(model: model)
+            // Edit > Find (⌘F), Find and Replace (⌥⌘F), and the rest, for the notes canvas.
+            TextEditingCommands()
         }
 
         Window("About Silvanus", id: "about") {
             BrandAboutView()
-                .themed()
                 .noInitialFocus()
         }
         .windowResizability(.contentSize)
@@ -55,13 +57,6 @@ struct SilvanusApp: App {
             Image(nsImage: Brand.menuBarGlyph)
         }
         .menuBarExtraStyle(.menu)
-
-        Settings {
-            SettingsView()
-                .environment(model)
-                .themed()
-        }
-        .windowResizability(.contentSize)
     }
 }
 
@@ -87,6 +82,64 @@ struct SidebarCommand: Commands {
         CommandGroup(replacing: .sidebar) {
             Button(model.sidebarVisible ? "Hide Sidebar" : "Show Sidebar", action: model.toggleSidebar)
                 .keyboardShortcut("s", modifiers: [.control, .command])
+                .disabled(model.settingsOpen)
+        }
+    }
+}
+
+/// File > New Meeting (⌘N), Start Recording (⇧⌘R), and Quick Note (⌥⌘N); Meeting > Rename
+/// Meeting… (⌃⌘R), Show Attendees (⌃⌘A), Move to Folder, Search, and Filter;
+/// View > Summary, My notes, and Transcript (⌘1, ⌘2, ⌘3), which switch the canvas like the
+/// view pill. Meeting items are disabled with no meeting open; recording items until
+/// recording is wired in; Search and Filter until they land.
+struct MeetingCommands: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        let meeting = model.selectedMeeting
+        // Settings covers the meeting, so its commands wait (New Meeting and the view modes
+        // close Settings first instead).
+        let noMeeting = meeting == nil || model.settingsOpen
+        CommandGroup(replacing: .newItem) {
+            Button("New Meeting") { model.newMeeting() }
+                .keyboardShortcut("n")
+            Button(model.isRecording ? "Stop" : "Start Recording", action: model.startRecording)
+                .keyboardShortcut("r", modifiers: [.shift, .command])
+                .disabled(!model.canRecord)
+            Button("Quick Note", action: model.quickNote)
+                .keyboardShortcut("n", modifiers: [.option, .command])
+                .disabled(!model.canRecord)
+        }
+        CommandMenu("Meeting") {
+            Button("Rename Meeting…", action: model.requestRename)
+                .keyboardShortcut("r", modifiers: [.control, .command])
+                .disabled(noMeeting)
+            Button("Show Attendees", action: model.requestAttendees)
+                .keyboardShortcut("a", modifiers: [.control, .command])
+                .disabled(noMeeting)
+            Menu("Move to Folder") {
+                if let meeting {
+                    FolderMenuItems(folder: meeting.info.folder, folders: model.folders.map(\.name),
+                                    choose: { model.setFolder(meeting.id, to: $0) },
+                                    newFolder: model.requestNewFolder)
+                }
+            }
+            .disabled(noMeeting)
+            Divider()
+            // Placeholders until search and filtering land. No shortcuts yet: ⌘F and ⌥⌘F
+            // belong to Edit > Find and Find and Replace in the notes canvas.
+            Button("Search") {}
+                .disabled(true)
+            Button("Filter") {}
+                .disabled(true)
+        }
+        CommandGroup(before: .sidebar) {
+            ForEach(CanvasMode.allCases) { mode in
+                Button(mode.title) { model.show(mode) }
+                    .keyboardShortcut(KeyEquivalent(mode.shortcut))
+                    .disabled(meeting == nil)
+            }
+            Divider()
         }
     }
 }
@@ -98,6 +151,24 @@ struct AboutCommand: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Silvanus") { openWindow(id: "about") }
+        }
+    }
+}
+
+/// Silvanus > Settings… (⌘,) opens Settings inside the main window; View > Close Settings
+/// (⌘[) and Escape go back to the meeting.
+struct SettingsCommand: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { model.openSettings() }
+                .keyboardShortcut(",")
+        }
+        CommandGroup(after: .sidebar) {
+            Button("Close Settings", action: model.closeSettings)
+                .keyboardShortcut("[")
+                .disabled(!model.settingsOpen)
         }
     }
 }

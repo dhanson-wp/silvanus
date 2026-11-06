@@ -1,59 +1,57 @@
 import SilvanusKit
 import SwiftUI
 
-/// The main window: the kit's frame (DesignKit/Window), with the meeting list in the
-/// sidebar and an empty canvas until the sidebar and canvas parts arrive.
+/// The main window: the kit's frame (DesignKit/Window), with the sidebar (Screens/SidebarView),
+/// the canvas header (view pill, Quick Note, Start Recording, More), and the open
+/// meeting's page (Screens/MeetingPage). While Settings is open, its list takes the sidebar
+/// column and the chosen pane the canvas (Screens/SettingsScreen).
 struct ContentView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openSettings) private var openSettings
-
-    var body: some View {
-        PaneLayout(sidebarVisible: model.sidebarVisible) {
-            SidebarToggleButton(sidebarVisible: model.sidebarVisible, toggle: model.toggleSidebar)
-        } sidebar: {
-            MeetingList(page: model.sidebar ?? .all)
-        } header: {
-            EmptyView()
-        } canvas: {
-            Color.clear
-        }
-        .task {
-            SelfTest.runIfRequested(model: model)
-            Snapshot.runIfRequested(model: model, openSettings: openSettings)
-        }
-    }
-}
-
-/// The sidebar's meeting list, in simple rows until the kit's sidebar parts replace it.
-struct MeetingList: View {
-    @Environment(AppModel.self) private var model
-    let page: SidebarItem
-
-    /// Nothing is starred yet: starring arrives with the meeting type.
-    private var visible: [Meeting] {
-        page == .starred ? [] : model.meetings
-    }
 
     var body: some View {
         @Bindable var model = model
-        List(visible, selection: $model.selection) { meeting in
-            VStack(alignment: .leading, spacing: 2) {
-                Text(meeting.displayTitle)
-                Text(meeting.info.start.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        let meeting = model.selectedMeeting
+        // Settings takes the sidebar and canvas columns, and keeps the sidebar on screen.
+        PaneLayout(sidebarVisible: model.sidebarVisible || model.settingsOpen) {
+            if model.settingsOpen {
+                SettingsHeaderRow(back: model.closeSettings)
+            } else {
+                // Search and Filter join the row when their features land; until then they show disabled.
+                SidebarHeaderRow(sidebarVisible: model.sidebarVisible, toggleSidebar: model.toggleSidebar,
+                                 newMeeting: { model.newMeeting() })
             }
-            .tag(meeting.id)
-        }
-        .scrollContentBackground(.hidden)
-        .overlay {
-            if visible.isEmpty {
-                ContentUnavailableView(
-                    "No Meetings",
-                    systemImage: page.symbol,
-                    description: Text("Meetings you record show up here.")
-                )
+        } sidebar: {
+            if model.settingsOpen {
+                SettingsSidebar()
+            } else {
+                SidebarView(page: model.sidebar ?? .all)
+            }
+        } header: {
+            if model.settingsOpen {
+                // Not an empty slot: an empty header drops the header's height.
+                Color.clear
+            } else {
+                CanvasHeader(mode: $model.canvasMode,
+                             hasMeeting: meeting != nil,
+                             isRecording: model.isRecording,
+                             startRecording: recordAction(model.startRecording),
+                             quickNote: recordAction(model.quickNote))
+            }
+        } canvas: {
+            if model.settingsOpen {
+                SettingsScreen()
+            } else {
+                MeetingPage(meeting: meeting)
             }
         }
+        .task {
+            SelfTest.runIfRequested(model: model)
+            Snapshot.runIfRequested(model: model)
+        }
+    }
+
+    /// A recording action, or nil (the control shows disabled) until recording is wired in.
+    private func recordAction(_ action: @escaping () -> Void) -> (() -> Void)? {
+        model.canRecord ? action : nil
     }
 }

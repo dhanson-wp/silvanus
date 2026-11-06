@@ -31,6 +31,9 @@ struct KitGallery: View {
                     ForEach(KitIcon.allCases, id: \.self) { iconRow($0) }
                 }
             }
+            SidebarGallery()
+            HeadersGallery()
+            SettingsGallery()
         }
         .padding(Space.xxl)
         .background(Ink.background)
@@ -125,7 +128,6 @@ struct KitGallery: View {
 /// The gallery as the main window's page: scrolls, and starts snapshot mode.
 struct KitGalleryPage: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         ScrollView([.vertical, .horizontal]) {
@@ -133,7 +135,7 @@ struct KitGalleryPage: View {
         }
         .background(Ink.background)
         .task {
-            Snapshot.runIfRequested(model: model, openSettings: openSettings)
+            Snapshot.runIfRequested(model: model)
         }
     }
 }

@@ -141,6 +141,7 @@ struct Swatch: Identifiable {
 enum InkToken: String, CaseIterable {
     case background, sidebar, canvas, text, textSecondary, textTertiary, divider, selection
     case pillTrack, pillSegment, accent, accentText, focus, primaryControl, onPrimary
+    case controlHover
     case recording, onRecording, recordingText
 
     /// The light and dark value in a set.
@@ -175,6 +176,8 @@ enum InkToken: String, CaseIterable {
         case .divider: P.divider
         // Paper, not parchment: secondary text on parchment is 4.00:1.
         case .selection: InkPair(light: P.paper, dark: P.raisedMidnight)
+        // Selection matches the canvas, so a control on the canvas hovers one step darker.
+        case .controlHover: InkPair(light: P.ivory, dark: P.midnight)
         case .pillTrack: InkPair(light: P.parchment, dark: P.midnight)
         case .pillSegment: InkPair(light: P.paper, dark: P.raisedMidnight)
         // Gold is fill only.
@@ -200,7 +203,7 @@ enum InkToken: String, CaseIterable {
         case .textSecondary: P.refSecondary
         case .textTertiary: P.refTertiary
         case .divider: P.refDivider
-        case .selection: P.refSelection
+        case .selection, .controlHover: P.refSelection
         case .pillTrack: P.refPillTrack
         case .pillSegment: P.refPillSegment
         case .accent: P.refRule
@@ -218,7 +221,7 @@ enum InkToken: String, CaseIterable {
     /// set, light and dark (the self-test checks). textTertiary is left out: it colors icons
     /// on the pill track, never text.
     static let textPairs: [(text: InkToken, on: InkToken)] = {
-        let grounds: [InkToken] = [.background, .sidebar, .canvas, .selection]
+        let grounds: [InkToken] = [.background, .sidebar, .canvas, .selection, .controlHover]
         let onGrounds: [InkToken] = [.text, .textSecondary, .accentText, .recordingText]
         var pairs: [(text: InkToken, on: InkToken)] = []
         for text in onGrounds {
@@ -242,6 +245,8 @@ enum Ink {
     static let textTertiary = InkToken.textTertiary.color
     static let divider = InkToken.divider.color
     static let selection = InkToken.selection.color
+    /// Hover and pressed fills for controls on the canvas, where `selection` wouldn't show.
+    static let controlHover = InkToken.controlHover.color
     static let pillTrack = InkToken.pillTrack.color
     static let pillSegment = InkToken.pillSegment.color
     /// Fill only: never text or a focus ring.
