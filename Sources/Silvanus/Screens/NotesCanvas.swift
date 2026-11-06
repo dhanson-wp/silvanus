@@ -68,8 +68,8 @@ struct NotesEditor: View {
 
     var body: some View {
         MarkdownEditor(text: $document.text, link: document.link,
-                       header: header, headerHeight: header == nil ? 0 : MeetingHeader.height)
-            .accessibilityLabel("My notes")
+                       header: header, headerHeight: header == nil ? 0 : MeetingHeader.height,
+                       accessibilityLabel: "My notes")
             .overlay(alignment: .bottom) {
                 if let error = document.saveError {
                     SaveErrorBanner(reason: error, retry: document.saveNow)
@@ -116,7 +116,9 @@ final class NotesDocument {
     let link = EditorLink()
     /// The note as Markdown. Set by the editor when typing pauses.
     var text: String {
-        didSet { if !applyingDisk { changed() } }
+        // The editor's push of text it already handed over (leaving My notes flushes, then the
+        // editor's dismantle pushes) changes nothing, so it doesn't count as typing.
+        didSet { if !applyingDisk, text != oldValue { changed() } }
     }
     /// True when `text` has changes not yet written.
     private(set) var isDirty = false

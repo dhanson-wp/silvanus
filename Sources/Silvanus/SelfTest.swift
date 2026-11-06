@@ -499,13 +499,18 @@ enum SelfTest {
         check("My notes puts the meeting header above the notes in one scroll view",
               header != nil && header?.enclosingScrollView?.documentView === header
               && (header?.header.frame.maxY ?? 0) <= (header?.textView.frame.minY ?? 0) + (editor()?.textContainerInset.height ?? 0))
-        if let view = editor(), let line = view.firstLineMetrics() {
-            check("the notes text starts at x 221, under the header", line.x == Metric.contentX && line.lineTop >= Metric.headerHeight + MeetingHeader.height - 1,
-                  "x \(line.x), line top \(line.lineTop)")
-        }
+        check("VoiceOver reads the header, then the notes",
+              header.map { ($0.accessibilityChildren() as? [NSView]) == [$0.header, $0.textView] } == true
+              && editor()?.accessibilityLabel() == "My notes",
+              "label \(editor()?.accessibilityLabel() ?? "none")")
 
         // Settings: the typing is on disk the moment it opens.
         let typed1 = await type("Budget")
+        // Measured once there's a first line to measure.
+        let line = editor()?.firstLineMetrics()
+        check("the notes text starts at x 221, under the header",
+              line.map { $0.x == Metric.contentX && abs($0.lineTop - (Metric.headerHeight + MeetingHeader.height)) <= 1 } == true,
+              line.map { "x \($0.x), line top \($0.lineTop)" } ?? "no first line")
         model.openSettings()
         check("opening Settings saves the typing to the open meeting", typed1 && disk() == "Budget", disk().debugDescription)
         await poll { editor() == nil }
@@ -513,6 +518,36 @@ enum SelfTest {
         model.closeSettings()
         await poll { editor()?.string == "Budget" }
         check("closing Settings shows the same notes", editor()?.string == "Budget", editor()?.string.debugDescription ?? "no editor")
+
+        // Tab from the header's controls lands in the notes.
+        if let page = editor()?.superview as? HeaderedNotesView {
+            // Key, but without activating the app: focus moves only in the key window.
+            main.makeKey()
+            main.makeFirstResponder(page.header)
+            var path: [String] = []
+            for _ in 0..<8 where !(main.firstResponder is NotesTextView) {
+                if let tab = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                              windowNumber: main.windowNumber, context: nil, characters: "\t",
+                                              charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48) {
+                    main.sendEvent(tab)
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+                path.append((main.firstResponder.map { String(describing: Swift.type(of: $0)) } ?? "none")
+                            + (main.isKeyWindow ? "" : " (window not key)"))
+            }
+            // AppKit moves focus only in the key window, and an inactive app's window may not stay
+            // key. Then check the step AppKit takes when Tab leaves the header's last control.
+            if !main.isKeyWindow {
+                main.makeFirstResponder(page.header)
+                main.selectKeyView(following: page.header)
+                path.append("key view after the header: \(main.firstResponder.map { String(describing: Swift.type(of: $0)) } ?? "none")")
+            }
+            check("Tab from the header moves into the notes",
+                  main.firstResponder is NotesTextView,
+                  path.joined(separator: " > "))
+        } else {
+            check("Tab from the header moves into the notes", false, "no header")
+        }
 
         // View modes: ⌘1 (show) and the view pill (canvasMode).
         let typed2 = await type(" one")
@@ -558,6 +593,29 @@ enum SelfTest {
             check("⌘⌫ in the notes deletes to the line's start and keeps the meeting", false, "no editor")
         }
 
+        // ⌘⌫ while renaming deletes in the title's field and never trashes.
+        let deleteKey = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+                                         windowNumber: main.windowNumber, context: nil, characters: "\u{7F}",
+                                         charactersIgnoringModifiers: "\u{7F}", isARepeat: false, keyCode: 51)
+        let returnKey = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                         windowNumber: main.windowNumber, context: nil, characters: "\r",
+                                         charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)
+        check("only a ⌘⌫ key press counts as the delete shortcut",
+              MoveToTrash.isDeleteShortcut(deleteKey) && !MoveToTrash.isDeleteShortcut(returnKey)
+              && !MoveToTrash.isDeleteShortcut(nil))
+        let requestsBefore = model.trashRequests.count
+        model.requestRename()
+        await poll { (main.firstResponder as? NSTextView).map { !($0 is NotesTextView) } == true }
+        let field = main.firstResponder as? NSTextView
+        let titleBefore = field?.string ?? ""
+        MoveToTrash.perform(model: model, event: deleteKey, responder: main.firstResponder)
+        check("⌘⌫ while renaming deletes in the title and never trashes",
+              field != nil && !(field is NotesTextView) && !titleBefore.isEmpty && field?.string.isEmpty == true
+              && model.trashRequests.count == requestsBefore && model.meetings.contains { $0.id == id },
+              "field \(field.map { String(describing: Swift.type(of: $0)) } ?? "none"), title \(titleBefore.debugDescription) > \(field?.string.debugDescription ?? "")")
+        main.makeFirstResponder(nil)
+        try? await Task.sleep(for: .seconds(0.3))
+
         // Move to Trash with typing unsaved: saved first, so nothing is left to recover.
         let recovered = Store.root.appending(path: "recovered")
         let recoveredBefore = (try? FileManager.default.contentsOfDirectory(atPath: recovered.path))?.count ?? 0
@@ -571,9 +629,50 @@ enum SelfTest {
         await poll { !model.meetings.contains { $0.id == id } }
         try? await Task.sleep(for: .seconds(0.3))
         let recoveredAfter = (try? FileManager.default.contentsOfDirectory(atPath: recovered.path))?.count ?? 0
+        check("Move to Trash from the menu goes through AppModel.trash", model.trashRequests.last == id)
         check("Move to Trash saves the typing first and trashes the open meeting",
               typed6 && !model.meetings.contains { $0.id == id } && model.selection == nil && recoveredAfter == recoveredBefore,
               "listed \(model.meetings.contains { $0.id == id }), recovered \(recoveredAfter - recoveredBefore)")
+
+        // The sidebar row's menu: Move to Trash goes through AppModel.trash too.
+        await checkSidebarTrash(model: model, window: main)
+    }
+
+    /// Right-clicks the top sidebar row (a new meeting, so it's first under Today) and picks
+    /// Move to Trash from the menu SwiftUI gives that spot.
+    private static func checkSidebarTrash(model: AppModel, window: NSWindow) async {
+        guard let meeting = model.newMeeting(), let content = window.contentView else {
+            check("the sidebar row's Move to Trash goes through AppModel.trash", false, "no meeting")
+            return
+        }
+        model.selection = nil
+        try? await Task.sleep(for: .seconds(0.5))
+        guard let row = model.sidebarOrder.firstIndex(of: meeting.id), row == 0 else {
+            check("the sidebar row's Move to Trash goes through AppModel.trash", false, "row \(String(describing: model.sidebarOrder.firstIndex(of: meeting.id)))")
+            return
+        }
+        // The first row under Today, in window points from the top left.
+        var menu: NSMenu?
+        var tried: [String] = []
+        for y in stride(from: 110.0, through: 170.0, by: 10.0) where menu == nil {
+            let point = NSPoint(x: 100, y: window.frame.height - y)
+            guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                 clickCount: 1, pressure: 1),
+                  let hit = content.superview?.hitTest(content.superview!.convert(point, from: nil)) else { continue }
+            var view: NSView? = hit
+            while let v = view, menu == nil {
+                menu = v.menu(for: event)
+                view = v.superview
+            }
+            tried.append("\(Int(y)): \(String(describing: type(of: hit)))")
+        }
+        let item = menu?.items.first { $0.title == "Move to Trash" }
+        if let menu, let item { menu.performActionForItem(at: menu.index(of: item)) }
+        await poll { !model.meetings.contains { $0.id == meeting.id } }
+        check("the sidebar row's Move to Trash goes through AppModel.trash",
+              item != nil && model.trashRequests.last == meeting.id && !model.meetings.contains { $0.id == meeting.id },
+              "menu \(menu?.items.map(\.title) ?? []), tried \(tried.joined(separator: ", "))")
     }
 
     private static func menuItem(title: String, in menu: NSMenu?) -> NSMenuItem? {

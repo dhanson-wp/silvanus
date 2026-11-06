@@ -21,9 +21,12 @@ struct MarkdownEditor: NSViewRepresentable {
     /// header on My notes), and its height. The text's first line box starts right under it.
     var header: AnyView? = nil
     var headerHeight: CGFloat = 0
+    /// What VoiceOver calls the text view itself ("My notes"), not the scroll view around it.
+    var accessibilityLabel: String? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scroll, view) = NotesTextView.scrollable()
+        if let accessibilityLabel { view.setAccessibilityLabel(accessibilityLabel) }
         if let header {
             scroll.documentView = HeaderedNotesView(header: header, height: headerHeight, textView: view)
         }
@@ -181,6 +184,9 @@ final class HeaderedNotesView: NSView {
         addSubview(textView)
         // Over the text view's top inset, so the header's controls take their clicks.
         addSubview(self.header)
+        // Tab past the header's last control lands in the notes. A window that recalculates its
+        // key view loop puts the text view next anyway: it's below the header.
+        self.header.nextKeyView = textView
         // A selector observer goes away with this view on its own.
         NotificationCenter.default.addObserver(self, selector: #selector(textFrameChanged),
                                                name: NSView.frameDidChangeNotification, object: textView)
@@ -192,6 +198,11 @@ final class HeaderedNotesView: NSView {
 
     @objc private func textFrameChanged(_ note: Notification) {
         fitHeight()
+    }
+
+    /// VoiceOver reads the header (title, then chips), then the notes, as on screen.
+    override func accessibilityChildren() -> [Any]? {
+        [header, textView]
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {

@@ -108,6 +108,8 @@ final class AppModel {
     /// Saves the open notes now (the notes canvas sets it). Called before My notes leaves
     /// the canvas.
     @ObservationIgnored var leavingNotes: (() -> Void)?
+    /// Every meeting Move to Trash was asked for (menu or sidebar). The self-test reads it.
+    @ObservationIgnored private(set) var trashRequests: [String] = []
     /// Settings reopens on the last pane. Test and snapshot runs use their own defaults.
     var settingsPane: SettingsPane = SettingsPane(rawValue: AppDefaults.shared.string(forKey: AppDefaults.settingsPaneKey) ?? "") ?? .general {
         didSet { AppDefaults.shared.set(settingsPane.rawValue, forKey: AppDefaults.settingsPaneKey) }
@@ -159,6 +161,7 @@ extension AppModel {
     /// Meeting > Move to Trash (⌘⌫) and the sidebar row's menu. A failure shows the
     /// system's reason, and the meeting stays.
     func trash(_ id: String) {
+        trashRequests.append(id)
         do {
             try moveToTrash(id)
         } catch {

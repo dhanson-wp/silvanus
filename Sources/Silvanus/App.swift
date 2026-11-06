@@ -129,11 +129,8 @@ struct MeetingCommands: Commands {
             // ⌘⌫ while typing (the notes, a title being renamed) deletes to the line's start, as
             // in any Mac text field. The notes editor keeps it (NotesTextView); this catches the rest.
             Button("Move to Trash") {
-                if NSApp.currentEvent?.type == .keyDown, let field = NSApp.keyWindow?.firstResponder as? NSTextView {
-                    field.deleteToBeginningOfLine(nil)
-                } else if let id = model.selection {
-                    model.trash(id)
-                }
+                MoveToTrash.perform(model: model, event: NSApp.currentEvent,
+                                    responder: NSApp.keyWindow?.firstResponder)
             }
                 .keyboardShortcut(.delete, modifiers: [.command])
                 .disabled(noMeeting)
@@ -229,5 +226,26 @@ enum Store {
         guard isOverridden else { return false }
         let path = root.standardizedFileURL.resolvingSymlinksInPath().path
         return path.hasPrefix("/private/tmp/") || path.hasPrefix("/tmp/")
+    }
+}
+
+/// Meeting > Move to Trash. Its ⌘⌫ shortcut is also every Mac text view's "delete to the
+/// line's start": when the keystroke itself (⌘⌫, key code 51) chose the item while text is
+/// being edited (the notes, a title being renamed), it deletes instead. Choosing the item
+/// with the mouse or the keyboard's menu navigation always trashes.
+@MainActor
+enum MoveToTrash {
+    static func perform(model: AppModel, event: NSEvent?, responder: NSResponder?) {
+        if isDeleteShortcut(event), let field = responder as? NSTextView, field.isEditable {
+            field.deleteToBeginningOfLine(nil)
+        } else if let id = model.selection {
+            model.trash(id)
+        }
+    }
+
+    /// True for a ⌘⌫ key press (no other modifiers).
+    static func isDeleteShortcut(_ event: NSEvent?) -> Bool {
+        guard let event, event.type == .keyDown else { return false }
+        return event.keyCode == 51 && event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
     }
 }

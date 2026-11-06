@@ -321,7 +321,7 @@ Organization part, adapted to this grid. It's the top of the canvas on a meeting
 
 ### Notes canvas text
 
-- Text starts at x 221 (12 after the canvas edge). First baseline at about y 75.5 (cap top 64), so the first line box starts 11 below the header for a 24 pt line.
+- Text starts at x 221 (12 after the canvas edge). On My notes the meeting header sits above the notes in the same scroll view, and the first line box starts at the header's bottom: 46 (canvas header) + 104.5 (`MeetingHeader.height`: the title's cap top 19, the title, 15.5 to the chip row, the 28 pt chips, then 20 to the body) = y 150.5, so the first cap top is at about y 158 (measured 157.7). Without the header (the editor alone) the first line box starts 11 below the canvas header, cap top 64.
 - Body: `body` (16 / 24). Wrapped lines are 24 apart; list items are 28 apart (4 between items).
 - Bullets: an 8 pt dot centered at x 229; the text starts at x 246 (25 in from the text start).
 - Headings, baseline to baseline (measured on a summary): title to H2 48.7; H2 to its first list item 29 to 30; last list line to the next H2 32. Paragraph to an H3 in notes: 58.5; H3 to its first item 28.
