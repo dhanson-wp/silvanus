@@ -7,10 +7,15 @@ public final class MeetingLibrary {
     private let calendar: Calendar
     /// Where each meeting's folder is, so a renamed meeting keeps its folder.
     private var folders: [String: URL] = [:]
+    private let trash: (URL) throws -> Void
 
-    public init(root: URL, calendar: Calendar = .current) {
+    /// `trash` moves a folder to the Trash. Tests and the self-test pass a
+    /// closure that deletes instead, so they never touch the real Trash.
+    public init(root: URL, calendar: Calendar = .current,
+                trash: @escaping (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) {
         self.root = root
         self.calendar = calendar
+        self.trash = trash
     }
 
     private var fm: FileManager { .default }
@@ -54,17 +59,25 @@ public final class MeetingLibrary {
     /// The meeting's folder, once it has been loaded or saved.
     public func folderURL(for id: String) -> URL? { folders[id] }
 
-    /// Moves the whole meeting folder to the Trash, so it can be put back.
+    /// Moves the whole meeting folder to the Trash, so it can be put back, and
+    /// removes its series folder if that is now empty. An id the library has
+    /// not loaded or saved is a no-op.
     public func moveToTrash(_ id: String) throws {
         guard let folder = folders[id] else { return }
-        try fm.trashItem(at: folder, resultingItemURL: nil)
+        try trash(folder)
         folders[id] = nil
+        let series = folder.deletingLastPathComponent()
+        if let left = try? fm.contentsOfDirectory(atPath: series.path), left.allSatisfy({ $0 == ".DS_Store" }) {
+            try? fm.removeItem(at: series)
+        }
     }
 
     // MARK: - Private
 
     private func folderForSaving(_ m: Meeting) throws -> URL {
         if let known = folders[m.id] { return known }
+        // A fresh instance has not loaded yet: find this meeting's folder on disk first.
+        if let found = findFolder(for: m.id) { return found }
         let series = m.info.series.isEmpty ? m.displayTitle : m.info.series
         let relative = MeetingFolder.relativePath(series: series, start: m.info.start, calendar: calendar)
         var n = 1
@@ -75,6 +88,13 @@ public final class MeetingLibrary {
             if read(candidate)?.id == m.id { return candidate }
             n += 1
         }
+    }
+
+    private func findFolder(for id: String) -> URL? {
+        for series in subfolders(of: root.appending(path: MeetingFolder.top)) {
+            for folder in subfolders(of: series) where read(folder)?.id == id { return folder }
+        }
+        return nil
     }
 
     private func read(_ folder: URL) -> Meeting? {

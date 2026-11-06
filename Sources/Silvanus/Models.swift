@@ -44,7 +44,11 @@ final class AppModel {
 extension AppModel {
     /// Seeds when asked (scratch stores only), then reads the meetings from disk.
     convenience init(root: URL) {
-        self.init(library: MeetingLibrary(root: root))
+        // Test, snapshot, and self-test runs (scratch stores) delete instead of using the real Trash.
+        let library = Store.isScratch
+            ? MeetingLibrary(root: root, trash: { try FileManager.default.removeItem(at: $0) })
+            : MeetingLibrary(root: root)
+        self.init(library: library)
         SeedData.seedIfRequested(library: library)
         reload()
     }

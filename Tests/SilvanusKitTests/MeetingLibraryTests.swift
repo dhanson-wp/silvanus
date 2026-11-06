@@ -15,7 +15,10 @@ private func tempRoot() -> URL {
     FileManager.default.temporaryDirectory.appending(path: "silvanus-tests-\(UUID().uuidString)")
 }
 
-private func library(_ root: URL) -> MeetingLibrary { MeetingLibrary(root: root, calendar: utc) }
+/// Deletes instead of trashing, so tests never touch the real Trash.
+private func library(_ root: URL) -> MeetingLibrary {
+    MeetingLibrary(root: root, calendar: utc, trash: { try FileManager.default.removeItem(at: $0) })
+}
 
 private func kickoff(id: String = UUID().uuidString, at date: Date = start) -> Meeting {
     Meeting(
@@ -179,4 +182,28 @@ private func names(_ folder: URL) -> [String] {
     #expect(!FileManager.default.fileExists(atPath: folder.path))
     #expect(lib.folderURL(for: m.id) == nil)
     #expect(library(root).loadAll().meetings.isEmpty)
+}
+
+@Test func trashingAnUnknownIdDoesNothing() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    try library(root).moveToTrash("one")
+    #expect(FileManager.default.fileExists(atPath: folder.path))
+}
+
+@Test func twoInstancesSameMinute() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let first = try library(root).save(kickoff(id: "one"))
+    let second = try library(root).save(kickoff(id: "two"))
+    #expect(first.lastPathComponent == "2026-11-06 1430")
+    #expect(second.lastPathComponent == "2026-11-06 1430 2")
+}
+
+@Test func freshInstanceFindsExistingFolder() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let first = try library(root).save(kickoff(id: "one"))
+    var renamed = kickoff(id: "one")
+    renamed.info.series = "Renamed series"
+    #expect(try library(root).save(renamed) == first)
+    #expect(library(root).loadAll().meetings.count == 1)
 }
