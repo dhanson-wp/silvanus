@@ -4,62 +4,139 @@ import Foundation
 
 enum CaptureError: LocalizedError {
     case microphoneDenied
+    case noInput
     case status(String, OSStatus)
 
     var errorDescription: String? {
         switch self {
         case .microphoneDenied: "Microphone access is off for Silvanus."
+        case .noInput: "There's no microphone input right now."
         case let .status(step, code): "Unable to \(step) (Core Audio error \(code))."
         }
     }
 }
 
-/// My side: the microphone through AVAudioEngine. When the input changes mid-call (a
-/// headset plugged in or out, another default device, a new sample rate), the engine stops
-/// and posts a configuration change: the tap is put back on the new input and the engine
-/// restarts, and the track goes on in a new segment file.
-nonisolated final class MicCapture: @unchecked Sendable {
+/// What MicCapture needs from the audio engine: the live one is AVAudioEngine's input
+/// node (`LiveMicEngine`); the self-test uses a fake that opens no device.
+nonisolated protocol MicEngine: AnyObject, Sendable {
+    /// What configuration-change notifications are posted for.
+    var notificationObject: AnyObject { get }
+    /// The input's format now, or nil when there's no usable input.
+    func inputFormat() -> AVAudioFormat?
+    func installTap(format: AVAudioFormat, block: @escaping @Sendable (AVAudioPCMBuffer) -> Void)
+    func removeTap()
+    func start() throws
+    func stop()
+}
+
+nonisolated final class LiveMicEngine: MicEngine, @unchecked Sendable {
     private let engine = AVAudioEngine()
+
+    var notificationObject: AnyObject { engine }
+
+    func inputFormat() -> AVAudioFormat? { engine.inputNode.outputFormat(forBus: 0) }
+
+    func installTap(format: AVAudioFormat, block: @escaping @Sendable (AVAudioPCMBuffer) -> Void) {
+        engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in block(buffer) }
+    }
+
+    func removeTap() { engine.inputNode.removeTap(onBus: 0) }
+
+    func start() throws {
+        engine.prepare()
+        try engine.start()
+    }
+
+    func stop() { engine.stop() }
+}
+
+/// My side: the microphone through AVAudioEngine. When the input changes mid-call (a
+/// headset plugged in or out, a Bluetooth profile switch, another default device, a new
+/// sample rate), the engine stops and posts a configuration change: the tap is put back on
+/// the new input and the engine restarts, and the track goes on in a new segment file.
+///
+/// Starts, restarts, and stop run one at a time on one queue, so a change that lands
+/// during Stop never restarts the engine after it, and the tap is never installed twice.
+/// An input with no usable format (mid Bluetooth switch) is retried after a short delay
+/// instead of handed to installTap, which would raise.
+nonisolated final class MicCapture: @unchecked Sendable {
+    private let engine: MicEngine
+    private let queue = DispatchQueue(label: "silvanus.mic")
     private var observer: NSObjectProtocol?
-    private weak var writer: SegmentWriter?
+    private var writer: SegmentWriter?
+    // Touched only on `queue`.
+    private var stopped = false
+    private var tapInstalled = false
     /// For the log and the checks: restarts after a configuration change.
     private(set) var restarts = 0
+    /// How long to wait before trying an input again, and how many tries a change gets.
+    var retryDelay: TimeInterval = 0.5
+    var maxTries = 4
+
+    init(engine: MicEngine = LiveMicEngine()) {
+        self.engine = engine
+    }
 
     func start(into writer: SegmentWriter) throws {
-        self.writer = writer
-        try run(into: writer)
-        observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine,
+        try queue.sync {
+            self.writer = writer
+            stopped = false
+            try run(into: writer)
+        }
+        observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                          object: engine.notificationObject,
                                                           queue: nil) { [weak self] _ in
             self?.configurationChanged()
         }
     }
 
+    /// On `queue`: one tap on the input as it is now, then start. Throws, without touching
+    /// installTap, when the input has no usable format.
     private func run(into writer: SegmentWriter) throws {
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            writer.append(buffer)
+        guard !stopped else { return }
+        guard let format = engine.inputFormat(), format.sampleRate > 0, format.channelCount > 0 else {
+            throw CaptureError.noInput
         }
-        engine.prepare()
-        try engine.start()
+        if tapInstalled {
+            engine.removeTap()
+            tapInstalled = false
+        }
+        engine.installTap(format: format) { buffer in writer.append(buffer) }
+        tapInstalled = true
+        do {
+            try engine.start()
+        } catch {
+            engine.removeTap()
+            tapInstalled = false
+            throw error
+        }
     }
 
-    /// The input changed: start a new segment and listen again, trying twice before giving up.
-    private func configurationChanged() {
-        guard let writer else { return }
-        restarts += 1
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        writer.breakSegment()
-        print("RECORDER the microphone changed; restarting (\(restarts))")
+    /// The input changed. Called on any thread; the restart waits its turn on `queue`.
+    func configurationChanged() {
+        queue.async { [self] in restart(attempt: 1) }
+    }
+
+    /// On `queue`: a new segment, then listen again, retrying a few times while the input
+    /// settles. Gives up with a failure the recorder shows. Never runs after stop.
+    private func restart(attempt: Int) {
+        guard !stopped, let writer else { return }
+        if attempt == 1 {
+            restarts += 1
+            if tapInstalled {
+                engine.removeTap()
+                tapInstalled = false
+            }
+            engine.stop()
+            writer.breakSegment()
+            print("RECORDER the microphone changed; restarting (\(restarts))")
+        }
         do {
             try run(into: writer)
         } catch {
-            Thread.sleep(forTimeInterval: 0.5)
-            engine.inputNode.removeTap(onBus: 0)
-            do {
-                try run(into: writer)
-            } catch {
+            if attempt < maxTries {
+                queue.asyncAfter(deadline: .now() + retryDelay) { [self] in restart(attempt: attempt + 1) }
+            } else {
                 writer.recordFailure("Couldn't restart the microphone: \(error.localizedDescription)")
             }
         }
@@ -68,9 +145,18 @@ nonisolated final class MicCapture: @unchecked Sendable {
     func stop() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        queue.sync {
+            stopped = true
+            if tapInstalled {
+                engine.removeTap()
+                tapInstalled = false
+            }
+            engine.stop()
+        }
     }
+
+    /// For the checks: waits for queued restarts to finish.
+    func settle() { queue.sync {} }
 }
 
 /// Their side: everything the Mac plays, through a Core Audio process tap

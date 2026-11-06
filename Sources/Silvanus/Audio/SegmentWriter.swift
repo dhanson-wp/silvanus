@@ -31,7 +31,8 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
     private let lock = NSLock()
     private var firstFailure: String?
     private var peakSinceSample: Float = 0
-    /// Set by `finish`: buffers that arrive later (a device callback still in flight) are dropped.
+    /// Set by `finish`, on the queue: buffers that arrive later (a device callback still in
+    /// flight) are dropped there, so none can open a segment after the close.
     private var finished = false
 
     init(directory: URL, name: String, recordingStart: Date) {
@@ -43,9 +44,10 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
 
     /// Copies the buffer and writes it on the writer's queue.
     func append(_ buffer: AVAudioPCMBuffer) {
-        guard !lock.withLock({ finished }), let copy = Self.copy(buffer) else { return }
+        guard let copy = Self.copy(buffer) else { return }
         let arrived = Date()
         queue.async { [self] in
+            guard !finished else { return }
             if startOffset == nil {
                 let lead = Double(copy.frameLength) / copy.format.sampleRate
                 startOffset = max(0, arrived.timeIntervalSince(recordingStart) - lead)
@@ -80,8 +82,11 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
 
     /// Writes what's queued and closes the current file. Later appends are dropped.
     func finish() {
-        lock.withLock { finished = true }
-        queue.sync { file?.close(); file = nil }
+        queue.sync {
+            finished = true
+            file?.close()
+            file = nil
+        }
     }
 
     /// Closes the current segment after what's queued, so the next buffer starts a new file

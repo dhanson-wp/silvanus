@@ -133,6 +133,7 @@ enum SelfTest {
             await checkTranscript(model: model)
             await checkSummary(model: model)
             checkAudio()
+            await checkMicRestarts()
             await checkRecording(model: model)
             if ProcessInfo.processInfo.environment["APP_SELFTEST_AUDIO"] == "1" {
                 await checkAfterCall(model: model)
@@ -1156,6 +1157,98 @@ enum SelfTest {
         model.show(.notes)
     }
 
+    /// MicCapture through a device switch, on a fake engine with fake configuration-change
+    /// notifications: no device opens.
+    private static func checkMicRestarts() async {
+        let dir = Store.root.appending(path: "mic-restarts")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func change(_ engine: FakeMicEngine) {
+            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine.notificationObject)
+        }
+
+        // An input with no usable format throws instead of reaching installTap.
+        let none = FakeMicEngine()
+        none.formatAvailable = false
+        var thrown: Error?
+        do { try MicCapture(engine: none).start(into: SegmentWriter(directory: dir, name: "none", recordingStart: .now)) } catch { thrown = error }
+        check("a microphone with no usable format throws instead of installing a tap",
+              (thrown as? CaptureError).map { if case .noInput = $0 { true } else { false } } == true && none.installs == 0)
+
+        // A change that lands during Stop leaves the engine stopped, with no tap.
+        let racing = FakeMicEngine()
+        racing.startDelay = 0.05
+        let racingMic = MicCapture(engine: racing)
+        try? racingMic.start(into: SegmentWriter(directory: dir, name: "racing", recordingStart: .now))
+        change(racing)
+        racingMic.stop()
+        change(racing)
+        try? await Task.sleep(for: .milliseconds(300))
+        check("a device change during Stop leaves the engine stopped with no tap",
+              !racing.running && racing.taps == 0, "running \(racing.running), taps \(racing.taps)")
+
+        // Two changes back to back: one tap at a time, the engine running, a new segment each.
+        let twice = FakeMicEngine()
+        let twiceMic = MicCapture(engine: twice)
+        try? twiceMic.start(into: SegmentWriter(directory: dir, name: "twice", recordingStart: .now))
+        change(twice)
+        change(twice)
+        twiceMic.settle()
+        check("two device changes back to back install one tap and keep the engine running",
+              twice.taps == 1 && twice.maxTaps == 1 && twice.running && twiceMic.restarts == 2,
+              "taps \(twice.taps), most \(twice.maxTaps), running \(twice.running), restarts \(twiceMic.restarts)")
+        twiceMic.stop()
+
+        // A Bluetooth switch: no input for a moment, then it comes back.
+        let bluetooth = FakeMicEngine()
+        let bluetoothMic = MicCapture(engine: bluetooth)
+        bluetoothMic.retryDelay = 0.05
+        try? bluetoothMic.start(into: SegmentWriter(directory: dir, name: "bluetooth", recordingStart: .now))
+        bluetooth.formatAvailable = false
+        change(bluetooth)
+        try? await Task.sleep(for: .milliseconds(80))
+        bluetooth.formatAvailable = true
+        try? await Task.sleep(for: .milliseconds(300))
+        bluetoothMic.settle()
+        check("a microphone that's briefly gone (a Bluetooth switch) is retried until it's back",
+              bluetooth.running && bluetooth.taps == 1, "running \(bluetooth.running), taps \(bluetooth.taps)")
+        bluetoothMic.stop()
+
+        // One that never comes back stops the recording with a reason.
+        let gone = FakeMicEngine()
+        let goneMic = MicCapture(engine: gone)
+        goneMic.retryDelay = 0.02
+        let goneWriter = SegmentWriter(directory: dir, name: "gone", recordingStart: .now)
+        try? goneMic.start(into: goneWriter)
+        gone.formatAvailable = false
+        change(gone)
+        await poll { goneWriter.failure != nil }
+        check("a microphone that doesn't come back fails with \"Couldn't restart the microphone: …\"",
+              goneWriter.failure?.hasPrefix("Couldn't restart the microphone:") == true && gone.taps == 0,
+              goneWriter.failure ?? "no failure")
+        goneMic.stop()
+
+        // Appends racing finish never open a segment after the close.
+        let race = SegmentWriter(directory: dir, name: "race", recordingStart: .now)
+        if let tone = AVAudioPCMBuffer(pcmFormat: TrackFormat.format, frameCapacity: 160) {
+            tone.frameLength = 160
+            // The writer copies each buffer, so sharing one across threads is safe here.
+            nonisolated final class Shared: @unchecked Sendable { let buffer: AVAudioPCMBuffer; init(_ b: AVAudioPCMBuffer) { buffer = b } }
+            let shared = Shared(tone)
+            DispatchQueue.concurrentPerform(iterations: 50) { i in
+                if i == 25 { race.finish() } else { race.append(shared.buffer) }
+            }
+            race.finish()
+            let frames = race.framesWritten
+            let segments = race.segmentURLs.count
+            for _ in 0..<10 { race.append(tone) }
+            try? await Task.sleep(for: .milliseconds(100))
+            check("appends racing finish open no segment after the close",
+                  race.framesWritten == frames && race.segmentURLs.count == segments && segments <= 1,
+                  "frames \(frames) -> \(race.framesWritten), segments \(segments) -> \(race.segmentURLs.count)")
+        }
+    }
+
     /// What goes wrong live, acted out with fake captures: a microphone that won't start or
     /// fails mid-call, call audio that fails, a microphone that changes or goes quiet, Stop
     /// before any audio, Move to Trash while busy, the retry cap, ⌘Q while recording, and the
@@ -1315,6 +1408,19 @@ enum SelfTest {
               quit == .terminateNow && !recorder.isRecording && quitFiles.contains(Tracks.fileName),
               "\(quit.rawValue), files \(quitFiles.sorted())")
         recorder.force(.idle)
+        await idle()
+
+        // ⌘Q's question was up while the recording ended on its own: nothing is closed twice,
+        // and tracks.json keeps what was written.
+        model.quickNote()
+        let ended = recorder.meetingID
+        try? await Task.sleep(for: .milliseconds(300))
+        let late = recorder.terminateReply(confirm: { recorder.stop(); return true })
+        let kept = audioOf(ended).map { Tracks.load(from: $0) }
+        check("a recording that ended while ⌘Q asked isn't closed again, and tracks.json keeps its audio",
+              late == .terminateNow && (kept?.mic?.seconds ?? 0) > 0.3 && (kept?.system?.seconds ?? 0) > 0.3,
+              "\(String(describing: kept))")
+        await idle()
 
         // 9. The permissions sheet's Start needs only the microphone; system audio never blocks.
         let saved = (recorder.permissionsReady, recorder.micReady)
@@ -1565,4 +1671,45 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         }
         writer.append(tone)
     }
+}
+
+/// An audio engine that opens no device, for MicCapture's checks: it counts taps and
+/// starts, and its input can be made to vanish (a Bluetooth switch).
+nonisolated final class FakeMicEngine: MicEngine, @unchecked Sendable {
+    let notificationObject: AnyObject = NSObject()
+    private let lock = NSLock()
+    private var _formatAvailable = true
+    private var _taps = 0, _maxTaps = 0, _installs = 0, _running = false
+    /// How long start takes, to widen races.
+    var startDelay: TimeInterval = 0
+
+    var formatAvailable: Bool {
+        get { lock.withLock { _formatAvailable } }
+        set { lock.withLock { _formatAvailable = newValue } }
+    }
+    var taps: Int { lock.withLock { _taps } }
+    var maxTaps: Int { lock.withLock { _maxTaps } }
+    var installs: Int { lock.withLock { _installs } }
+    var running: Bool { lock.withLock { _running } }
+
+    func inputFormat() -> AVAudioFormat? {
+        formatAvailable ? AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1) : nil
+    }
+
+    func installTap(format: AVAudioFormat, block: @escaping @Sendable (AVAudioPCMBuffer) -> Void) {
+        lock.withLock {
+            _taps += 1
+            _installs += 1
+            _maxTaps = max(_maxTaps, _taps)
+        }
+    }
+
+    func removeTap() { lock.withLock { _taps = max(0, _taps - 1) } }
+
+    func start() throws {
+        if startDelay > 0 { Thread.sleep(forTimeInterval: startDelay) }
+        lock.withLock { _running = true }
+    }
+
+    func stop() { lock.withLock { _running = false } }
 }

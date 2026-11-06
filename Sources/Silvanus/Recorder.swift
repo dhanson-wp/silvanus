@@ -251,6 +251,9 @@ final class Recorder {
     func terminateReply(confirm: () -> Bool) -> NSApplication.TerminateReply {
         guard isRecording, let id = meetingID else { return .terminateNow }
         guard confirm() else { return .terminateCancel }
+        // The recording may have ended while the question was up (a failure, the pill's
+        // Stop): it's already closed, and closing again could only lose what it wrote.
+        guard isRecording, meetingID == id else { return .terminateNow }
         apply(.stop)
         _ = closeRecording(id)
         return .terminateNow
@@ -259,6 +262,9 @@ final class Recorder {
     /// Stops the captures, closes the files, and writes what the meeting needs to be
     /// transcribed later: `tracks.json` and the end time. True when any audio was written.
     private func closeRecording(_ id: String) -> Bool {
+        // Already closed: tracks.json and the end time are written; never overwrite them
+        // with empty tracks.
+        guard micWriter != nil || systemWriter != nil || droppedSystem != nil else { return false }
         sampler?.cancel()
         sampler = nil
         mic?.stop()
