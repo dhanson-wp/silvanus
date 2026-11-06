@@ -312,7 +312,8 @@ Organization part, adapted to this grid. It's the top of the canvas on a meeting
 - As built (phase 1b): the pill floats in its own always-on-top panel, 320 wide, near the top right of the screen, and shows only while recording when the main window isn't key. Until there's a draft, the line holds the meeting's title (or a recording warning); a failure shows its reason there in `recordingText`. Pause is disabled until Phase 2.
 - While recording, the view pill's Transcript tab shows a small live wave (bars 2 wide, 2 apart, 3 to 12 tall) in `recordingText` instead of its icon, sampled 10 times a second.
 - After Stop, the canvas header shows "Transcribing…" (`label`, `textSecondary`) and a 64 × 4 bar (track `divider`, fill `accent`) before the mic.
-- My notes while recording: each line's time (`mm:ss`, `monoSmall`, `textSecondary`) in a 64 pt trailing margin, level with the line's first row. The text keeps x 221 and wraps before the margin.
+- My notes while recording: each line's time (`mm:ss`, `monoSmall`, `textSecondary`) in a 64 pt trailing margin, level with the line's first row. The text keeps x 221 and wraps before the margin. Identical lines share one time (the times are keyed by the line's text), and a moved line keeps its time.
+- After a microphone failure the pill stays up with the reason in `recordingText`, and Stop becomes Close (`xmark`, 11), until it's closed.
 
 | State | Contents |
 | --- | --- |

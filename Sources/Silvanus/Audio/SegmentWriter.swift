@@ -31,6 +31,8 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
     private let lock = NSLock()
     private var firstFailure: String?
     private var peakSinceSample: Float = 0
+    /// Set by `finish`: buffers that arrive later (a device callback still in flight) are dropped.
+    private var finished = false
 
     init(directory: URL, name: String, recordingStart: Date) {
         self.directory = directory
@@ -41,7 +43,7 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
 
     /// Copies the buffer and writes it on the writer's queue.
     func append(_ buffer: AVAudioPCMBuffer) {
-        guard let copy = Self.copy(buffer) else { return }
+        guard !lock.withLock({ finished }), let copy = Self.copy(buffer) else { return }
         let arrived = Date()
         queue.async { [self] in
             if startOffset == nil {
@@ -67,13 +69,28 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
         }
     }
 
+    /// Records a failure from outside the writer (the microphone couldn't restart), as is.
+    func recordFailure(_ message: String) {
+        lock.withLock { if firstFailure == nil { firstFailure = message } }
+    }
+
     private func fail(_ reason: String) {
         lock.withLock { if firstFailure == nil { firstFailure = "Couldn't write audio: \(reason)" } }
     }
 
-    /// Writes what's queued and closes the current file.
+    /// Writes what's queued and closes the current file. Later appends are dropped.
     func finish() {
+        lock.withLock { finished = true }
         queue.sync { file?.close(); file = nil }
+    }
+
+    /// Closes the current segment after what's queued, so the next buffer starts a new file
+    /// in the same track: the microphone changed (another device, a new format).
+    func breakSegment() {
+        queue.async { [self] in
+            file?.close()
+            file = nil
+        }
     }
 
     var segmentURLs: [URL] { Self.segments(named: name, in: directory) }

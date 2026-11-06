@@ -112,6 +112,8 @@ struct SidebarView: View {
         .focusable(false)
         .contextMenu {
             Button("Move to Trash") { model.trash(meeting.id) }
+                .disabled(!model.canTrash(meeting.id))
+                .help(model.trashHelp(meeting.id))
         }
     }
 

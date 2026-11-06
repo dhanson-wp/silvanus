@@ -283,7 +283,7 @@ enum Snapshot {
                 RecordingPill(status: .recording(since: since), line: Recorder.silentCall, meter: meter, open: {}, stop: {})
                 RecordingPill(status: .stopping, line: "Acme kickoff", meter: meter, open: {}, stop: {})
                 RecordingPill(status: .failed("Couldn't write audio: The disk is full."), line: "Acme kickoff", meter: meter,
-                              open: {}, stop: {})
+                              open: {}, stop: {}, dismiss: {})
             }
             .padding(Space.xxl)
             .background(Ink.background)

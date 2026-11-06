@@ -6,7 +6,8 @@ import Foundation
 /// Markdown.
 ///
 /// A line keeps the time it first appeared: typing on, or editing it later, carries the
-/// time to the new text. Only lines still in the note are kept.
+/// time to the new text; moving it keeps it. Only lines still in the note are kept, and
+/// identical lines share one time (they share a hash).
 public struct NoteTimes: Equatable, Sendable {
     public private(set) var byHash: [String: Double]
 
@@ -26,10 +27,12 @@ public struct NoteTimes: Equatable, Sendable {
     /// takes its time; any other new line gets `now` (nil when not recording: no new times).
     public mutating func update(old: String, new: String, now: Double?) {
         let oldLines = Self.lines(old), newLines = Self.lines(new)
-        let diff = newLines.difference(from: oldLines)
+        // A moved line keeps its time by its own text; only a removal that wasn't a move can
+        // hand its time to the line that took its place.
+        let diff = newLines.difference(from: oldLines).inferringMoves()
         var removed: [Int: String] = [:]
         for change in diff {
-            if case let .remove(offset, line, _) = change { removed[offset] = line }
+            if case let .remove(offset, line, moved) = change, moved == nil { removed[offset] = line }
         }
         var next = byHash
         for change in diff {

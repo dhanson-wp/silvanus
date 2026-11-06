@@ -36,6 +36,8 @@ final class AppModel {
     let library: MeetingLibrary
     /// Recording and the after-call pass (Recorder.swift).
     let recorder: Recorder
+    /// The floating recording pill's window, made once per process.
+    @ObservationIgnored private(set) var pill: RecordingPanel?
     /// Every meeting on disk, newest first. Setting it rebuilds the sidebar's folders and days.
     var meetings: [Meeting] = [] {
         didSet {
@@ -138,6 +140,20 @@ final class AppModel {
 }
 
 extension AppModel {
+    @ObservationIgnored private static var servicesStarted = false
+
+    /// Once per process, when the app's model is made: the recording pill's window, and the
+    /// launch pass that finishes recordings cut off by a quit or crash (not in checks or
+    /// snapshots, which drive the recorder themselves).
+    func startRecordingServices() {
+        guard !Self.servicesStarted else { return }
+        Self.servicesStarted = true
+        pill = RecordingPanel(recorder: recorder, model: self)
+        if !SelfTest.requested && !Snapshot.requested {
+            recorder.recoverInterrupted(library: library)
+        }
+    }
+
     /// Seeds when asked (scratch stores only), then reads the meetings from disk.
     convenience init(root: URL) {
         // Test, snapshot, and self-test runs (scratch stores) delete instead of using the real Trash.
@@ -147,6 +163,7 @@ extension AppModel {
         self.init(library: library)
         SeedData.seedIfRequested(library: library)
         reload()
+        startRecordingServices()
     }
 
     /// Hides or shows the sidebar, sliding the canvas with the kit's selection curve.
@@ -168,10 +185,21 @@ extension AppModel {
         settingsOpen = false
     }
 
+    /// False while the meeting records or transcribes (or waits to): its files are in use.
+    func canTrash(_ id: String) -> Bool { !recorder.isBusy(id) }
+
+    /// The tooltip on Move to Trash: why it's off, when it is.
+    func trashHelp(_ id: String?) -> String {
+        guard let id, recorder.isBusy(id) else { return "Move this meeting to the Trash (⌘⌫)" }
+        return recorder.meetingID == id ? "Stop recording before moving this meeting to the Trash"
+            : "Wait for transcription to finish before moving this meeting to the Trash"
+    }
+
     /// Meeting > Move to Trash (⌘⌫) and the sidebar row's menu. A failure shows the
-    /// system's reason, and the meeting stays.
+    /// system's reason, and the meeting stays. A meeting that records or transcribes stays.
     func trash(_ id: String) {
         trashRequests.append(id)
+        guard canTrash(id) else { return }
         do {
             try moveToTrash(id)
         } catch {
@@ -298,11 +326,13 @@ extension AppModel {
                                         hasTranscript: hasTranscript) ? meeting.id : nil
     }
 
-    /// Starts a recording now, or opens the permissions sheet when access is missing (the
-    /// sheet's Start Recording comes back here once it's given).
-    func record(_ request: RecordRequest) {
+    /// Starts a recording now, or opens the permissions sheet when access is missing. The
+    /// sheet's Start Recording comes back with `fromSheet`: it needs only the microphone, and
+    /// system audio never blocks (it's a warning if call audio can't start).
+    func record(_ request: RecordRequest, fromSheet: Bool = false) {
         guard !recorder.isRecording else { return }
-        guard recorder.permissionsReady() else {
+        let ready = fromSheet ? recorder.micReady() : recorder.permissionsReady()
+        guard ready else {
             permissionsRequest = request
             return
         }

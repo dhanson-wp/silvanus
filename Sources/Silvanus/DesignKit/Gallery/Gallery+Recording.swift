@@ -29,7 +29,7 @@ struct RecordingGallery: View {
                     }
                     sample("Failed") {
                         RecordingPill(status: .failed("Couldn't write audio: The disk is full."), line: "Acme kickoff",
-                                      meter: Self.meter, open: {}, stop: {})
+                                      meter: Self.meter, open: {}, stop: {}, dismiss: {})
                     }
                 }
                 VStack(alignment: .leading, spacing: Space.lg) {

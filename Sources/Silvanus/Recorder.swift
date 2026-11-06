@@ -32,6 +32,10 @@ struct RecorderNotice: Equatable {
 /// stopped meeting's transcription goes on behind the next recording, so back-to-back
 /// calls both get recorded. The phases are `RecorderState`'s (SilvanusKit), which has the
 /// tests; this class does the work each step names.
+///
+/// It keeps recording through what it can: call audio that fails drops to the microphone
+/// alone, a microphone that changes restarts in a new segment, and a microphone that fails
+/// stops the recording and transcribes what was saved.
 @Observable
 final class Recorder {
     enum Failure: LocalizedError {
@@ -57,23 +61,33 @@ final class Recorder {
     private(set) var meetingID: String?
     /// The meeting being transcribed.
     private(set) var transcribingID: String?
-    /// The banner over the canvas: a failure with Retry, or news.
+    /// The banner over the canvas: the latest failure (with Retry when there's audio to
+    /// transcribe again), or news.
     private(set) var notice: RecorderNotice?
-    /// Shown in the pill and the banner while recording: call audio couldn't start, or
-    /// has been silent for 30 seconds.
-    private(set) var warning: String?
+    /// Why the recording stopped early (a microphone that couldn't write). The pill stays up
+    /// with it until it's closed.
+    private(set) var recordingFailure: String?
+    /// Every meeting whose transcription failed, with the reason, until Retry works. The
+    /// meeting's page shows it with Retry.
+    private(set) var failedMeetings: [String: String] = [:]
+    /// Shown in the pill and the banner while recording: call audio couldn't start or
+    /// stopped, or a side has been silent for 30 seconds. In the order they came.
+    private(set) var warnings: [String] = []
+    var warning: String? { warnings.isEmpty ? nil : warnings.joined(separator: " ") }
     /// The live level for the waves, sampled 10 times a second.
     let meter = LevelMeter()
 
     @ObservationIgnored weak var model: AppModel?
     @ObservationIgnored var captures = CaptureFactory.live
-    /// True when recording can start without asking for a permission first. Reading it
-    /// never prompts.
+    /// True when recording can start without the permissions sheet. Reading it never prompts.
     @ObservationIgnored var permissionsReady: () -> Bool = { Permissions.microphone == .allowed && Permissions.systemAudioAsked }
+    /// True when the microphone is allowed: all the sheet's Start Recording needs. System
+    /// audio never blocks a recording.
+    @ObservationIgnored var micReady: () -> Bool = { Permissions.microphone == .allowed }
     /// The after-call pass for a meeting, reporting progress 0…1 from any thread.
     @ObservationIgnored var afterCall: (String, @escaping @Sendable (Double) -> Void) async throws -> Void
     @ObservationIgnored var sampleInterval: Duration = .milliseconds(100)
-    /// Call audio silent this long while recording shows a warning.
+    /// A side silent this long while recording shows a warning.
     @ObservationIgnored var silenceWarning: TimeInterval = 30
     /// For the checks: how many times the level was sampled.
     @ObservationIgnored private(set) var samples = 0
@@ -82,15 +96,24 @@ final class Recorder {
     @ObservationIgnored private var system: AudioCapture?
     @ObservationIgnored private var micWriter: SegmentWriter?
     @ObservationIgnored private var systemWriter: SegmentWriter?
+    /// Call audio that failed mid-recording: what it saved, for tracks.json.
+    @ObservationIgnored private var droppedSystem: Tracks.Track?
     @ObservationIgnored private var sampler: Task<Void, Never>?
     @ObservationIgnored private var systemHeard = Date()
+    @ObservationIgnored private var micHeard = Date()
     @ObservationIgnored private var queue: [(id: String, recovered: Bool)] = []
     @ObservationIgnored private var worker: Task<Void, Never>?
 
     @ObservationIgnored private var quitObserver: NSObjectProtocol?
 
-    /// The app's recorder, for the app delegate: closing the window mustn't quit mid-call.
+    /// The app's recorder, for the app delegate: closing the window or quitting mustn't end
+    /// a call by surprise.
     @ObservationIgnored private(set) static weak var current: Recorder?
+
+    static let silentCall = "No call audio yet. Check that the call plays on this Mac."
+    static let silentMic = "No microphone audio yet. Check the input in System Settings > Sound."
+    static let micOnly = "Recording your microphone only."
+    static let nothingRecorded = "Nothing was recorded."
 
     init(library: MeetingLibrary) {
         afterCall = { id, progress in
@@ -98,13 +121,13 @@ final class Recorder {
                                     progress: progress)
         }
         Self.current = self
-        // Quitting while recording closes the files and writes tracks.json; the next launch
-        // transcribes the meeting (recoverInterrupted).
+        // Any quit that gets past applicationShouldTerminate while recording (a logout)
+        // closes the files and writes tracks.json; the next launch transcribes the meeting.
         quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
                                                               object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.isRecording, let id = self.meetingID else { return }
-                self.closeRecording(id)
+                _ = self.closeRecording(id)
             }
         }
     }
@@ -116,32 +139,43 @@ final class Recorder {
         return Date().timeIntervalSince(since)
     }
 
+    /// True while `id` records, transcribes, or waits to: it can't be moved to the Trash.
+    func isBusy(_ id: String) -> Bool {
+        meetingID == id || transcribingID == id || queue.contains { $0.id == id }
+    }
+
+    /// True while a pass runs or waits.
+    var hasWork: Bool { worker != nil || !queue.isEmpty }
+
     private var library: MeetingLibrary? { model?.library }
 
     // MARK: - Recording
 
     /// Starts recording into `meetingID`, or into a new meeting titled with the date and
     /// time when it's nil, and opens that meeting on My notes. Throws when a meeting is
-    /// already recording, or when the microphone can't start (the phase is then failed).
-    /// Call audio that can't start is a warning: the microphone records on its own.
+    /// already recording, or when the microphone can't start: the phase is then failed, the
+    /// banner says why, and a meeting made for it is removed again. Call audio that can't
+    /// start is a warning: the microphone records on its own.
     func start(into meetingID: String?) throws {
         guard let model else { throw Failure.noFolder }
         guard apply(.start) else { throw Failure.busy }
         let start = Date()
         let id: String
+        var made: String?
         if let meetingID, model.library.folderExists(for: meetingID) {
             id = meetingID
-        } else if let made = model.newMeeting(now: start, title: RecordingRules.title(for: start)) {
-            id = made.id
+        } else if let meeting = model.newMeeting(now: start, title: RecordingRules.title(for: start)) {
+            id = meeting.id
+            made = id
         } else {
-            fail("Couldn't start recording: \(Failure.noFolder.localizedDescription)")
+            startFailed(Failure.noFolder, made: nil)
             throw Failure.noFolder
         }
         model.settingsOpen = false
         model.open(id)
         model.canvasMode = .notes
         guard let audio = model.library.audioURL(for: id) else {
-            fail("Couldn't start recording: \(Failure.noFolder.localizedDescription)")
+            startFailed(Failure.noFolder, made: made)
             throw Failure.noFolder
         }
         do {
@@ -152,48 +186,89 @@ final class Recorder {
             self.mic = mic
             self.micWriter = micWriter
         } catch {
-            fail("Couldn't start recording: \(error.localizedDescription)")
+            startFailed(error, made: made)
             throw error
         }
+        warnings = []
+        droppedSystem = nil
+        recordingFailure = nil
         let systemWriter = SegmentWriter(directory: audio, name: "system", recordingStart: start)
         let system = captures.system()
         do {
             try system.start(into: systemWriter)
             self.system = system
             self.systemWriter = systemWriter
-            warning = nil
             Permissions.markSystemAudioAsked()
         } catch {
-            warning = "Recording your microphone only. \(error.localizedDescription)"
+            addWarning("\(Self.micOnly) \(error.localizedDescription)")
         }
         self.meetingID = id
         meter.reset()
         systemHeard = start
+        micHeard = start
         apply(.started(start))
         startSampler()
     }
 
+    /// A start that failed: say why in the banner (nothing to retry), and remove a meeting
+    /// made for this recording, since nothing was recorded into it.
+    private func startFailed(_ error: Error, made: String?) {
+        let reason = "Couldn't start recording: \(error.localizedDescription)"
+        fail(reason)
+        notice = RecorderNotice(message: reason)
+        mic = nil
+        micWriter = nil
+        guard let made, let model else { return }
+        do {
+            try model.library.moveToTrash(made)
+        } catch {
+            print("RECORDER couldn't remove the empty meeting \(made): \(error)")
+        }
+        if model.selection == made { model.selection = nil }
+        model.reload()
+    }
+
     /// Stop: closes the captures and files, writes `tracks.json`, sets the meeting's end,
-    /// and queues the after-call pass. Nothing happens unless a meeting records.
+    /// and queues the after-call pass. Nothing happens unless a meeting records. A
+    /// recording that never got a buffer isn't transcribed: the banner says so.
     func stop() {
         guard isRecording, let id = meetingID else { return }
         apply(.stop)
-        closeRecording(id)
+        let recorded = closeRecording(id)
         apply(.stopped)
         model?.reload()
-        enqueue(id, recovered: false)
+        if recorded {
+            enqueue(id, recovered: false)
+        } else {
+            notice = RecorderNotice(message: Self.nothingRecorded)
+            if worker == nil { apply(.finished) }
+        }
+    }
+
+    /// ⌘Q while recording: `confirm` asks "A meeting is recording. Stop and quit?". Stop
+    /// and Quit closes the files (the next launch transcribes the meeting) and quits;
+    /// Cancel keeps recording.
+    func terminateReply(confirm: () -> Bool) -> NSApplication.TerminateReply {
+        guard isRecording, let id = meetingID else { return .terminateNow }
+        guard confirm() else { return .terminateCancel }
+        apply(.stop)
+        _ = closeRecording(id)
+        return .terminateNow
     }
 
     /// Stops the captures, closes the files, and writes what the meeting needs to be
-    /// transcribed later: `tracks.json` and the end time.
-    private func closeRecording(_ id: String) {
+    /// transcribed later: `tracks.json` and the end time. True when any audio was written.
+    private func closeRecording(_ id: String) -> Bool {
         sampler?.cancel()
         sampler = nil
         mic?.stop()
         system?.stop()
         micWriter?.finish()
         systemWriter?.finish()
-        let tracks = Tracks(mic: micWriter.map(Tracks.Track.init), system: systemWriter.map(Tracks.Track.init))
+        let tracks = Tracks(mic: micWriter.map(Tracks.Track.init),
+                            system: systemWriter.map(Tracks.Track.init) ?? droppedSystem)
+        let recorded = (micWriter?.framesWritten ?? 0) + (systemWriter?.framesWritten ?? 0) > 0
+            || (droppedSystem?.seconds ?? 0) > 0
         if let audio = library?.audioURL(for: id) {
             do { try tracks.save(in: audio) } catch { print("RECORDER couldn't write tracks.json for \(id): \(error)") }
         }
@@ -205,19 +280,36 @@ final class Recorder {
         system = nil
         micWriter = nil
         systemWriter = nil
+        droppedSystem = nil
         meetingID = nil
-        warning = nil
+        warnings = []
         meter.reset()
+        return recorded
     }
 
-    /// A writer failed mid-recording: stop, keep what was written, and say why. Retry
-    /// transcribes the audio saved so far.
+    /// The microphone's writer failed mid-recording: stop, keep what was written, and say
+    /// why in the pill (until it's closed) and the banner. What was saved is transcribed.
     private func failRecording(_ reason: String) {
         guard isRecording, let id = meetingID else { return }
-        closeRecording(id)
+        let recorded = closeRecording(id)
         fail(reason)
-        notice = RecorderNotice(message: reason, retryMeetingID: id)
+        recordingFailure = reason
+        notice = RecorderNotice(message: reason)
         model?.reload()
+        if recorded { enqueue(id, recovered: false) }
+    }
+
+    /// Call audio failed mid-recording: keep what it saved, let it go, and record on with the
+    /// microphone alone.
+    private func dropSystem(_ reason: String) {
+        system?.stop()
+        systemWriter?.finish()
+        droppedSystem = systemWriter.map(Tracks.Track.init)
+        system = nil
+        systemWriter = nil
+        removeWarning(Self.silentCall)
+        addWarning("\(Self.micOnly) \(reason)")
+        print("RECORDER call audio stopped: \(reason)")
     }
 
     private func startSampler() {
@@ -232,28 +324,41 @@ final class Recorder {
         }
     }
 
-    /// Ten times a second while recording: the live level, a writer that failed, and call
-    /// audio that stays silent.
+    /// Ten times a second while recording: the live level, a writer that failed, and a side
+    /// that stays silent.
     func sample() {
         samples += 1
         let micPeak = micWriter?.samplePeak() ?? 0
         let systemPeak = systemWriter?.samplePeak() ?? 0
         meter.push(max(micPeak, systemPeak))
-        if let reason = micWriter?.failure ?? systemWriter?.failure {
+        if let reason = micWriter?.failure {
             failRecording(reason)
             return
         }
-        guard systemWriter != nil else { return }
+        if let reason = systemWriter?.failure { dropSystem(reason) }
         let now = Date()
+        if micPeak > 0.001 {
+            micHeard = now
+            removeWarning(Self.silentMic)
+        } else if now.timeIntervalSince(micHeard) > silenceWarning {
+            addWarning(Self.silentMic)
+        }
+        guard systemWriter != nil else { return }
         if systemPeak > 0.001 {
             systemHeard = now
-            if warning == Self.silentCall { warning = nil }
-        } else if now.timeIntervalSince(systemHeard) > silenceWarning, warning == nil {
-            warning = Self.silentCall
+            removeWarning(Self.silentCall)
+        } else if now.timeIntervalSince(systemHeard) > silenceWarning {
+            addWarning(Self.silentCall)
         }
     }
 
-    static let silentCall = "No call audio yet. Check that the call plays on this Mac."
+    private func addWarning(_ text: String) {
+        if !warnings.contains(text) { warnings.append(text) }
+    }
+
+    private func removeWarning(_ text: String) {
+        if warnings.contains(text) { warnings.removeAll { $0 == text } }
+    }
 
     // MARK: - Transcribing
 
@@ -277,10 +382,7 @@ final class Recorder {
                 }
                 finished(job.id, recovered: job.recovered)
             } catch {
-                let reason = "Couldn't transcribe this meeting: \(error.localizedDescription)"
-                print("RECORDER \(job.id): \(reason)")
-                notice = RecorderNotice(message: reason, retryMeetingID: job.id)
-                if case .transcribing = phase { apply(.fail(reason)) }
+                failed(job.id, error)
             }
         }
         transcribingID = nil
@@ -294,6 +396,8 @@ final class Recorder {
     }
 
     private func finished(_ id: String, recovered: Bool) {
+        try? library?.setTranscriptionAttempts(0, for: id)
+        failedMeetings[id] = nil
         guard let model else { return }
         model.reload()
         if recovered {
@@ -304,23 +408,45 @@ final class Recorder {
         }
     }
 
+    /// A failed pass counts toward the meeting's attempts; the meeting keeps its failure
+    /// (with Retry) until a pass works.
+    private func failed(_ id: String, _ error: Error) {
+        let attempts = (library?.transcriptionAttempts(for: id) ?? 0) + 1
+        try? library?.setTranscriptionAttempts(attempts, for: id)
+        let reason = "Couldn't transcribe this meeting: \(error.localizedDescription)"
+        print("RECORDER \(id): \(reason) (attempt \(attempts))")
+        failedMeetings[id] = reason
+        notice = RecorderNotice(message: reason, retryMeetingID: id)
+        if case .transcribing = phase { apply(.fail(reason)) }
+    }
+
     /// The banner's Retry: runs the after-call pass again on the saved audio.
     func retry() {
         guard let id = notice?.retryMeetingID else { return }
-        notice = nil
+        retry(id)
+    }
+
+    /// Retry on a meeting whose transcription failed: starts its count over and runs the
+    /// pass again.
+    func retry(_ id: String) {
+        if notice?.retryMeetingID == id { notice = nil }
+        failedMeetings[id] = nil
+        try? library?.setTranscriptionAttempts(0, for: id)
         enqueue(id, recovered: false)
     }
 
-    /// Closes the banner (and clears a failure).
+    /// Closes the banner (and the pill's failure, and clears a failed phase).
     func dismissNotice() {
         notice = nil
+        recordingFailure = nil
         if case .failed = phase { apply(.dismiss) }
     }
 
     /// At launch: any meeting whose audio folder holds segments but no transcript was cut
-    /// off by a quit or crash. Each gets `tracks.json` (both tracks from zero) if it's
-    /// missing and an end time, then the after-call pass, with a banner when it's done.
-    /// Returns the meetings queued.
+    /// off by a quit or crash, or its transcription failed. Each gets `tracks.json` (both
+    /// tracks from zero) if it's missing and an end time, then the after-call pass, with a
+    /// banner when it's done. A meeting that already failed `RecordingRules.maxAttempts`
+    /// times isn't retried: it shows as failed, with Retry. Returns the meetings queued.
     @discardableResult
     func recoverInterrupted(library: MeetingLibrary) -> [String] {
         let fm = FileManager.default
@@ -331,6 +457,11 @@ final class Recorder {
             let files = (try? fm.contentsOfDirectory(atPath: audio.path)) ?? []
             let transcript = audio.deletingLastPathComponent().appending(path: MeetingFolder.transcriptJSON)
             guard RecordingRules.isInterrupted(audioFiles: files, hasTranscript: fm.fileExists(atPath: transcript.path)) else { continue }
+            let attempts = library.transcriptionAttempts(for: meeting.id)
+            guard RecordingRules.shouldAutoRetry(attempts: attempts) else {
+                failedMeetings[meeting.id] = "Transcription failed \(attempts) times, so it won't run on its own again."
+                continue
+            }
             if !files.contains(Tracks.fileName) {
                 func track(_ name: String) -> Tracks.Track? {
                     RecordingRules.segments(in: files, track: name).isEmpty ? nil : Tracks.Track(startOffset: 0, seconds: 0)
@@ -365,12 +496,13 @@ final class Recorder {
     }
 
     /// Snapshots draw the recording and transcribing states without any capture.
-    func force(_ phase: RecorderPhase, meetingID: String? = nil, levels: [Float] = []) {
+    func force(_ phase: RecorderPhase, meetingID: String? = nil, levels: [Float] = [], failure: String? = nil) {
         state = RecorderState(phase: phase)
         isRecording = state.isRecording
         since = state.since
         self.meetingID = state.isRecording ? meetingID : nil
         transcribingID = { if case .transcribing = phase { meetingID } else { nil } }()
+        recordingFailure = failure
         meter.reset()
         for level in levels { meter.push(level) }
     }
@@ -406,7 +538,8 @@ final class RecordingPanel {
         withObservationTracking {
             _ = recorder.isRecording
             _ = recorder.phase
-            _ = recorder.warning
+            _ = recorder.warnings
+            _ = recorder.recordingFailure
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.update()
@@ -422,7 +555,13 @@ final class RecordingPanel {
     }
 
     func update() {
-        if recorder.state.showsPill(mainWindowIsKey: mainWindowIsKey()) { show() } else { hide() }
+        let key = mainWindowIsKey()
+        // A recording that stopped on a failure keeps the pill up, with the reason, until closed.
+        if recorder.state.showsPill(mainWindowIsKey: key) || (recorder.recordingFailure != nil && !key) {
+            show()
+        } else {
+            hide()
+        }
     }
 
     var isShowing: Bool { panel != nil }
@@ -476,11 +615,13 @@ struct RecordingPillHost: View {
                               main.makeKeyAndOrderFront(nil)
                           }
                       },
-                      stop: recorder.stop)
+                      stop: recorder.stop,
+                      dismiss: recorder.dismissNotice)
     }
 
     private var status: RecordingPill.Status {
-        switch recorder.phase {
+        if let failure = recorder.recordingFailure { return .failed(failure) }
+        return switch recorder.phase {
         case let .recording(since): .recording(since: since)
         case let .failed(reason): .failed(reason)
         default: .stopping

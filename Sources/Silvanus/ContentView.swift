@@ -10,8 +10,6 @@ struct ContentView: View {
     /// The open notes live as long as the window, so switching view modes or opening
     /// Settings never drops a document with typing on its way to disk.
     @State private var documents = OpenNotes()
-    /// The floating recording pill's window, made once the window is up.
-    @State private var pill: RecordingPanel?
 
     var body: some View {
         @Bindable var model = model
@@ -55,17 +53,12 @@ struct ContentView: View {
         }
         .sheet(item: $model.permissionsRequest) { request in
             PermissionsView(request: request,
-                            start: { model.record(request) },
+                            start: { model.record(request, fromSheet: true) },
                             cancel: { model.permissionsRequest = nil })
                 .noInitialFocus()
                 .fitsContent()
         }
         .task {
-            if pill == nil { pill = RecordingPanel(recorder: model.recorder, model: model) }
-            // Checks and snapshots drive the recorder themselves.
-            if !SelfTest.requested && !Snapshot.requested {
-                model.recorder.recoverInterrupted(library: model.library)
-            }
             SelfTest.runIfRequested(model: model)
             Snapshot.runIfRequested(model: model)
         }
@@ -75,18 +68,30 @@ struct ContentView: View {
         if case let .transcribing(progress) = model.recorder.phase { progress } else { nil }
     }
 
-    /// The recorder's banner: a failure with Retry, a warning while recording, or news.
+    /// The recorder's banners: the open meeting's failed transcription (with Retry, until it
+    /// works), then the latest failure or news, or a warning while recording.
     @ViewBuilder private var banner: some View {
+        let recorder = model.recorder
+        let open = model.selection
+        VStack(spacing: Space.sm) {
+            if let open, let reason = recorder.failedMeetings[open], recorder.notice?.retryMeetingID != open {
+                NoticeBanner(message: "Transcription failed. \(reason)", actionTitle: "Retry",
+                             action: { recorder.retry(open) })
+            }
+            latest
+        }
+        .padding(.bottom, Space.md)
+    }
+
+    @ViewBuilder private var latest: some View {
         let recorder = model.recorder
         if let notice = recorder.notice {
             NoticeBanner(message: notice.message,
                          actionTitle: notice.retryMeetingID == nil ? nil : "Retry",
                          action: recorder.retry,
                          dismiss: recorder.dismissNotice)
-                .padding(.bottom, Space.md)
         } else if recorder.isRecording, let warning = recorder.warning {
             NoticeBanner(message: warning)
-                .padding(.bottom, Space.md)
         }
     }
 

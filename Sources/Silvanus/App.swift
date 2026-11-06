@@ -145,12 +145,14 @@ struct MeetingCommands: Commands {
             Divider()
             // ⌘⌫ while typing (the notes, a title being renamed) deletes to the line's start, as
             // in any Mac text field. The notes editor keeps it (NotesTextView); this catches the rest.
+            // Off while the open meeting records or transcribes; its tooltip says why.
             Button("Move to Trash") {
                 MoveToTrash.perform(model: model, event: NSApp.currentEvent,
                                     responder: NSApp.keyWindow?.firstResponder)
             }
                 .keyboardShortcut(.delete, modifiers: [.command])
-                .disabled(noMeeting)
+                .disabled(noMeeting || !(meeting.map { model.canTrash($0.id) } ?? true))
+                .help(model.trashHelp(meeting?.id))
             Divider()
             // Placeholders until search and filtering land. No shortcuts yet: ⌘F and ⌥⌘F
             // belong to Edit > Find and Find and Replace in the notes canvas.
@@ -216,6 +218,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EditorSpike.openIfRequested()
     }
 
+    /// ⌘Q while a meeting records asks first: "A meeting is recording. Stop and quit?"
+    /// Stop and Quit closes the recording's files (the next launch transcribes it).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Recorder.current?.terminateReply(confirm: QuitPrompt.ask) ?? .terminateNow
+    }
+
     /// Closing the window quits, except while a meeting records: the menu bar item and the
     /// recording pill keep it going, and Stop is still there.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -271,5 +279,21 @@ enum MoveToTrash {
     static func isDeleteShortcut(_ event: NSEvent?) -> Bool {
         guard let event, event.type == .keyDown else { return false }
         return event.keyCode == 51 && event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+    }
+}
+
+/// The question ⌘Q asks while a meeting records.
+@MainActor
+enum QuitPrompt {
+    static let question = "A meeting is recording. Stop and quit?"
+
+    /// True for Stop and Quit.
+    static func ask() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = question
+        alert.informativeText = "The recording is saved, and it's transcribed the next time Silvanus opens."
+        alert.addButton(withTitle: "Stop and Quit")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 }

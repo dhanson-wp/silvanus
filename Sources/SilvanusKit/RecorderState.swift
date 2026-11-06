@@ -117,6 +117,12 @@ public enum RecordingRules {
         text.replacingOccurrences(of: "\u{202F}", with: " ")
     }
 
+    /// After this many failed after-call passes in a row, launch stops retrying a meeting on
+    /// its own; Retry on the meeting starts over.
+    public static let maxAttempts = 3
+
+    public static func shouldAutoRetry(attempts: Int) -> Bool { attempts < maxAttempts }
+
     /// The two tracks' names, as the segment files start (`mic-0001.caf`).
     public static let tracks = ["mic", "system"]
 

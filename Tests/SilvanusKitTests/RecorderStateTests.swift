@@ -229,3 +229,44 @@ struct NoteTimesLibraryTests {
         #expect(library.readNotes(for: m.id) == "Agenda")
     }
 }
+
+@Suite("Fix round 1")
+struct RecorderFixTests {
+    @Test func aMovedLineDoesNotLendItsTimeToANewLineInItsPlace() {
+        var times = NoteTimes()
+        times.update(old: "", new: "Alpha\nBeta\nGamma", now: 5)
+        // Alpha moves to the end, and a new line takes its old place.
+        times.update(old: "Alpha\nBeta\nGamma", new: "Delta\nBeta\nGamma\nAlpha", now: 40)
+        #expect(times.time(for: "Delta") == 40)
+        #expect(times.time(for: "Alpha") == 5)
+    }
+
+    @Test func duplicateLinesShareOneTime() {
+        var times = NoteTimes()
+        times.update(old: "", new: "Next", now: 5)
+        times.update(old: "Next", new: "Next\nNext", now: 30)
+        #expect(times.time(for: "Next") == 5)
+        #expect(times.count == 1)
+    }
+
+    @Test func autoRetryStopsAfterThreeFailures() {
+        #expect(RecordingRules.shouldAutoRetry(attempts: 0))
+        #expect(RecordingRules.shouldAutoRetry(attempts: 2))
+        #expect(!RecordingRules.shouldAutoRetry(attempts: 3))
+        #expect(RecordingRules.maxAttempts == 3)
+    }
+
+    @Test func attemptsAreKeptInTheAudioFolder() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "silvanus-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MeetingLibrary(root: root, trash: { try FileManager.default.removeItem(at: $0) })
+        let m = Meeting(info: MeetingInfo(title: "Acme kickoff", start: since))
+        try library.save(m)
+        #expect(library.transcriptionAttempts(for: m.id) == 0)
+        try library.setTranscriptionAttempts(2, for: m.id)
+        #expect(library.transcriptionAttempts(for: m.id) == 2)
+        #expect(FileManager.default.fileExists(atPath: library.audioURL(for: m.id)!.appending(path: MeetingFolder.attempts).path))
+        try library.setTranscriptionAttempts(0, for: m.id)
+        #expect(library.transcriptionAttempts(for: m.id) == 0)
+    }
+}

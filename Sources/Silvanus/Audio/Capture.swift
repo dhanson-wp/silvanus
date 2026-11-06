@@ -14,11 +14,27 @@ enum CaptureError: LocalizedError {
     }
 }
 
-/// My side: the microphone through AVAudioEngine.
+/// My side: the microphone through AVAudioEngine. When the input changes mid-call (a
+/// headset plugged in or out, another default device, a new sample rate), the engine stops
+/// and posts a configuration change: the tap is put back on the new input and the engine
+/// restarts, and the track goes on in a new segment file.
 nonisolated final class MicCapture: @unchecked Sendable {
     private let engine = AVAudioEngine()
+    private var observer: NSObjectProtocol?
+    private weak var writer: SegmentWriter?
+    /// For the log and the checks: restarts after a configuration change.
+    private(set) var restarts = 0
 
     func start(into writer: SegmentWriter) throws {
+        self.writer = writer
+        try run(into: writer)
+        observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine,
+                                                          queue: nil) { [weak self] _ in
+            self?.configurationChanged()
+        }
+    }
+
+    private func run(into writer: SegmentWriter) throws {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
@@ -28,7 +44,30 @@ nonisolated final class MicCapture: @unchecked Sendable {
         try engine.start()
     }
 
+    /// The input changed: start a new segment and listen again, trying twice before giving up.
+    private func configurationChanged() {
+        guard let writer else { return }
+        restarts += 1
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        writer.breakSegment()
+        print("RECORDER the microphone changed; restarting (\(restarts))")
+        do {
+            try run(into: writer)
+        } catch {
+            Thread.sleep(forTimeInterval: 0.5)
+            engine.inputNode.removeTap(onBus: 0)
+            do {
+                try run(into: writer)
+            } catch {
+                writer.recordFailure("Couldn't restart the microphone: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func stop() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
     }

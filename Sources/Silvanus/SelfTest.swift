@@ -871,6 +871,18 @@ enum SelfTest {
         broken.finish()
         check("a writer that can't write records \"Couldn't write audio: …\"",
               broken.failure?.hasPrefix("Couldn't write audio:") == true, broken.failure ?? "no failure")
+
+        // A buffer that arrives after finish (a device callback in flight) is dropped.
+        let late = SegmentWriter(directory: dir, name: "late", recordingStart: .now)
+        if let tone = AVAudioPCMBuffer(pcmFormat: TrackFormat.format, frameCapacity: 1_600) {
+            tone.frameLength = 1_600
+            late.append(tone)
+            late.finish()
+            late.append(tone)
+            late.finish()
+        }
+        check("a buffer after finish is dropped", late.framesWritten == 1_600 && late.segmentURLs.count == 1,
+              "frames \(late.framesWritten)")
     }
 
     /// The after-call pass on two spoken tracks made with `say`: the call says two
@@ -966,6 +978,7 @@ enum SelfTest {
                                            system: { FakeCapture(channels: 2, level: 0.5) })
         recorder.afterCall = { [library = model.library] id, progress in
             calls.ids.append(id)
+            while calls.hold { try await Task.sleep(for: .milliseconds(50)) }
             if calls.failNext {
                 calls.failNext = false
                 throw CocoaError(.fileReadCorruptFile)
@@ -1112,17 +1125,7 @@ enum SelfTest {
         check("Retry runs the after-call pass again", calls.ids.count == callsBefore + 1 && calls.ids.last == failing
               && recorder.notice == nil && recorder.phase == .idle, "calls \(calls.ids.count - callsBefore), phase \(recorder.phase)")
 
-        // A writer that can't write stops the recording and says why.
-        recorder.captures = CaptureFactory(mic: { FakeCapture(channels: 1, level: 0.3, removeFolderFirst: true) },
-                                           system: { FakeCapture(channels: 2, level: 0.5) })
-        model.quickNote()
-        await poll { if case .failed = recorder.phase { true } else { false } }
-        check("a writer that fails stops the recording with \"Couldn't write audio: …\"",
-              { if case let .failed(reason) = recorder.phase { reason.hasPrefix("Couldn't write audio:") } else { false } }()
-              && !recorder.isRecording && recorder.notice?.retryMeetingID != nil,
-              "phase \(recorder.phase)")
-        recorder.dismissNotice()
-        check("closing the banner clears the failure", recorder.phase == .idle && recorder.notice == nil)
+        await checkRecordingFailures(model: model, calls: calls)
 
         // At launch: a meeting with segments and no transcript gets tracks.json and the pass.
         let cut = Meeting(info: MeetingInfo(title: "Acme kickoff", start: Date().addingTimeInterval(-3_600)), notes: "Agenda")
@@ -1151,6 +1154,195 @@ enum SelfTest {
         model.selection = nil
         model.reload()
         model.show(.notes)
+    }
+
+    /// What goes wrong live, acted out with fake captures: a microphone that won't start or
+    /// fails mid-call, call audio that fails, a microphone that changes or goes quiet, Stop
+    /// before any audio, Move to Trash while busy, the retry cap, ⌘Q while recording, and the
+    /// permissions sheet's Start.
+    private static func checkRecordingFailures(model: AppModel, calls: AfterCallCalls) async {
+        let recorder = model.recorder
+        func captures(mic: FakeCapture.Mode = .tone, system: FakeCapture.Mode = .tone) {
+            recorder.captures = CaptureFactory(mic: { FakeCapture(channels: 1, level: 0.3, mode: mic) },
+                                               system: { FakeCapture(channels: 2, level: 0.5, mode: system) })
+        }
+        func audioOf(_ id: String?) -> URL? { id.flatMap { model.library.audioURL(for: $0) } }
+        func idle() async { await poll(timeout: 10) { !recorder.hasWork } }
+
+        // 1. A microphone that won't start: the banner says why, and the meeting made for it goes.
+        captures(mic: .failsToStart)
+        let count = model.meetings.count
+        model.quickNote()
+        check("a microphone that won't start says why, with nothing to retry, and leaves no empty meeting",
+              recorder.notice?.message.hasPrefix("Couldn't start recording:") == true && recorder.notice?.retryMeetingID == nil
+              && !recorder.isRecording && model.meetings.count == count && model.selection == nil,
+              "notice \(String(describing: recorder.notice)), meetings \(count) -> \(model.meetings.count)")
+        recorder.dismissNotice()
+
+        // 2. The microphone's writer fails mid-call: the pill keeps the reason until closed, and
+        // what was saved is transcribed.
+        captures(mic: .failsWriting)
+        model.quickNote()
+        let broken = recorder.meetingID
+        await poll { recorder.recordingFailure != nil }
+        let panel = RecordingPanel(recorder: recorder, model: model)
+        panel.mainWindowIsKey = { false }
+        panel.update()
+        let pillUp = panel.isShowing
+        check("a microphone that fails stops the recording with \"Couldn't write audio: …\"",
+              recorder.recordingFailure?.hasPrefix("Couldn't write audio:") == true && !recorder.isRecording,
+              "failure \(recorder.recordingFailure ?? "none"), phase \(recorder.phase)")
+        await idle()
+        check("…the audio saved before it is transcribed on its own", calls.ids.last == broken && broken != nil,
+              "calls \(calls.ids.suffix(1))")
+        check("…and the pill stays up with the reason until it's closed", pillUp && recorder.recordingFailure != nil)
+        recorder.dismissNotice()
+        panel.update()
+        check("closing it clears the failure and hides the pill",
+              recorder.recordingFailure == nil && recorder.notice == nil && !panel.isShowing)
+
+        // 3. Call audio fails mid-call: the microphone records on.
+        captures(system: .failsWriting)
+        model.quickNote()
+        let micOnly = recorder.meetingID
+        await poll { recorder.warning?.hasPrefix(Recorder.micOnly) == true }
+        check("call audio that fails drops to the microphone alone and keeps recording",
+              recorder.isRecording && recorder.warning?.hasPrefix(Recorder.micOnly) == true,
+              "recording \(recorder.isRecording), warning \(recorder.warning ?? "none")")
+        try? await Task.sleep(for: .milliseconds(300))
+        model.startRecording()
+        let micOnlyTracks = audioOf(micOnly).map { Tracks.load(from: $0) }
+        check("…and tracks.json keeps both sides, the call audio up to where it stopped",
+              (micOnlyTracks?.mic?.seconds ?? 0) > (micOnlyTracks?.system?.seconds ?? 0) && (micOnlyTracks?.system?.seconds ?? 0) > 0,
+              "\(String(describing: micOnlyTracks))")
+        await idle()
+
+        // 4. The microphone changes mid-call: a new segment in the same track. A quiet microphone warns.
+        captures(mic: .changesDevice)
+        model.quickNote()
+        let changed = recorder.meetingID
+        try? await Task.sleep(for: .milliseconds(700))
+        model.startRecording()
+        let micSegments = audioOf(changed).map { SegmentWriter.segments(named: "mic", in: $0).count } ?? 0
+        let micSeconds = audioOf(changed).map { Tracks.load(from: $0) }?.mic?.seconds ?? 0
+        check("a microphone that changes goes on in a new segment of the same track",
+              micSegments >= 2 && micSeconds > 0.9, "segments \(micSegments), seconds \(micSeconds)")
+        await idle()
+        recorder.silenceWarning = 0.3
+        captures(mic: .silent)
+        model.quickNote()
+        await poll { recorder.warning?.contains(Recorder.silentMic) == true }
+        check("a microphone that stays silent shows a warning", recorder.warning?.contains(Recorder.silentMic) == true,
+              recorder.warning ?? "none")
+        recorder.silenceWarning = 30
+
+        // 5. Stop before any audio arrives: nothing to transcribe, and the banner says so.
+        captures(mic: .silent, system: .silent)
+        let before = calls.ids.count
+        model.startRecording()          // stops the silent-mic recording
+        await idle()
+        let before2 = calls.ids.count
+        model.quickNote()
+        model.startRecording()
+        await idle()
+        check("Stop before any audio transcribes nothing and says \"Nothing was recorded.\"",
+              calls.ids.count == before2 && recorder.notice?.message == Recorder.nothingRecorded && recorder.phase == .idle,
+              "calls \(calls.ids.count - before), notice \(recorder.notice?.message ?? "none")")
+        recorder.dismissNotice()
+
+        // 6. Move to Trash is off for the recording meeting and the one transcribing.
+        captures()
+        model.quickNote()
+        let busy = recorder.meetingID ?? ""
+        model.trash(busy)
+        let trashItem: () -> NSMenuItem? = {
+            let menu = NSApp.mainMenu?.items.first { $0.title == "Meeting" }?.submenu
+            menu.map { $0.delegate?.menuNeedsUpdate?($0) }
+            NSApp.mainMenu?.update()
+            return menuItem(title: "Move to Trash", in: menu)
+        }
+        await poll { trashItem()?.isEnabled == false }
+        check("Move to Trash is off for the meeting that records, with a reason",
+              !model.canTrash(busy) && model.meetings.contains { $0.id == busy } && trashItem()?.isEnabled == false
+              && model.trashHelp(busy).hasPrefix("Stop recording"),
+              "menu enabled \(String(describing: trashItem()?.isEnabled))")
+        calls.hold = true
+        model.startRecording()
+        await poll { recorder.transcribingID == busy }
+        check("…and for the meeting that transcribes", !model.canTrash(busy) && model.trashHelp(busy).hasPrefix("Wait"))
+        calls.hold = false
+        await idle()
+        check("…and on again once it's done", model.canTrash(busy))
+
+        // 7. The retry cap: three failures in a row stop the launch retries; Retry starts over.
+        let flaky = Meeting(info: MeetingInfo(title: "Weekly sync", start: Date().addingTimeInterval(-7_200)), notes: "")
+        if let folder = try? model.library.save(flaky) {
+            let dir = folder.appending(path: MeetingFolder.audio)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let writer = SegmentWriter(directory: dir, name: "mic", recordingStart: .now)
+            FakeCapture.feed(writer, channels: 1, level: 0.3, seconds: 1)
+            writer.finish()
+            try? model.library.setTranscriptionAttempts(2, for: flaky.id)
+        }
+        model.reload()
+        calls.failNext = true
+        let first = recorder.recoverInterrupted(library: model.library)
+        await idle()
+        check("a failed pass counts toward the meeting's attempts and marks the meeting failed",
+              first.contains(flaky.id) && model.library.transcriptionAttempts(for: flaky.id) == 3
+              && recorder.failedMeetings[flaky.id] != nil,
+              "queued \(first), attempts \(model.library.transcriptionAttempts(for: flaky.id))")
+        recorder.dismissNotice()
+        let second = recorder.recoverInterrupted(library: model.library)
+        check("after three failures launch stops retrying, and the meeting stays failed with Retry",
+              !second.contains(flaky.id) && recorder.failedMeetings[flaky.id]?.contains("won't run on its own") == true,
+              "queued \(second), \(recorder.failedMeetings[flaky.id] ?? "none")")
+        recorder.retry(flaky.id)
+        await idle()
+        check("Retry starts the count over and runs the pass",
+              recorder.failedMeetings[flaky.id] == nil && model.library.transcriptionAttempts(for: flaky.id) == 0
+              && calls.ids.last == flaky.id)
+
+        // 8. ⌘Q while recording asks first; Cancel keeps recording, Stop and Quit closes the files.
+        model.quickNote()
+        let quitting = recorder.meetingID
+        let cancel = recorder.terminateReply(confirm: { false })
+        check("⌘Q while recording asks, and Cancel keeps recording", cancel == .terminateCancel && recorder.isRecording)
+        try? await Task.sleep(for: .milliseconds(200))
+        let quit = recorder.terminateReply(confirm: { true })
+        let quitFiles = audioOf(quitting).flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) } ?? []
+        check("…and Stop and Quit closes the recording's files and quits",
+              quit == .terminateNow && !recorder.isRecording && quitFiles.contains(Tracks.fileName),
+              "\(quit.rawValue), files \(quitFiles.sorted())")
+        recorder.force(.idle)
+
+        // 9. The permissions sheet's Start needs only the microphone; system audio never blocks.
+        let saved = (recorder.permissionsReady, recorder.micReady)
+        recorder.permissionsReady = { false }
+        recorder.micReady = { true }
+        model.selection = nil
+        model.record(.quickNote, fromSheet: true)
+        check("the permissions sheet's Start records with the microphone alone",
+              recorder.isRecording && model.permissionsRequest == nil)
+        model.startRecording()
+        await idle()
+        recorder.micReady = { false }
+        model.record(.quickNote, fromSheet: true)
+        check("…and not without it", !recorder.isRecording && model.permissionsRequest == .quickNote)
+        model.permissionsRequest = nil
+        (recorder.permissionsReady, recorder.micReady) = saved
+        recorder.permissionsReady = { true }
+        recorder.dismissNotice()
+
+        // The pill's window and the launch pass are made once per process.
+        let pill = model.pill
+        model.startRecordingServices()
+        check("the recording pill's window is made once per process", pill != nil && model.pill === pill)
+        captures()
+        recorder.dismissNotice()
+        for meeting in model.meetings { try? model.library.moveToTrash(meeting.id) }
+        model.selection = nil
+        model.reload()
     }
 
     /// The whole path on speech: fake captures feed `say` clips through the real writers, and
@@ -1287,23 +1479,37 @@ private final class AfterCallCalls {
     var ids: [String] = []
     var stitched: [String: [String]] = [:]
     var failNext = false
+    /// While true, the pass waits (to check a meeting that transcribes).
+    var hold = false
 }
 
 /// A capture that opens no device: it feeds a made-up tone (or a given buffer) to the real
 /// SegmentWriter, half a second at once and then 0.1 s every 0.1 s until stopped, at 48 kHz
-/// in the given channels, as a device might.
+/// in the given channels, as a device might. Modes act out what goes wrong live.
 nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
+    enum Mode {
+        case tone
+        /// Starts, then never delivers a buffer.
+        case silent
+        /// Throws from start, as a microphone that won't open.
+        case failsToStart
+        /// Its writer fails after a few buffers, as a disk that fills.
+        case failsWriting
+        /// The device changes after a few buffers: a new segment at 44.1 kHz, as MicCapture does.
+        case changesDevice
+    }
+
     private let channels: AVAudioChannelCount
     private let level: Float
     private let buffer: AVAudioPCMBuffer?
-    private let removeFolderFirst: Bool
+    private let mode: Mode
     private var timer: DispatchSourceTimer?
 
-    init(channels: AVAudioChannelCount, level: Float, removeFolderFirst: Bool = false) {
+    init(channels: AVAudioChannelCount, level: Float, mode: Mode = .tone) {
         self.channels = channels
         self.level = level
         buffer = nil
-        self.removeFolderFirst = removeFolderFirst
+        self.mode = mode
     }
 
     /// Feeds a whole buffer (16 kHz mono speech) at once, then nothing.
@@ -1311,12 +1517,12 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         channels = 1
         level = 0
         self.buffer = buffer
-        removeFolderFirst = false
+        mode = .tone
     }
 
     func start(into writer: SegmentWriter) throws {
-        // The writer then can't open its first file.
-        if removeFolderFirst { try? FileManager.default.removeItem(at: writer.directory) }
+        if mode == .failsToStart { throw CocoaError(.featureUnsupported) }
+        if mode == .silent { return }
         if let buffer {
             writer.append(buffer)
             return
@@ -1324,7 +1530,20 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         Self.feed(writer, channels: channels, level: level, seconds: 0.5)
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "silvanus.fake-capture"))
         timer.schedule(deadline: .now() + 0.1, repeating: 0.1)
-        timer.setEventHandler { [channels, level] in Self.feed(writer, channels: channels, level: level, seconds: 0.1) }
+        final class Clock: @unchecked Sendable {
+            var ticks = 0
+            var rate = 48_000.0
+        }
+        let clock = Clock()
+        timer.setEventHandler { [channels, level, mode] in
+            clock.ticks += 1
+            if clock.ticks == 3, mode == .failsWriting { writer.recordFailure("Couldn't write audio: The test disk is full.") }
+            if clock.ticks == 3, mode == .changesDevice {
+                writer.breakSegment()
+                clock.rate = 44_100
+            }
+            Self.feed(writer, channels: channels, level: level, seconds: 0.1, rate: clock.rate)
+        }
         timer.resume()
         self.timer = timer
     }
@@ -1335,8 +1554,8 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
     }
 
     /// A 440 Hz tone at `level`, in every channel, appended to the writer.
-    static func feed(_ writer: SegmentWriter, channels: AVAudioChannelCount, level: Float, seconds: Double) {
-        let rate = 48_000.0
+    static func feed(_ writer: SegmentWriter, channels: AVAudioChannelCount, level: Float, seconds: Double,
+                     rate: Double = 48_000) {
         guard let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels),
               let tone = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(seconds * rate)) else { return }
         tone.frameLength = tone.frameCapacity

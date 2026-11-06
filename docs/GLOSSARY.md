@@ -30,8 +30,14 @@ Every word Silvanus puts on screen. One name per idea.
 | Silvanus needs two permissions to record | The sheet the first Start Recording opens when access is missing; its buttons are Allow Microphone Access, Allow System Audio Access, Open System Settings…, Not Now, and Start Recording (or Quick Note) | Grant access, Setup |
 | Recording your microphone only. (reason) | The warning when call audio couldn't start; the microphone records on its own | Mic-only mode |
 | No call audio yet. Check that the call plays on this Mac. | The warning when call audio stays silent for 30 seconds while recording | No system audio |
+| No microphone audio yet. Check the input in System Settings > Sound. | The warning when the microphone stays silent for 30 seconds while recording | Mic muted |
+| Nothing was recorded. | The banner after a Stop that came before any audio; nothing is transcribed | Empty recording |
+| Couldn't restart the microphone: (reason) | Why a recording stopped after the microphone changed and couldn't come back | Device error |
+| A meeting is recording. Stop and quit? | What ⌘Q asks while recording; Stop and Quit saves the recording (it's transcribed at the next launch), Cancel keeps recording | Are you sure? |
+| Transcription failed. (reason) | The open meeting's banner while its transcription has failed, with Retry; after 3 failures in a row it isn't retried on its own | Error, Failed to process |
 | Couldn't start recording: (reason) / Couldn't write audio: (reason) | Why a recording didn't start, or stopped early; the audio saved so far is kept | Recording error, Capture failed |
 | Couldn't transcribe this meeting: (reason) | The banner when the after-call pass fails; Retry runs it again on the saved audio | Transcription error |
+| Close | Dismisses a banner, or the recording pill after a failure | Dismiss, OK |
 | Finished transcribing an interrupted recording | The banner after a recording cut off by a quit or crash is transcribed at launch | Recovered, Restored |
 | Transcribing… | The canvas header's label, with its bar, while the after-call pass runs | Processing… |
 | Folder | A group of meetings the user makes | Project, Space, Tag |

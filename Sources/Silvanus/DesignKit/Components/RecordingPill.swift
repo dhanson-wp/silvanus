@@ -76,7 +76,7 @@ struct LiveWave: View {
 /// | State | Contents |
 /// | recording | live button pulses at 1 Hz, time counts up |
 /// | stopping | spinner in the live button, Stop disabled |
-/// | failed | the reason in recordingText, no time; Stop disabled |
+/// | failed | the reason in recordingText, no time; Stop becomes Close, which dismisses it |
 /// | hover on a button | as the icon button |
 /// | focused | 2 pt focus ring on the focused button |
 struct RecordingPill: View {
@@ -93,6 +93,8 @@ struct RecordingPill: View {
     /// The live button brings Silvanus forward.
     var open: (() -> Void)?
     var stop: (() -> Void)?
+    /// Closes a failed pill.
+    var dismiss: (() -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
@@ -118,7 +120,11 @@ struct RecordingPill: View {
                 .padding(.horizontal, Space.sm)
             }
             IconButton(.pause, "Pause", help: "Pause comes in a later version", action: nil)
-            IconButton(.stop, "Stop", help: "Stop recording; transcription starts (⇧⌘R)", action: canStop ? stop : nil)
+            if isFailed {
+                IconButton(.close, "Close", help: "Close this message", action: dismiss)
+            } else {
+                IconButton(.stop, "Stop", help: "Stop recording; transcription starts (⇧⌘R)", action: canStop ? stop : nil)
+            }
         }
         .padding(.horizontal, Metric.recordingPillInset)
         .frame(width: Metric.recordingPillWidth, height: Metric.recordingPillHeight)
