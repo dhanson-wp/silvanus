@@ -37,6 +37,8 @@ public enum RecorderEvent: Equatable, Sendable {
     case interrupt(Date, String)
     /// Retry worked: the track captures again, at a moment.
     case recovered(Date)
+    /// Retry worked on a failure that came while paused: back to Paused, the time still held.
+    case recoveredToPause
     /// Stop. Allowed while recording, paused, or interrupted.
     case stop
     /// The captures and files are closed; transcription begins.
@@ -106,6 +108,7 @@ public struct RecorderState: Equatable, Sendable {
         case let (.paused(elapsed), .interrupt(_, reason)), let (.interrupted(elapsed, _), .interrupt(_, reason)):
             .interrupted(elapsed: elapsed, reason: reason)
         case let (.interrupted(elapsed, _), .recovered(date)): .recording(since: date.addingTimeInterval(-elapsed))
+        case let (.interrupted(elapsed, _), .recoveredToPause): .paused(elapsed: elapsed)
         case (.recording, .stop), (.paused, .stop), (.interrupted, .stop): .stopping
         case (.stopping, .stopped): .transcribing(progress: 0)
         case let (.transcribing, .progress(p)): .transcribing(progress: min(1, max(0, p)))

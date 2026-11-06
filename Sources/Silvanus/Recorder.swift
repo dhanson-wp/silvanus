@@ -125,6 +125,8 @@ final class Recorder {
     @ObservationIgnored private var clock: CaptureClock?
     @ObservationIgnored private var audioDirectory: URL?
     @ObservationIgnored private var level: Float = 0
+    /// The current "Audio lost" came while paused: Retry goes back to Paused.
+    @ObservationIgnored private var interruptedWhilePaused = false
     @ObservationIgnored private var sampler: Task<Void, Never>?
     @ObservationIgnored private var systemHeard = Date()
     @ObservationIgnored private var micHeard = Date()
@@ -276,25 +278,34 @@ final class Recorder {
         model.reload()
     }
 
-    /// Pause: both tracks stop saving from this moment, and the time holds. Only while
-    /// capturing (never while interrupted).
+    /// Pause: the time holds from this moment, both captures stop (the devices are released,
+    /// so the microphone indicator goes off), and nothing is saved. Only while capturing
+    /// (never while audio is lost).
     func pause() {
         guard state.isCapturing else { return }
         let now = Date()
         clock?.hold(at: now)
+        mic?.stop()
+        system?.stop()
         apply(.pause(now))
         level = 0
         meter.reset()
     }
 
-    /// Resume: the same meeting goes on, from the time it held.
+    /// Resume: both captures start again into the same tracks, lined up with the clock, and
+    /// the same meeting goes on from the time it held. A microphone that won't start is
+    /// "Audio lost" (Retry, Stop); call audio that won't start is "Mic only".
     func resume() {
         guard state.isPaused else { return }
-        let now = Date()
-        micHeard = now
-        systemHeard = now
-        clock?.release(at: now)
-        apply(.resume(now))
+        guard let mic, let micWriter else { return }
+        do {
+            try mic.start(into: micWriter)
+        } catch {
+            interrupt("Couldn't restart the microphone: \(error.localizedDescription)", whilePaused: false)
+            return
+        }
+        restartSystem()
+        releaseClock(RecorderEvent.resume)
     }
 
     /// The controls' Pause/Resume button.
@@ -303,19 +314,44 @@ final class Recorder {
     }
 
     /// Retry while audio is lost: restarts the microphone into its track (and call audio, if
-    /// that's down too). Stays "Audio lost", with the new reason, while it can't start.
+    /// that's down too). Stays "Audio lost", with the new reason, while it can't start. A
+    /// failure that came while paused goes back to Paused, with the devices released again.
     func retryCapture() {
         guard case .interrupted = phase else { return }
         if let reason = restartMic() {
             apply(.interrupt(Date(), reason))
             return
         }
+        if interruptedWhilePaused {
+            mic?.stop()
+            apply(.recoveredToPause)
+            return
+        }
+        restartSystem()
+        releaseClock(RecorderEvent.recovered)
+        if callAudioDown != nil { retryCallAudio() }
+    }
+
+    /// Lets the clock run again (Resume, Retry): both tracks line up with it first, so each
+    /// one's first buffer pads or trims to the same instant whatever its buffer size.
+    private func releaseClock(_ event: (Date) -> RecorderEvent) {
+        micWriter?.lineUp()
+        systemWriter?.lineUp()
         let now = Date()
         micHeard = now
         systemHeard = now
         clock?.release(at: now)
-        apply(.recovered(now))
-        if callAudioDown != nil { retryCallAudio() }
+        apply(event(now))
+    }
+
+    /// Starts call audio again in its track after a hold; a failure drops to Mic only.
+    private func restartSystem() {
+        guard let system, let writer = systemWriter else { return }
+        do {
+            try system.start(into: writer)
+        } catch {
+            dropSystem("Couldn't restart call audio: \(error.localizedDescription)")
+        }
     }
 
     /// Retry Call Audio (menu bar), while the microphone records on its own: starts call
@@ -414,16 +450,24 @@ final class Recorder {
 
     /// A required track (the microphone) failed: hold the clock, so neither track saves,
     /// and say so ("Audio lost", with Retry and Stop). Silence never comes here.
-    private func interrupt(_ reason: String) {
+    private func interrupt(_ reason: String, whilePaused: Bool? = nil) {
         guard isRecording else { return }
+        interruptedWhilePaused = whilePaused ?? state.isPaused
         let now = Date()
         clock?.hold(at: now)
         mic?.stop()
         mic = nil
+        // Call audio waits too, so both tracks skip the same stretch; Retry restarts it.
+        system?.stop()
         apply(.interrupt(now, reason))
         level = 0
         meter.reset()
         print("RECORDER audio lost: \(reason)")
+    }
+
+    /// For the checks: the microphone's writer reports a failure, as a device or a disk might.
+    func failMicForChecks(_ reason: String) {
+        micWriter?.recordFailure(reason)
     }
 
     /// Call audio failed mid-recording: keep what it saved in its track, let it go, and

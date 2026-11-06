@@ -1323,13 +1323,22 @@ enum SelfTest {
         return nil
     }
 
-    /// Pause and Resume on a recording with fake captures: both tracks drop what they hear
-    /// from the same moment, the time holds (and the notes' times with it), the controls show
-    /// the note and flat bars, and the same meeting goes on. Stop while paused finalizes.
+    /// Pause and Resume on a recording with fake captures: Pause releases both devices and
+    /// Resume starts them again in the same tracks, the time holds (and the notes' times
+    /// with it), the controls show the note and flat bars, and the same meeting goes on.
+    /// Through several pauses, a microphone with ~30 ms buffers and call audio with 10 ms
+    /// buffers stay within 50 ms of each other. Stop while paused finalizes. A microphone
+    /// that won't restart is Audio lost; a failure while paused retries back to Paused.
     private static func checkPause(model: AppModel, calls: AfterCallCalls) async {
         let recorder = model.recorder
-        recorder.captures = CaptureFactory(mic: { FakeCapture(channels: 1, level: 0.3) },
-                                           system: { FakeCapture(channels: 2, level: 0.5) })
+        final class Made { var mic: [FakeCapture] = []; var system: [FakeCapture] = [] }
+        let made = Made()
+        func fakes(mic mode: FakeCapture.Mode = .tone) {
+            recorder.captures = CaptureFactory(
+                mic: { let f = FakeCapture(channels: 1, level: 0.3, mode: mode, chunk: 0.03); made.mic.append(f); return f },
+                system: { let f = FakeCapture(channels: 2, level: 0.5, chunk: 0.01); made.system.append(f); return f })
+        }
+        fakes()
         let started = Date()
         model.quickNote()
         guard let id = recorder.meetingID else {
@@ -1344,6 +1353,7 @@ enum SelfTest {
         recorder.pause()
         let held = recorder.elapsed(for: id)
         let pausedTitles = menuBarTitles(model: model)
+        check("Pause releases both devices", made.mic.last?.isRunning == false && made.system.last?.isRunning == false)
         try? await Task.sleep(for: .milliseconds(1_500))
         check("Pause holds the time", recorder.mode == .paused && recorder.elapsed(for: id) == held && held != nil,
               "mode \(recorder.mode)")
@@ -1356,6 +1366,9 @@ enum SelfTest {
               (model.controls?.frame?.height ?? 0) > Metric.barHeight + 2 * Metric.barWindowMargin + Metric.barNoteGap
               && model.controls?.barOrigin == barBefore)
         recorder.resume()
+        check("Resume starts both devices again in the same tracks",
+              made.mic.count == 1 && made.system.count == 1 && made.mic[0].isRunning && made.system[0].isRunning
+              && made.mic[0].starts == 2 && made.system[0].starts == 2)
         try? await Task.sleep(for: .milliseconds(500))
         let after = recorder.elapsed(for: id) ?? 0
         let wall = Date().timeIntervalSince(started)
@@ -1363,20 +1376,46 @@ enum SelfTest {
               recorder.mode == .recording && recorder.meetingID == id && after > (held ?? 0) && after < wall - 1.3,
               "captured \(after), wall \(wall)")
         check("the notes' margin times use the captured time", recorder.elapsed(for: id).map { $0 < wall - 1.3 } == true)
+        for _ in 0..<3 {
+            recorder.pause()
+            try? await Task.sleep(for: .milliseconds(300))
+            recorder.resume()
+            try? await Task.sleep(for: .milliseconds(700))
+        }
         recorder.pause()
         let wallAtStop = Date().timeIntervalSince(started)
         model.startRecording()
         let tracks = model.library.audioURL(for: id).map { Tracks.load(from: $0) }
         let mic = tracks?.mic?.seconds ?? 0, system = tracks?.system?.seconds ?? 0
-        check("Stop while paused finalizes the meeting", !recorder.isRecording && mic > 0,
-              "\(recorder.phase)")
-        // The fakes deliver half a second at once, then in real time: what's saved is the
-        // captured time plus that half second, never the paused second.
-        check("nothing heard while paused is saved, on either track", mic < wallAtStop - 0.7 && system < wallAtStop - 0.7,
+        check("Stop while paused finalizes the meeting", !recorder.isRecording && mic > 0, "\(recorder.phase)")
+        check("nothing heard while paused is saved, on either track", mic < wallAtStop - 1.5 && system < wallAtStop - 1.5,
               "mic \(mic), system \(system), wall \(wallAtStop)")
-        check("…and the two tracks stay aligned", abs(mic - system) < 0.25
-              && abs((tracks?.mic?.startOffset ?? 9) - (tracks?.system?.startOffset ?? -9)) < 0.25,
+        check("…and after four pauses, tracks with different buffer sizes stay within 50 ms",
+              abs((tracks?.mic?.startOffset ?? 9) + mic - (tracks?.system?.startOffset ?? -9) - system) < 0.05,
               "\(String(describing: tracks))")
+        await poll(timeout: 10) { !recorder.hasWork }
+
+        // A microphone that won't start again on Resume: Audio lost, and Retry records on.
+        fakes(mic: .failsOnRestart)
+        model.quickNote()
+        try? await Task.sleep(for: .milliseconds(300))
+        recorder.pause()
+        recorder.resume()
+        let lost: String? = if case let .interrupted(_, reason) = recorder.phase { reason } else { nil }
+        check("a microphone that won't restart on Resume is Audio lost",
+              lost?.hasPrefix("Couldn't restart the microphone") == true, lost ?? "\(recorder.phase)")
+        fakes()
+        recorder.retryCapture()
+        check("…and Retry records on", recorder.mode == .recording && made.system.last?.isRunning == true, "\(recorder.mode)")
+
+        // A failure that comes while paused: Retry goes back to Paused, devices released.
+        recorder.pause()
+        recorder.failMicForChecks("Couldn't restart the microphone: The test device went away.")
+        await poll { recorder.mode == .interrupted }
+        recorder.retryCapture()
+        check("Retry after a failure while paused returns to Paused", recorder.mode == .paused
+              && made.mic.last?.isRunning == false && made.system.last?.isRunning == false, "\(recorder.mode)")
+        model.startRecording()
         await poll(timeout: 10) { !recorder.hasWork }
     }
 
@@ -1610,7 +1649,8 @@ enum SelfTest {
               stillLost?.hasPrefix("Couldn't restart the microphone") == true, stillLost ?? "\(recorder.phase)")
         captures()
         recorder.retryCapture()
-        try? await Task.sleep(for: .milliseconds(300))
+        // The fakes deliver half a second ahead of the clock; lining up drops that first.
+        try? await Task.sleep(for: .milliseconds(900))
         check("Retry that works records on in the same meeting, and the time goes on from where it held",
               recorder.mode == .recording && recorder.meetingID == broken
               && (recorder.elapsed(for: broken) ?? 0) > (held ?? 0),
@@ -1634,7 +1674,7 @@ enum SelfTest {
         recorder.retryCallAudio()
         check("Retry Call Audio brings call audio back in its track", recorder.callAudioDown == nil
               && recorder.warning?.hasPrefix(Recorder.micOnly) != true, recorder.warning ?? "none")
-        try? await Task.sleep(for: .milliseconds(300))
+        try? await Task.sleep(for: .milliseconds(900))
         model.startRecording()
         let micOnlyTracks = audioOf(micOnly).map { Tracks.load(from: $0) }
         let micOnlySystem = audioOf(micOnly).map { SegmentWriter.segments(named: "system", in: $0).count } ?? 0
@@ -1647,7 +1687,7 @@ enum SelfTest {
         captures(mic: .changesDevice)
         model.quickNote()
         let changed = recorder.meetingID
-        try? await Task.sleep(for: .milliseconds(700))
+        try? await Task.sleep(for: .milliseconds(1_500))
         model.startRecording()
         let micSegments = audioOf(changed).map { SegmentWriter.segments(named: "mic", in: $0).count } ?? 0
         let micSeconds = audioOf(changed).map { Tracks.load(from: $0) }?.mic?.seconds ?? 0
@@ -1975,19 +2015,27 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         case failsWriting
         /// The device changes after a few buffers: a new segment at 44.1 kHz, as MicCapture does.
         case changesDevice
+        /// Starts once, then throws on every later start (Resume after Pause).
+        case failsOnRestart
     }
 
     private let channels: AVAudioChannelCount
     private let level: Float
     private let buffer: AVAudioPCMBuffer?
     private let mode: Mode
+    /// Seconds per buffer after the first half second: devices differ (a microphone near
+    /// 85 ms, call audio near 10 ms).
+    private let chunk: Double
     private var timer: DispatchSourceTimer?
+    private(set) var starts = 0
+    var isRunning: Bool { timer != nil }
 
-    init(channels: AVAudioChannelCount, level: Float, mode: Mode = .tone) {
+    init(channels: AVAudioChannelCount, level: Float, mode: Mode = .tone, chunk: Double = 0.1) {
         self.channels = channels
         self.level = level
         buffer = nil
         self.mode = mode
+        self.chunk = chunk
     }
 
     /// Feeds a whole buffer (16 kHz mono speech) at once, then nothing.
@@ -1996,10 +2044,12 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         level = 0
         self.buffer = buffer
         mode = .tone
+        chunk = 0.1
     }
 
     func start(into writer: SegmentWriter) throws {
-        if mode == .failsToStart { throw CocoaError(.featureUnsupported) }
+        if mode == .failsToStart || (mode == .failsOnRestart && starts > 0) { throw CocoaError(.featureUnsupported) }
+        starts += 1
         if mode == .silent { return }
         if let buffer {
             writer.append(buffer)
@@ -2007,20 +2057,20 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         }
         Self.feed(writer, channels: channels, level: level, seconds: 0.5)
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "silvanus.fake-capture"))
-        timer.schedule(deadline: .now() + 0.1, repeating: 0.1)
+        timer.schedule(deadline: .now() + chunk, repeating: chunk)
         final class Clock: @unchecked Sendable {
             var ticks = 0
             var rate = 48_000.0
         }
         let clock = Clock()
-        timer.setEventHandler { [channels, level, mode] in
+        timer.setEventHandler { [channels, level, mode, chunk] in
             clock.ticks += 1
             if clock.ticks == 3, mode == .failsWriting { writer.recordFailure("Couldn't write audio: The test disk is full.") }
             if clock.ticks == 3, mode == .changesDevice {
                 writer.breakSegment()
                 clock.rate = 44_100
             }
-            Self.feed(writer, channels: channels, level: level, seconds: 0.1, rate: clock.rate)
+            Self.feed(writer, channels: channels, level: level, seconds: chunk, rate: clock.rate)
         }
         timer.resume()
         self.timer = timer

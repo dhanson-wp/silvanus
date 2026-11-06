@@ -65,8 +65,8 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
     private var finished = false
     /// On the queue: the next buffer lines up with the clock (after a break).
     private var realign = false
-    /// A gap shorter than this is device timing, not a break.
-    static let realignThreshold: TimeInterval = 0.1
+    /// A gap shorter than this (5 ms) is left alone when lining up.
+    static let realignThreshold: TimeInterval = 0.005
 
     init(directory: URL, name: String, clock: CaptureClock) {
         self.directory = directory
@@ -88,17 +88,51 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
             guard !finished else { return }
             let lead = Double(copy.frameLength) / copy.format.sampleRate
             let begins = max(0, captured - lead)
+            guard let converted = convert(copy) else { return }
             if startOffset == nil {
                 startOffset = begins
-            } else if realign, let startOffset {
-                let position = startOffset + Double(framesWritten) / TrackFormat.sampleRate
-                let gap = begins - position
-                if gap > Self.realignThreshold { writeSilence(min(gap, 4 * 3600)) }
+                realign = false
+                write(converted)
+                return
+            }
+            guard realign, let startOffset else {
+                write(converted)
+                return
+            }
+            // The first buffer after a release (Resume, Retry, a microphone change): line the
+            // track up with the clock. Behind, pad silence; ahead (the buffer holds audio from
+            // before the release), cut that front off. Each track does this on its own, so
+            // their buffer sizes never let one drift ahead of the other.
+            let position = startOffset + Double(framesWritten) / TrackFormat.sampleRate
+            let gap = begins - position
+            if gap > Self.realignThreshold {
+                writeSilence(min(gap, 4 * 3600))
+            } else if gap < -Self.realignThreshold {
+                let cut = AVAudioFrameCount((-gap * TrackFormat.sampleRate).rounded())
+                // All of it is from before the release: drop it and line up the next one.
+                guard cut < converted.frameLength, let rest = Self.dropFront(converted, frames: cut) else { return }
+                realign = false
+                write(rest)
+                return
             }
             realign = false
-            guard let converted = convert(copy) else { return }
             write(converted)
         }
+    }
+
+    /// The buffer without its first `frames` frames (16 kHz mono float, as converted).
+    private static func dropFront(_ buffer: AVAudioPCMBuffer, frames: AVAudioFrameCount) -> AVAudioPCMBuffer? {
+        let left = buffer.frameLength - frames
+        guard let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: left),
+              let src = buffer.floatChannelData?[0], let dst = out.floatChannelData?[0] else { return nil }
+        out.frameLength = left
+        memcpy(dst, src + Int(frames), Int(left) * MemoryLayout<Float>.size)
+        return out
+    }
+
+    /// Every release of the clock (Resume, Retry): the next buffer lines up with it.
+    func lineUp() {
+        queue.sync { realign = true }
     }
 
     /// Why writing failed ("Couldn't write audio: …"), from the first open, convert, or

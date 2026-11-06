@@ -146,6 +146,15 @@ struct RecorderStateTests {
         #expect(s.phase == .interrupted(elapsed: 12, reason: "The microphone stopped"))
     }
 
+    @Test func retryAfterAFailureWhilePausedReturnsToPaused() {
+        var s = RecorderState(phase: .paused(elapsed: 12))
+        s.apply(.interrupt(since, "The microphone stopped"))
+        do { let ok = s.apply(.recoveredToPause); #expect(ok) }
+        #expect(s.phase == .paused(elapsed: 12))
+        var r = RecorderState(phase: .recording(since: since))
+        do { let ok = r.apply(.recoveredToPause); #expect(!ok) }
+    }
+
     @Test func recoveredOnlyAfterAnInterruption() {
         var s = RecorderState(phase: .paused(elapsed: 12))
         do { let ok = s.apply(.recovered(since)); #expect(!ok) }

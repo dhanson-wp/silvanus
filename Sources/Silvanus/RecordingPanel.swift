@@ -65,7 +65,6 @@ final class RecordingPanel: BarMover {
             _ = recorder.mode
             _ = recorder.isRecording
             _ = recorder.callAudioDown
-            _ = recorder.phase
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.update()
@@ -166,12 +165,16 @@ final class RecordingPanel: BarMover {
     /// window grows upward for the note; the bar holds still.
     private func place() {
         guard let panel else { return }
-        let room = noteRoom
-        if let screen = BarPlacement.screen(for: barFrame, in: screens()) {
-            barOrigin = BarPlacement.clamp(barOrigin, size: barFrame.size, above: room, in: screen.visible)
+        let screen = BarPlacement.screen(for: barFrame, in: screens())
+        if let screen {
+            barOrigin = BarPlacement.clamp(barOrigin, size: barFrame.size, in: screen.visible)
         }
+        // The note may push the window down near the top of the screen; that's a copy for
+        // this frame only, so the spot the user chose stays as it was.
+        let room = noteRoom
+        let shown = screen.map { BarPlacement.clamp(barOrigin, size: barFrame.size, above: room, in: $0.visible) } ?? barOrigin
         let size = windowSize
-        let frame = NSRect(x: barOrigin.x - Metric.barWindowMargin, y: barOrigin.y - Metric.barWindowMargin,
+        let frame = NSRect(x: shown.x - Metric.barWindowMargin, y: shown.y - Metric.barWindowMargin,
                            width: size.width, height: size.height)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
     }
@@ -276,9 +279,10 @@ final class RecordingPanel: BarMover {
         var text: String?
         switch (old, new) {
         case (.idle, .recording): text = RecordingWords.recording
-        case (_, .paused) where old != .paused: text = "\(RecordingWords.paused). \(RecordingWords.pausedNote)"
+        case (_, .paused) where old != .paused && old != .interrupted: text = "\(RecordingWords.paused). \(RecordingWords.pausedNote)"
         case (.paused, .recording): text = "Recording resumed"
         case (.interrupted, .recording): text = "Audio is back. Recording."
+        case (.interrupted, .paused): text = "Audio is back. \(RecordingWords.paused)."
         case (_, .interrupted) where old != .interrupted:
             text = "\(RecordingWords.audioLost). \(RecordingWords.lostNote(track: Recorder.micTrack))"
         case (_, .idle) where old != .idle: text = "Recording stopped"
