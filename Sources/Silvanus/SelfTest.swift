@@ -104,11 +104,38 @@ enum SelfTest {
         check("double-clicking the header zooms, minimizes, or does nothing per the setting",
               wrong.isEmpty, wrong.joined(separator: ", "))
 
+        // Header clicks reach the right view: the toggle button over the header's click
+        // target, the click target in empty header space, and never the hidden sidebar's.
+        let toggle = CGPoint(x: Metric.sidebarHeaderFirstX, y: Metric.trafficLightFirst.y)
+        let emptyCanvasHeader = CGPoint(x: Metric.contentX + Metric.sidebarWidth, y: Metric.trafficLightFirst.y)
+        let onToggle = headerArea(at: toggle, in: window)
+        check("a click on the sidebar toggle goes to the button, not the header",
+              onToggle == "other", onToggle)
+        let onSidebar = headerArea(at: CGPoint(x: 150, y: Metric.trafficLightFirst.y), in: window)
+        check("a click in the empty sidebar header goes to the header", onSidebar == "sidebar", onSidebar)
+        let onEmpty = headerArea(at: emptyCanvasHeader, in: window)
+        check("a click in the empty canvas header goes to the header", onEmpty == "canvas", onEmpty)
+
         let item = menuItem(key: "s", modifiers: [.control, .command], in: NSApp.mainMenu)
         check("View has Hide Sidebar on ⌃⌘S", item?.title == "Hide Sidebar", item?.title ?? "missing")
         guard let item, let menu = item.menu else { return }
         menu.performActionForItem(at: menu.index(of: item))
-        try? await Task.sleep(for: .seconds(0.3))
+        try? await Task.sleep(for: .seconds(0.5))
+        // Hidden, the sidebar's header takes nothing: under the toggle (x 100) the button
+        // still wins, and past it (x 150) the canvas header does.
+        let hiddenToggle = headerArea(at: CGPoint(x: 100, y: Metric.trafficLightFirst.y), in: window)
+        let hiddenPast = headerArea(at: CGPoint(x: 150, y: Metric.trafficLightFirst.y), in: window)
+        check("with the sidebar hidden, header clicks go to the button or the canvas header",
+              hiddenToggle == "other" && hiddenPast == "canvas", "x 100: \(hiddenToggle), x 150: \(hiddenPast)")
+        // AppKit leaves the hidden sidebar's click view at its old 208 pt frame (the canvas
+        // happens to sit over it today); asked directly, it must refuse every point.
+        func clickViews(_ view: NSView) -> [HeaderClickView.ClickView] {
+            ((view as? HeaderClickView.ClickView).map { [$0] } ?? []) + view.subviews.flatMap(clickViews)
+        }
+        let sidebarViews = window.contentView.map(clickViews)?.filter { $0.area == .sidebar } ?? []
+        let claims = sidebarViews.filter { $0.hitTest(NSPoint(x: $0.frame.midX, y: $0.frame.midY)) != nil }
+        check("with the sidebar hidden, its header refuses clicks", !sidebarViews.isEmpty && claims.isEmpty,
+              "\(sidebarViews.count) views, \(claims.count) still take clicks")
         // SwiftUI refreshes menu titles when the menu is about to open.
         NSApp.mainMenu?.update()
         menu.delegate?.menuNeedsUpdate?(menu)
@@ -122,6 +149,15 @@ enum SelfTest {
         }
         try? await Task.sleep(for: .seconds(0.3))
         check("⌃⌘S again shows the sidebar", model.sidebarVisible)
+    }
+
+    /// Which header click target AppKit hits at a point measured from the window's top left:
+    /// "sidebar", "canvas", or "other" (a control drawn over them, or anything else).
+    private static func headerArea(at point: CGPoint, in window: NSWindow) -> String {
+        guard let content = window.contentView, let frame = content.superview else { return "no content view" }
+        let inFrame = frame.convert(NSPoint(x: point.x, y: window.frame.height - point.y), from: nil)
+        guard let hit = content.hitTest(inFrame) else { return "nothing" }
+        return (hit as? HeaderClickView.ClickView)?.area.rawValue ?? "other"
     }
 
     private static func menuItem(key: String, modifiers: NSEvent.ModifierFlags, in menu: NSMenu?) -> NSMenuItem? {

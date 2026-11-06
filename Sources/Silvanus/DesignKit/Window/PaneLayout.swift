@@ -45,7 +45,7 @@ struct PaneLayout<WindowHeader: View, Sidebar: View, Header: View, Canvas: View>
                 .padding(.top, Metric.headerHeight)
                 .frame(width: Metric.sidebarWidth)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .background(alignment: .top) { WindowDragArea() }
+                .background(alignment: .top) { WindowDragArea(area: .sidebar, active: sidebarVisible) }
                 .frame(width: sidebarWidth, alignment: .leading)
                 .clipped()
                 // Hidden, the sidebar takes no clicks and no keyboard focus.
@@ -57,11 +57,12 @@ struct PaneLayout<WindowHeader: View, Sidebar: View, Header: View, Canvas: View>
                     .padding(.leading, headerInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: Metric.headerHeight)
-                    .background(WindowDragArea())
                 canvas
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .padding(.leading, edge)
+            // Here, not on `header`: an empty header slot would drop it.
+            .background(alignment: .top) { WindowDragArea(area: .canvas, active: true) }
             .background {
                 CanvasShape(corner: corner).fill(Ink.canvas)
                 CanvasEdge(corner: corner, lineWidth: Metric.hairline)
@@ -129,26 +130,53 @@ private struct CanvasEdge: Shape {
 /// controls, so it only gets the clicks they don't take. An AppKit view rather than SwiftUI
 /// gestures, so a drag and a double click never compete.
 private struct WindowDragArea: View {
+    var area: HeaderClickView.Area
+    var active: Bool
+
     var body: some View {
-        HeaderClickView()
+        HeaderClickView(area: area, active: active)
             .frame(height: Metric.headerHeight)
     }
 }
 
-private struct HeaderClickView: NSViewRepresentable {
-    func makeNSView(context: Context) -> ClickView { ClickView() }
+/// The header's click target. `area` names which pane's header it is (the self-test checks
+/// hits by it). While `active` is false (the sidebar's, with the sidebar hidden) it takes no
+/// clicks at all, whatever frame AppKit left it.
+struct HeaderClickView: NSViewRepresentable {
+    enum Area: String { case sidebar, canvas }
 
-    func updateNSView(_ view: ClickView, context: Context) {}
+    var area: Area
+    var active: Bool
+
+    func makeNSView(context: Context) -> ClickView {
+        let view = ClickView()
+        view.area = area
+        view.active = active
+        return view
+    }
+
+    func updateNSView(_ view: ClickView, context: Context) {
+        view.area = area
+        view.active = active
+    }
 
     final class ClickView: NSView {
+        var area: Area = .canvas
+        var active = true
+
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            active ? super.hitTest(point) : nil
+        }
 
         override func mouseDown(with event: NSEvent) {
             guard let window else { return }
-            if event.clickCount == 2 {
-                TitleBarDoubleClick.perform(on: window)
-            } else {
-                window.performDrag(with: event)
+            switch event.clickCount {
+            case 1: window.performDrag(with: event)
+            case 2: TitleBarDoubleClick.perform(on: window)
+            // A triple click is not a title bar gesture.
+            default: break
             }
         }
     }
