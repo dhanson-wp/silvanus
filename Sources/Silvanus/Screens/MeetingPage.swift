@@ -17,7 +17,8 @@ struct MeetingPage: View {
             case .summary:
                 SummaryView(meeting: meeting, header: AnyView(header(meeting)))
             case .notes:
-                NotesCanvas(meeting: meeting, documents: documents, header: AnyView(header(meeting)))
+                NotesCanvas(meeting: meeting, documents: documents,
+                            header: model.referenceStage ? nil : AnyView(header(meeting)))
             case .transcript:
                 MeetingTranscript(meeting: meeting)
             }

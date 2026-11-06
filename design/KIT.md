@@ -97,7 +97,7 @@ Why these choices:
 | contentX | 221 | measured: canvas text and header start, 12 after the canvas edge |
 | contentTrailing | 12 | measured: player strip ends 12.5 before the window edge |
 | sidebarRowInset | 4 | measured: pills run x 4 to 204 |
-| sidebarTextX | 16.5 | measured |
+| sidebarTextX | 16.5 | measured ink edge; the token is 16, since the first letter's side bearing adds half a point |
 | rowCorner | 8 | measured |
 | meetingRowPitch | 54 | measured, no folder line |
 | meetingRowPitchFolder | 72 | measured: the folder line adds 18 |
@@ -149,7 +149,7 @@ Notes:
 
 ## Icons
 
-Source: SF Symbols, regular weight, at 14 pt (the reference's set is 12 to 15 pt wide with about a 1 pt stroke and round caps and joins). One size and one stroke weight for the set. Selected rows and segments keep the outlined form; nothing switches to filled on select.
+Source: SF Symbols, regular weight, at 14 pt (the reference's set is 12 to 15 pt wide with about a 1 pt stroke and round caps and joins). One size and one stroke weight for the set. A size is the ink's longer side, which for every glyph wider than tall is its width, as measured. The kit measures each symbol's ink, not its image: the image has 2 to 4 pt of padding, and sizing by it drew every icon about a fifth too small (the folder line icon 9 wide, not 11). Taller-than-wide glyphs (play, mic, pause, chevrons, waveform) still fit their longer side, so they draw a little narrower than a width would make them. Selected rows and segments keep the outlined form; nothing switches to filled on select.
 
 | Icon | Size | SF Symbol to start from |
 | --- | --- | --- |
@@ -202,19 +202,19 @@ Anatomy: traffic lights, then four 28 × 28 icon buttons (hide sidebar, search, 
 
 ### Sidebar accent rule
 
-A 1 pt line in `Ink.accent` at y 64.5, from x 4 to 204 (inset 4). It sits under the header and above the first day heading. Silvanus: gold (fill only).
+A 1 pt line in `Ink.accent` from y 64.5 to 65.5 (its top edge at 64.5), from x 4 to 204 (inset 4). It sits under the header and above the first day heading. Silvanus: gold (fill only).
 
 ### Day heading
 
-`dayHeading` (16 bold), `Ink.text`, at x 16.5. Cap top at y 84, 19.5 below the rule. The first row's pill starts at y 106.
+`dayHeading` (16 bold), `Ink.text`, at x 16.5. Cap top at y 84.5 on a capital (84 counts the antialiased row above), 19 below the rule's bottom edge. The first row's pill starts at y 106, 40.5 below the rule's bottom edge.
 
 ### Meeting row
 
 Anatomy: optional folder line (11 pt folder icon, 5.5 gap, `meta` text in `textSecondary`), title (`rowTitle`, one line, truncates with an ellipsis), time (`monoTime`, `textSecondary`).
 
 - Pill: x 4 to 204 (200 wide), corner 8. Rows sit back to back: the pill height is the row pitch.
-- Without a folder line: 54 tall. Title cap top at +12.5 to +13, time cap top 20.5 below the title's.
-- With a folder line: 72 tall. Folder line cap top at +11, title cap top 20 below it, time 20.5 below the title.
+- Without a folder line: 54 tall. Title cap top at +13.5 on a capital (the +12.5 to +13 first written down was the top of the ascenders in the measured word), set as +13.75; time cap top 20.5 below the title's.
+- With a folder line: 72 tall. Folder line cap top at +11.5 (set so the ink lands where measured, +11 on the antialiased edge), title cap top 20 below it, time 20.5 below the title.
 - Text and icons start at x 16.5 (12.5 inside the pill).
 
 | State | Fill | Title | Time and folder line |
@@ -322,8 +322,9 @@ Organization part, adapted to this grid. It's the top of the canvas on a meeting
 ### Notes canvas text
 
 - Text starts at x 221 (12 after the canvas edge). On My notes the meeting header sits above the notes in the same scroll view, and the first line box starts at the header's bottom: 46 (canvas header) + 104.5 (`MeetingHeader.height`: the title's cap top 19, the title, 15.5 to the chip row, the 28 pt chips, then 20 to the body) = y 150.5, so the first cap top is at about y 158 (measured 157.7). Without the header (the editor alone) the first line box starts 11 below the canvas header, cap top 64.
-- Body: `body` (16 / 24). Wrapped lines are 24 apart; list items are 28 apart (4 between items).
-- Bullets: an 8 pt dot centered at x 229; the text starts at x 246 (25 in from the text start).
+- Body: `body` (16 / 24). Wrapped lines are 24 apart; list items are 28 apart (4 between items). Each line box centers its glyphs: TextKit sets the line half the extra shorter and adds the other half as line spacing (a baseline offset would center them too, but TextKit 2 takes it off the line's height, which put body lines 21.5 apart).
+- Bullets: an 8 pt dot centered at x 229; the text starts at x 246 (25 in from the text start). Silvanus keeps the Markdown dash (faded, like every marker) and centers it at x 229, then widens the space after it so the item's text and its wrapped lines start at x 246.
+- Heading spacing (Silvanus): 13.5 above an H3, 5.5 above an H2, 8 above an H1 (no measure), and 3 below every heading. Markers stay visible: an H3's "### " sits at x 221 and pushes its words right of the reference's x 222.5.
 - Headings, baseline to baseline (measured on a summary): title to H2 48.7; H2 to its first list item 29 to 30; last list line to the next H2 32. Paragraph to an H3 in notes: 58.5; H3 to its first item 28.
 - Caret: 17 tall, `Ink.text`.
 - Empty note placeholder: `body` in `textSecondary`, same position as the first line.
@@ -380,3 +381,26 @@ Settings take over the main window, as a grouped list on the left and a pane on 
 - **Empty folder**: the meeting list area shows `rowTitle` in `textSecondary`, "No meetings in this folder".
 
 The empty-state words and their placement are ours; the sizes and colors come from the tokens above.
+
+## Compare
+
+The reference-main snapshot page (`APP_COLORS=reference APP_SNAPSHOT_PAGES=reference-main tools/snap.sh`) lays fictional meetings out like the main reference capture: 910 × 600, seven rows under Yesterday (the first and sixth with a folder line, the fifth truncated, the sixth open), and on the canvas a paragraph, an empty line, an H3, a wrapping bullet, a bullet, and an empty bullet, without the meeting header and without the Folders section. The words are ours, picked to be about as long as the reference's. `tools/compare.sh <reference prefix>` takes the snapshot and runs the design-from-app compare in light and dark, on the whole window and with these parts painted over in both images:
+
+| Mask (x, y, w, h) | Why it's left out |
+| --- | --- |
+| 255, 8, 135, 30 | The view pill's selected segment and labels: ours are Summary, My notes, and Transcript (docs/GLOSSARY.md), so the segment is wider. The track's start and the first tab still count. |
+| 690, 8, 188, 30 | The header's trailing controls: Silvanus has the Quick Note mic and Start Recording where the reference has a folder chip and a share button. The More dots still count. |
+| 236, 544, 647, 52 | The reference's floating bottom bar. Silvanus has none. |
+
+The snapshot runs with `-AppleFontSmoothing 0`, because the reference draws text without font smoothing: with it on, the same word drew about a sixth more ink. With it off, the day heading ("Yesterday" in both) differs by no pixels at all.
+
+Results (2026-11-06), percent of unmasked pixels that differ:
+
+| | Light | Dark |
+| --- | --- | --- |
+| Before (first build of the page) | 4.35% (whole window 4.28%) | 4.44% (whole window 4.36%) |
+| After the token fixes | 3.03% (whole window 3.06%) | 2.89% (whole window 2.92%) |
+| Same check with the reference's own words, local only | 1.60% (whole window 1.75%) | 1.46% (whole window 1.61%) |
+
+Rows and left edges are within 0.5 pt of the reference, measured with `rows` and `cols`: the rule, day heading, every row's folder line, title, and time, the pills, the divider, the canvas paragraph, heading, bullet lines, and the bullet text edge at x 246. The bullet's dash centers at x 229 like the reference's dot. What's left in the 2.9 to 3.0% is the words themselves: ours differ from the reference's, so their ink lands on different pixels. The gate of 2% isn't met with our own words; with the reference's words (a measurement only, never committed) the window is under 2% in both modes, so the tokens hold.
+

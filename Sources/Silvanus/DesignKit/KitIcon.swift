@@ -45,7 +45,9 @@ enum KitIcon: String, CaseIterable {
         }
     }
 
-    /// The drawn size in points, as KIT.md measures it: the glyph's longer side.
+    /// The drawn size in points, as KIT.md measures it: the ink's longer side, which is its
+    /// width for every glyph in the set that's wider than tall (the reference was measured
+    /// across, with `cols`).
     var size: CGFloat {
         switch self {
         case .hideSidebar, .transcriptTab, .folderHeader, .attendees: 15
@@ -58,20 +60,43 @@ enum KitIcon: String, CaseIterable {
         }
     }
 
-    /// The symbol point size whose glyph fits `size` on its longer side. Symbols differ in
-    /// shape at one point size, so each is measured once at 14 pt (KIT.md's base) and scaled.
+    /// The symbol point size whose ink fits `size` on its longer side. Symbols differ in
+    /// shape at one point size, so each is drawn once at 14 pt (KIT.md's base) and its ink
+    /// measured. (The image's own size has 2 to 4 pt of padding around the ink; sizing by it
+    /// drew a folder line icon 9 wide where KIT.md measures 11.)
     var pointSize: CGFloat { Self.pointSizes[self] ?? size }
 
     private static let pointSizes: [KitIcon: CGFloat] = {
         let base: CGFloat = 14
-        let config = NSImage.SymbolConfiguration(pointSize: base, weight: .regular)
         return Dictionary(uniqueKeysWithValues: allCases.map { icon in
-            let drawn = NSImage(systemSymbolName: icon.symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)?.size ?? NSSize(width: base, height: base)
-            let longest = max(drawn.width, drawn.height)
+            let longest = inkSize(icon.symbol, pointSize: base).map { max($0.width, $0.height) } ?? 0
             return (icon, longest > 0 ? base * icon.size / longest : icon.size)
         })
     }()
+
+    /// The bounds of a symbol's ink at a point size, drawn at 4x.
+    private static func inkSize(_ symbol: String, pointSize: CGFloat) -> CGSize? {
+        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) else { return nil }
+        let scale: CGFloat = 4
+        let width = Int(ceil(image.size.width * scale)), height = Int(ceil(image.size.height * scale))
+        guard width > 0, height > 0,
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width where data[(y * width + x) * 4 + 3] > 60 {
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX else { return nil }
+        return CGSize(width: CGFloat(maxX - minX + 1) / scale, height: CGFloat(maxY - minY + 1) / scale)
+    }
 }
 
 /// A KitIcon at its size, in a `size` × `size` box. Color it with `.foregroundStyle`.

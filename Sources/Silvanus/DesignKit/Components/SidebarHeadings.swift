@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// KIT.md "Sidebar accent rule": a hairline in `Ink.accent` (gold, fill only) centered at
-/// y 64.5 from the window's top, inset 4 on both sides, under the header and above the first
+/// KIT.md "Sidebar accent rule": a hairline in `Ink.accent` (gold, fill only) from y 64.5 to
+/// 65.5 from the window's top, inset 4 on both sides, under the header and above the first
 /// day heading. Put it at the top of the sidebar slot, which starts under the 46 pt header.
 struct SidebarAccentRule: View {
     var body: some View {
@@ -9,14 +9,14 @@ struct SidebarAccentRule: View {
             .fill(Ink.accent)
             .frame(height: Metric.hairline)
             .padding(.horizontal, Metric.sidebarRowInset)
-            .padding(.top, Metric.sidebarRuleY - Metric.hairline / 2 - Metric.headerHeight)
+            .padding(.top, Metric.sidebarRuleY - Metric.headerHeight)
             .accessibilityHidden(true)
     }
 }
 
 /// KIT.md "Day heading": `dayHeading` (16 bold) in `Ink.text` at x 16.5, its cap top 19
-/// below the rule (y 84), and the first row's pill 41 below the rule (y 106). Every day
-/// group starts with the same 41 pt band.
+/// below the rule (y 84.5), and the first row's pill 40.5 below the rule (y 106). Every day
+/// group starts with the same 40.5 pt band.
 struct SidebarDayHeading: View {
     let title: String
 

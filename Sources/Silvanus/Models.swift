@@ -83,6 +83,10 @@ final class AppModel {
     private(set) var sidebarOrder: [String] = []
     /// How many times the days were rebuilt. The self-test reads it.
     @ObservationIgnored private(set) var regroupCount = 0
+    /// True only for the reference-main snapshot (Snapshot.captureReferenceMain): My notes
+    /// shows the editor without the meeting header, and the sidebar leaves out Folders, so
+    /// the window has the same parts as the reference capture design/KIT.md was measured from.
+    var referenceStage = false
     /// False when the sidebar is hidden (View > Hide Sidebar, ⌃⌘S, or the header button).
     var sidebarVisible = true
     /// What the canvas shows for the open meeting (the view pill, ⌘1, ⌘2, ⌘3). Leaving My

@@ -37,7 +37,7 @@ struct SidebarView: View {
                 meetingList(groups)
                     .onChange(of: context.date, initial: true) { _, date in model.now = date }
             }
-            if !model.folders.isEmpty {
+            if !model.folders.isEmpty, !model.referenceStage {
                 foldersSection
             }
         }

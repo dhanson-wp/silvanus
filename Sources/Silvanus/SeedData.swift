@@ -124,4 +124,44 @@ enum SeedData {
                 notes: "Kept the travel line flat.\n"),
         ]
     }
+
+    /// The reference-main snapshot page (Snapshot.captureReferenceMain): fictional meetings
+    /// laid out like the reference capture design/KIT.md was measured from, so the two can be
+    /// compared pixel for pixel. Seven meetings yesterday, newest first; the first and the
+    /// sixth have a folder line; the fifth title is long enough to truncate. The sixth is
+    /// the open one, and its notes are a paragraph, a heading, two bullets (the first wraps),
+    /// and an empty bullet. The words are ours, picked only to be about as long.
+    static let referenceSelectedID = "reference-orbit-review"
+
+    static func referenceMain(now: Date = Date()) -> [Meeting] {
+        let calendar = Calendar.current
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)) ?? now
+        func at(_ hour: Int, _ minute: Int) -> Date {
+            calendar.date(bySettingHour: hour, minute: minute, second: 0, of: yesterday) ?? yesterday
+        }
+        let rows: [(id: String, title: String, hour: Int, minute: Int, folder: String?)] = [
+            ("reference-briefing-1", "Briefing", 21, 51, "Orbit"),
+            ("reference-briefing-2", "Briefing", 20, 14, nil),
+            ("reference-briefing-3", "Briefing", 19, 42, nil),
+            ("reference-briefing-4", "Briefing", 12, 5, nil),
+            ("reference-roadmap", "Roadmap questions and open items", 11, 38, nil),
+            (referenceSelectedID, "Orbit design review", 9, 36, "Orbit"),
+            ("reference-budget", "Weekly budget check", 9, 8, nil),
+        ]
+        return rows.map { row in
+            let start = at(row.hour, row.minute)
+            return Meeting(
+                info: MeetingInfo(id: row.id, title: row.title, series: row.title,
+                                  start: start, end: start.addingTimeInterval(1_200),
+                                  attendees: ["Sam Rivera"], folder: row.folder),
+                notes: row.id == referenceSelectedID ? referenceNotes : "")
+        }
+    }
+
+    /// The open meeting's notes. The last line is an empty bullet ("- ").
+    private static let referenceNotes = "Checking that the room mic picks up the people at the table.\n\n"
+        + "### My asks\n"
+        + "- Should we move the onboarding checklist into the help center and/or offer it as a guided flow?\n"
+        + "- Can the export run nightly so finance can review it every morning?\n"
+        + "- \n"
 }

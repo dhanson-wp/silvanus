@@ -299,7 +299,8 @@ enum Metric {
     static let contentX: CGFloat = 221
     static let contentTrailing: CGFloat = 12
     static let sidebarRowInset: CGFloat = 4
-    static let sidebarTextX: CGFloat = 16.5
+    /// The first letter's ink lands at x 16.5, as measured: the glyph's side bearing adds half a point.
+    static let sidebarTextX: CGFloat = 16
     static let rowCorner: CGFloat = 8
     static let meetingRowPitch: CGFloat = 54
     /// A meeting row with a folder line: the line adds 18.
