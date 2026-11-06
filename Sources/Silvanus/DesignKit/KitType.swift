@@ -80,6 +80,15 @@ enum KitType: String, CaseIterable {
             : .systemFont(ofSize: size, weight: nsWeight)
     }
 
+    /// A role's AppKit font, for text drawn through AppKit (the notes canvas).
+    static func nsFont(_ role: KitType) -> NSFont { role.nsFont }
+
+    /// Code inside a role's text: SF Mono, a little smaller so its x-height sits with the
+    /// system face around it. KIT.md has no code role; this keeps code on the role's line.
+    static func nsCodeFont(in role: KitType) -> NSFont {
+        .monospacedSystemFont(ofSize: (role.size * 0.92).rounded(), weight: .regular)
+    }
+
     /// Space the line box adds to the font's own line height. Zero when the font's line is
     /// already taller (dayNumber: 28 pt digits on a 28 pt line).
     var extraLeading: CGFloat { Self.leading[self] ?? 0 }

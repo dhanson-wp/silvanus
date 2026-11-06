@@ -255,6 +255,17 @@ enum Ink {
     static let recordingText = InkToken.recordingText.color
 }
 
+extension Ink {
+    /// A token as an AppKit color that follows light and dark mode, for text the kit draws
+    /// through AppKit (the notes canvas). `alpha` below 1 tints with the same token.
+    static func appKit(_ token: InkToken, alpha: CGFloat = 1) -> NSColor {
+        let pair = token.pair(.active)
+        return NSColor(name: nil) { appearance in
+            NSColor(hex: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? pair.dark : pair.light, alpha: alpha)
+        }
+    }
+}
+
 // MARK: - Layer 3: scales
 
 /// Sizes from design/KIT.md "Metric", in points.

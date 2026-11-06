@@ -221,3 +221,29 @@ private func names(_ folder: URL) -> [String] {
     #expect(try library(root).save(renamed) == first)
     #expect(library(root).loadAll().meetings.count == 1)
 }
+
+@Test func saveNotesWritesOnlyNotes() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    var m = kickoff(id: "one")
+    m.summary = "Old summary"
+    let folder = try library(root).save(m)
+    // Another app rewrites the summary; saving notes must leave it alone.
+    try Data("New summary".utf8).write(to: folder.appending(path: MeetingFolder.summary))
+    let lib = library(root)
+    #expect(lib.readNotes(for: "one") == m.notes)
+    try lib.saveNotes("# Acme kickoff\n- Scope\n", for: "one")
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.notes), encoding: .utf8) == "# Acme kickoff\n- Scope\n")
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.summary), encoding: .utf8) == "New summary")
+    #expect(lib.readNotes(for: "one") == "# Acme kickoff\n- Scope\n")
+    #expect(lib.notesURL(for: "one") == folder.appending(path: MeetingFolder.notes))
+    // Atomic: no temporary files are left beside it.
+    let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+    #expect(Set(names) == [MeetingFolder.notes, MeetingFolder.summary, MeetingFolder.todo,
+                           MeetingFolder.transcript, MeetingFolder.info])
+}
+
+@Test func saveNotesForAnUnknownMeetingThrows() {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    #expect(throws: MeetingLibrary.NotFound.self) { try library(root).saveNotes("x", for: "missing") }
+    #expect(library(root).readNotes(for: "missing") == nil)
+}

@@ -9,7 +9,9 @@ import SwiftUI
 /// its default and minimum sizes and with the sidebar hidden (captureFrames), and
 /// settings-<tab>-light.png and settings-<tab>-dark.png for every Settings tab, then quits.
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
-/// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "settings" for Settings.
+/// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
+/// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
+/// notes canvas, "settings" for Settings.
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
 /// Add APP_ACCENT=<id> to see the pages in another accent.
 /// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
@@ -51,6 +53,9 @@ enum Snapshot {
             }
             if only == nil || only?.contains("window") == true {
                 await captureFrames(model: model, to: dir)
+            }
+            if only == nil || only?.contains("canvas") == true {
+                await captureCanvas(model: model, to: dir)
             }
             if only == nil || only?.contains("settings") == true {
                 let main = NSApp.windows.first { $0.canBecomeMain && !$0.isSheet }
@@ -100,6 +105,32 @@ enum Snapshot {
         }
         model.sidebarVisible = true
         main.setContentSize(Metric.windowDefault)
+    }
+
+    /// The notes canvas with the first seeded meeting open: canvas-light.png and
+    /// canvas-dark.png, nothing focused (markers faded). Prints where the first line sits
+    /// (design/KIT.md "Notes canvas text": x 221, cap top 64).
+    @MainActor private static func captureCanvas(model: AppModel, to dir: String) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        model.sidebar = .all
+        model.sidebarVisible = true
+        main.setContentSize(Metric.windowDefault)
+        model.selection = model.meetings.first { $0.id == "seed-acme-kickoff" }?.id ?? model.meetings.first?.id
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/canvas-\(mode).png", window: main)
+        }
+        if let editor = main.contentView.flatMap(findEditor), let m = editor.firstLineMetrics() {
+            print("SNAPSHOT canvas first line: x \(m.x), line top \(m.lineTop), cap top \(m.capTop), TextKit 2 \(editor.isTextKit2)")
+        }
+        model.selection = nil
+    }
+
+    @MainActor private static func findEditor(in view: NSView) -> NotesTextView? {
+        if let editor = view as? NotesTextView { return editor }
+        for sub in view.subviews { if let found = findEditor(in: sub) { return found } }
+        return nil
     }
 
     /// The brand set: About in light and dark, and the menu bar glyphs (idle and

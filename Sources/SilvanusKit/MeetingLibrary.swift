@@ -59,6 +59,32 @@ public final class MeetingLibrary {
     /// The meeting's folder, once it has been loaded or saved.
     public func folderURL(for id: String) -> URL? { folders[id] }
 
+    /// No meeting with this id is on disk.
+    public struct NotFound: Error, Equatable {
+        public let id: String
+    }
+
+    /// The meeting's `notes.md`, found on disk if this instance has not loaded it yet.
+    public func notesURL(for id: String) -> URL? {
+        if folders[id] == nil, let found = findFolder(for: id) { folders[id] = found }
+        return folders[id]?.appending(path: MeetingFolder.notes)
+    }
+
+    /// The meeting's notes as they are on disk now, or nil when the meeting is unknown.
+    /// A meeting whose `notes.md` is missing has empty notes.
+    public func readNotes(for id: String) -> String? {
+        guard let url = notesURL(for: id) else { return nil }
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+
+    /// Writes only `notes.md`, atomically. The notes canvas saves this way so a summary,
+    /// transcript, or details another app changed meanwhile are never overwritten with
+    /// an older copy.
+    public func saveNotes(_ notes: String, for id: String) throws {
+        guard let url = notesURL(for: id) else { throw NotFound(id: id) }
+        try Data(notes.utf8).write(to: url, options: .atomic)
+    }
+
     /// Moves the whole meeting folder to the Trash, so it can be put back, and
     /// removes its series folder if that is now empty. An id the library has
     /// not loaded or saved is a no-op.

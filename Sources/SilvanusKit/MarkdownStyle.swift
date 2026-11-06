@@ -12,6 +12,20 @@ public enum MarkdownStyle {
         case task(done: Bool)
         case quote
         case paragraph
+
+        /// Bullets, numbered items, and tasks: Tab indents them, and they sit a little apart.
+        public var isListItem: Bool {
+            switch self {
+            case .bullet, .numbered, .task: true
+            default: false
+            }
+        }
+
+        /// 1 to 6 for a heading, nil otherwise.
+        public var headingLevel: Int? {
+            if case .heading(let level) = self { return level }
+            return nil
+        }
     }
 
     public struct Block: Equatable, Sendable {

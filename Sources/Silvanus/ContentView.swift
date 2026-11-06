@@ -2,7 +2,7 @@ import SilvanusKit
 import SwiftUI
 
 /// The main window: the kit's frame (DesignKit/Window), with the meeting list in the
-/// sidebar and an empty canvas until the sidebar and canvas parts arrive.
+/// sidebar and the selected meeting's notes in the canvas.
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
@@ -13,9 +13,11 @@ struct ContentView: View {
         } sidebar: {
             MeetingList(page: model.sidebar ?? .all)
         } header: {
-            EmptyView()
-        } canvas: {
+            // The canvas header's 46 pt band, empty until the header parts arrive. An
+            // EmptyView would take no room and let the canvas slide up under the header.
             Color.clear
+        } canvas: {
+            NotesCanvas()
         }
         .task {
             SelfTest.runIfRequested(model: model)

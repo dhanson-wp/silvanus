@@ -1,73 +1,111 @@
 import AppKit
 import SilvanusKit
 
-/// The notes editor's look. Placeholders until the design kit lands; every
-/// size and color the editor uses comes from here.
+/// The notes canvas's look, from design/KIT.md "Type" and "Notes canvas text". Fonts come
+/// from `KitType` and colors from `Ink`; every size and color the editor uses is here.
 struct EditorStyle {
-    var bodySize: CGFloat = 15
-    /// H1, H2, H3. Deeper headings use the body size, semibold.
-    var headingSizes: [CGFloat] = [24, 19, 16]
-    var lineHeightMultiple: CGFloat = 1.4
-    var headingSpaceBefore: CGFloat = 8
-    var tabInterval: CGFloat = 24
-    var inset = NSSize(width: 32, height: 24)
+    /// Body 16 / 24. H1 is `title` (24 bold), H2 `heading` (20 bold), H3 `subheading`
+    /// (18 semibold); deeper headings use `subheading` too.
+    let bodyRole = KitType.body
+    let headingRoles: [KitType] = [.title, .heading, .subheading]
+    /// List items sit 28 apart: a 24 pt line and 4 between items.
+    let listItemSpacing: CGFloat = 4
+    /// Space above a heading that isn't the first line.
+    let headingSpaceBefore: CGFloat = 8
+    let tabInterval: CGFloat = 24
 
-    var text: NSColor { .labelColor }
+    /// Where the first line sits (KIT.md "Notes canvas text"): text starts at x 221 in the
+    /// window, 12 after the canvas edge at 209, and the first line box starts 11 under the
+    /// 46 pt header. With the glyphs centered in the 24 pt box, the baseline lands 18.5
+    /// into it, at y 75.5, and a body line's cap top at y 64.
+    let leadingInset = Metric.contentX - Metric.canvasX
+    let topInset: CGFloat = 11
+
+    let text = Ink.appKit(.text)
     /// Markers on the caret's line.
-    var markerActive: NSColor { .secondaryLabelColor }
+    let markerActive = Ink.appKit(.textSecondary)
     /// Markers on every other line: faded, never hidden.
-    var markerFaded: NSColor { .tertiaryLabelColor }
-    var quote: NSColor { .secondaryLabelColor }
-    var done: NSColor { .secondaryLabelColor }
-    var taskBox: NSColor { .controlAccentColor }
-    var codeBackground: NSColor { .quaternarySystemFill }
+    let markerFaded = Ink.appKit(.textSecondary, alpha: 0.5)
+    let quote = Ink.appKit(.textSecondary)
+    let done = Ink.appKit(.textSecondary)
+    /// Task boxes are controls; gold is fill only, so they use accent text.
+    let taskBox = Ink.appKit(.accentText)
+    let codeBackground = Ink.appKit(.divider, alpha: 0.6)
+    let caret = Ink.appKit(.text)
 
-    let body: NSFont
+    let body = KitType.nsFont(.body)
     let headings: [NSFont]
-    let code: NSFont
+    let code = KitType.nsCodeFont(in: .body)
 
     init() {
-        body = .systemFont(ofSize: bodySize)
-        headings = headingSizes.map { .systemFont(ofSize: $0, weight: .semibold) }
-        code = .monospacedSystemFont(ofSize: bodySize * 0.92, weight: .regular)
+        headings = headingRoles.map(KitType.nsFont)
     }
 
-    func headingFont(_ level: Int) -> NSFont {
-        level <= headings.count ? headings[level - 1] : .systemFont(ofSize: bodySize, weight: .semibold)
-    }
+    var bodySize: CGFloat { bodyRole.size }
 
-    func paragraph(headIndent: CGFloat = 0, spaceBefore: CGFloat = 0) -> NSParagraphStyle {
+    func headingRole(_ level: Int) -> KitType { headingRoles[min(level, headingRoles.count) - 1] }
+    func headingFont(_ level: Int) -> NSFont { headings[min(level, headings.count) - 1] }
+
+    /// A paragraph whose lines are exactly `role`'s line height.
+    func paragraph(_ role: KitType, headIndent: CGFloat = 0, spaceBefore: CGFloat = 0, spaceAfter: CGFloat = 0) -> NSParagraphStyle {
         let p = NSMutableParagraphStyle()
-        p.lineHeightMultiple = lineHeightMultiple
+        p.minimumLineHeight = role.lineHeight
+        p.maximumLineHeight = role.lineHeight
         p.defaultTabInterval = tabInterval
         p.tabStops = []
         p.headIndent = headIndent
         p.paragraphSpacingBefore = spaceBefore
+        p.paragraphSpacing = spaceAfter
         return p
     }
 
-    var typing: [NSAttributedString.Key: Any] {
-        [.font: body, .foregroundColor: text, .paragraphStyle: paragraph()]
+    /// TextKit puts a fixed line height's extra space above the glyphs, so the baseline
+    /// sits the font's descent above the line's bottom. Shifting glyphs up by half the
+    /// extra centers them in the line box, as KIT.md measures (cap top 64, baseline 75.5).
+    func baselineOffset(_ font: NSFont, _ role: KitType) -> CGFloat {
+        let natural = ceil(font.ascender - font.descender + font.leading)
+        return max(0, (role.lineHeight - natural) / 2)
     }
+
+    var typing: [NSAttributedString.Key: Any] {
+        [.font: body, .foregroundColor: text, .paragraphStyle: paragraph(bodyRole),
+         .baselineOffset: baselineOffset(body, bodyRole)]
+    }
+
 }
 
-/// Styles the Markdown in place. It only sets attributes: the characters stay
-/// exactly what was typed. Each edit restyles the paragraphs it touched, never
-/// the whole note.
+extension NSAttributedString.Key {
+    /// Marks Markdown syntax the styler fades and brightens (value: `true`). Selection
+    /// changes recolor only these ranges.
+    static let markdownMarker = NSAttributedString.Key("SilvanusMarkdownMarker")
+    /// Marks the text inside a code span (value: `true`): spell check skips it.
+    static let markdownCode = NSAttributedString.Key("SilvanusMarkdownCode")
+}
+
+/// Styles the Markdown in place. It only sets attributes: the characters stay exactly
+/// what was typed. Each edit restyles the paragraphs it touched, never the whole note;
+/// moving the caret only recolors markers.
 final class MarkdownStyler: NSObject {
     let style = EditorStyle()
     weak var textView: NSTextView?
-    /// The paragraphs shown with bright markers (the caret's lines).
-    private var active = NSRange(location: NSNotFound, length: 0)
-    /// Paragraphs edited and not yet restyled, and the caret's paragraph after the edit.
+    /// The paragraphs shown with bright markers: the selection's lines.
+    private(set) var active = NSRange(location: NSNotFound, length: 0)
+    /// Paragraphs edited and not yet restyled.
     private var pending: NSRange?
-    private var pendingCaret: NSRange?
     /// Seconds spent in the last restyle, for the benchmark.
     private(set) var lastRestyle: Double = 0
+    /// For the checks: full restyles run, paragraphs styled, and marker-only recolors.
+    private(set) var restyles = 0
+    private(set) var styledParagraphs = 0
+    private(set) var markerRecolors = 0
 
-    /// Restyles the old and new caret paragraphs so markers fade and return.
-    func selectionChanged() {
-        guard pending == nil, let textView, let storage = textView.textStorage else { return }
+    /// True while an input method holds marked text (kana before it is committed).
+    /// Restyling then would replace the marked text's attributes under the input method.
+    private var isComposing: Bool { textView?.hasMarkedText() ?? false }
+
+    /// The paragraphs the selection touches.
+    func selectionParagraphs() -> NSRange? {
+        guard let textView, let storage = textView.textStorage else { return nil }
         let ns = storage.mutableString
         var union: NSRange?
         for value in textView.selectedRanges {
@@ -76,19 +114,36 @@ final class MarkdownStyler: NSObject {
             let p = ns.paragraphRange(for: NSRange(location: r.location, length: min(r.length, ns.length - r.location)))
             union = union.map { NSUnionRange($0, p) } ?? p
         }
-        guard let now = union, now != active else { return }
+        return union
+    }
+
+    /// Brightens the selection's markers and fades the ones it left. Only marker colors
+    /// change, so selecting the whole page costs one pass over the marker ranges.
+    func selectionChanged() {
+        guard pending == nil, !isComposing, let storage = textView?.textStorage,
+              let now = selectionParagraphs(), now != active else { return }
         storage.beginEditing()
-        if active.location != NSNotFound, active.location <= ns.length {
-            let old = NSRange(location: active.location, length: min(active.length, ns.length - active.location))
-            styleParagraphs(in: old, storage, activeAt: nil)
-        }
-        styleParagraphs(in: now, storage, activeAt: now)
+        if let old = clamped(active, storage.length) { recolorMarkers(in: old, storage, bright: false) }
+        recolorMarkers(in: now, storage, bright: true)
         storage.endEditing()
         active = now
     }
 
-    /// Styles each paragraph that intersects `range`. A paragraph is active
-    /// (bright markers) when it intersects `activeAt`.
+    private func clamped(_ range: NSRange, _ length: Int) -> NSRange? {
+        guard range.location != NSNotFound, range.location <= length else { return nil }
+        return NSRange(location: range.location, length: min(NSMaxRange(range), length) - range.location)
+    }
+
+    private func recolorMarkers(in range: NSRange, _ storage: NSTextStorage, bright: Bool) {
+        markerRecolors += 1
+        let color = bright ? style.markerActive : style.markerFaded
+        storage.enumerateAttribute(.markdownMarker, in: range) { value, sub, _ in
+            if value != nil { storage.addAttribute(.foregroundColor, value: color, range: sub) }
+        }
+    }
+
+    /// Styles each paragraph that intersects `range`. A paragraph is active (bright
+    /// markers) when it intersects `activeAt`.
     private func styleParagraphs(in range: NSRange, _ storage: NSTextStorage, activeAt: NSRange?) {
         let ns = storage.mutableString
         var location = range.location
@@ -106,23 +161,24 @@ final class MarkdownStyler: NSObject {
                              for: NSRange(location: min(location, ns.length), length: 0))
         let full = NSRange(location: start, length: end - start)
         guard full.length > 0 else { return full }
+        styledParagraphs += 1
         let isActive = activeAt.map { NSIntersectionRange($0, full).length > 0 || $0.location == start } ?? false
         let line = Substring(ns.substring(with: NSRange(location: start, length: contentsEnd - start)))
         let block = MarkdownStyle.block(line)
         let runs = MarkdownStyle.lineRuns(line, offset: start)
 
         var base = style.typing
-        switch block.kind {
-        case .heading(let level):
-            base[.font] = style.headingFont(level)
-            base[.paragraphStyle] = style.paragraph(spaceBefore: start == 0 ? 0 : style.headingSpaceBefore)
-        case .bullet, .numbered, .task, .quote:
+        if let level = block.kind.headingLevel {
+            let role = style.headingRole(level), font = style.headingFont(level)
+            base[.font] = font
+            base[.paragraphStyle] = style.paragraph(role, spaceBefore: start == 0 ? 0 : style.headingSpaceBefore)
+            base[.baselineOffset] = style.baselineOffset(font, role)
+        } else if block.kind != .paragraph {
             // Wrapped lines hang under the text, after the marker.
-            let prefix = (line as Substring).utf16.prefix(block.marker.upperBound)
+            let prefix = line.utf16.prefix(block.marker.upperBound)
             let width = NSAttributedString(string: String(prefix) ?? "", attributes: [.font: style.body]).size().width
-            base[.paragraphStyle] = style.paragraph(headIndent: ceil(width))
-        case .paragraph:
-            break
+            base[.paragraphStyle] = style.paragraph(style.bodyRole, headIndent: ceil(width),
+                                                    spaceAfter: block.kind.isListItem ? style.listItemSpacing : 0)
         }
         storage.setAttributes(base, range: full)
 
@@ -136,6 +192,7 @@ final class MarkdownStyler: NSObject {
             default: break
             }
         }
+        var codeRanges: [NSRange] = []
         for run in runs {
             let r = nsRange(run.range)
             switch run.role {
@@ -146,28 +203,33 @@ final class MarkdownStyler: NSObject {
                     storage.addAttribute(.font, value: NSFontManager.shared.convert(font, toHaveTrait: trait), range: sub)
                 }
             case .code:
-                storage.addAttributes([.font: style.code, .backgroundColor: style.codeBackground], range: r)
+                storage.addAttributes([.font: style.code, .backgroundColor: style.codeBackground,
+                                       .markdownCode: true], range: r)
+                codeRanges.append(r)
             default: break
             }
         }
         let marker = isActive ? style.markerActive : style.markerFaded
         for run in runs where run.role == .marker {
-            storage.addAttribute(.foregroundColor, value: marker, range: nsRange(run.range))
+            storage.addAttributes([.foregroundColor: marker, .markdownMarker: true], range: nsRange(run.range))
         }
         if let box = block.box {
             // The task box is a control, so it stays visible on every line.
-            storage.addAttribute(.foregroundColor, value: style.taskBox,
-                                 range: NSRange(location: start + box.lowerBound, length: box.count))
+            let r = NSRange(location: start + box.lowerBound, length: box.count)
+            storage.addAttribute(.foregroundColor, value: style.taskBox, range: r)
+            storage.removeAttribute(.markdownMarker, range: r)
         }
+        // A span that just became code drops the spelling marks it had as plain words.
+        for r in codeRanges { (textView as? NotesTextView)?.clearSpelling(in: r) }
         return full
     }
 }
 
 extension MarkdownStyler: @MainActor NSTextStorageDelegate {
-    /// Characters changed: note the paragraphs the edit touched (and the one
-    /// after a split line). They're restyled right after the edit, in
-    /// `restylePending`: attribute changes made inside the edit widen its
-    /// range, and NSTextView then puts the caret at the end of the paragraph.
+    /// Characters changed: note the paragraphs the edit touched (and the one after a
+    /// split line), and move the bright range with the text. They're restyled right
+    /// after the edit, in `restylePending`: attribute changes made inside the edit widen
+    /// its range, and NSTextView then puts the caret at the end of the paragraph.
     func textStorage(_ storage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
                      range editedRange: NSRange, changeInLength delta: Int) {
         guard editedMask.contains(.editedCharacters) else { return }
@@ -176,23 +238,44 @@ extension MarkdownStyler: @MainActor NSTextStorageDelegate {
         let last = ns.paragraphRange(for: NSRange(location: min(NSMaxRange(editedRange), ns.length), length: 0))
         let touched = NSUnionRange(first, last)
         pending = pending.map { NSUnionRange($0, touched) } ?? touched
-        pendingCaret = last
+        shiftActive(editedRange: editedRange, delta: delta, touched: touched)
         // Edits that never reach didChangeText (setting `string`) still get styled.
         DispatchQueue.main.async { [weak self] in self?.restylePending() }
     }
 
-    /// Styles the paragraphs the last edits touched, as one attribute-only pass.
+    /// Keeps `active` on the same text after an edit: past the edit it moves by `delta`;
+    /// overlapping it, it grows to cover the touched paragraphs.
+    private func shiftActive(editedRange: NSRange, delta: Int, touched: NSRange) {
+        guard active.location != NSNotFound else { return }
+        let oldEnd = NSMaxRange(editedRange) - delta
+        if active.location >= oldEnd {
+            active.location += delta
+        } else if NSMaxRange(active) > editedRange.location || active.location == editedRange.location {
+            let end = max(NSMaxRange(active) + delta, NSMaxRange(touched))
+            let start = min(active.location, touched.location)
+            active = NSRange(location: start, length: max(0, end - start))
+        }
+    }
+
+    /// Styles the paragraphs the last edits touched, as one attribute-only pass, then
+    /// sets the bright markers from the selection as it is now. Waits while an input
+    /// method holds marked text; `NotesTextView.unmarkText` and the commit restyle then.
     func restylePending() {
-        guard let range = pending, let storage = textView?.textStorage else { return }
+        guard let range = pending, !isComposing, let storage = textView?.textStorage else { return }
         pending = nil
+        restyles += 1
         let t0 = CFAbsoluteTimeGetCurrent()
         let length = storage.length
-        let clamped = NSRange(location: min(range.location, length),
-                              length: max(0, min(NSMaxRange(range), length) - min(range.location, length)))
+        let clampedRange = NSRange(location: min(range.location, length),
+                                   length: max(0, min(NSMaxRange(range), length) - min(range.location, length)))
+        let caret = selectionParagraphs()
         storage.beginEditing()
-        styleParagraphs(in: clamped, storage, activeAt: pendingCaret)
+        styleParagraphs(in: clampedRange, storage, activeAt: caret)
+        // Markers outside the restyled lines that were bright fade; the caret's brighten.
+        if let old = clamped(active, length), old != caret { recolorMarkers(in: old, storage, bright: false) }
+        if let caret { recolorMarkers(in: caret, storage, bright: true) }
         storage.endEditing()
-        active = pendingCaret ?? active
+        active = caret ?? NSRange(location: NSNotFound, length: 0)
         lastRestyle = CFAbsoluteTimeGetCurrent() - t0
     }
 }
@@ -204,6 +287,9 @@ final class NotesTextView: NSTextView {
     let styler = MarkdownStyler()
     /// Times TextKit 2 fell back to TextKit 1 (logged; should stay 0).
     private(set) var fallbacks = 0
+    /// For the checks: whole-text loads, and changes from disk applied in place.
+    private(set) var loads = 0
+    private(set) var externalChanges = 0
     private var fallbackObserver: NSObjectProtocol?
 
     /// A scroll view holding a TextKit 2 notes view, set up for Markdown.
@@ -211,6 +297,10 @@ final class NotesTextView: NSTextView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
+        // The window's hidden title bar must not push the text down or under the header:
+        // the editor's frame starts below the header, and its insets are its own.
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsetsZero
         let view = NotesTextView(usingTextLayoutManager: true)
         view.configure()
         view.minSize = .zero
@@ -239,8 +329,11 @@ final class NotesTextView: NSTextView {
         isAutomaticTextReplacementEnabled = false
         isAutomaticSpellingCorrectionEnabled = false
         isContinuousSpellCheckingEnabled = true
-        textContainerInset = styler.style.inset
-        typingAttributes = styler.style.typing
+        let style = styler.style
+        textContainer?.lineFragmentPadding = 0
+        textContainerInset = NSSize(width: style.leadingInset, height: style.topInset)
+        insertionPointColor = style.caret
+        typingAttributes = style.typing
         fallbackObserver = NotificationCenter.default.addObserver(
             forName: NSTextView.willSwitchToNSLayoutManagerNotification, object: self, queue: .main
         ) { [weak self] _ in
@@ -253,12 +346,31 @@ final class NotesTextView: NSTextView {
 
     var isTextKit2: Bool { textLayoutManager != nil && fallbacks == 0 }
 
-    /// Replaces the whole text. The edit styles every paragraph once.
+    /// Replaces the whole text. The edit styles every paragraph once and clears undo.
     func load(_ markdown: String) {
+        loads += 1
         string = markdown
         styler.restylePending()
         styler.selectionChanged()
         undoManager?.removeAllActions(withTarget: self)
+    }
+
+    /// Takes a new text from disk, changing only the part that differs, so the caret
+    /// stays on the same words when the change was elsewhere. It's one undoable step,
+    /// like a paste, so the undo stack still fits the text.
+    func applyExternal(_ markdown: String) {
+        guard let storage = textStorage else { return }
+        let change = TextChange.between(storage.string, markdown)
+        guard !change.isEmpty else { return }
+        let range = NSRange(location: change.range.lowerBound, length: change.range.count)
+        guard shouldChangeText(in: range, replacementString: change.replacement) else { return }
+        externalChanges += 1
+        let caret = selectedRange()
+        storage.replaceCharacters(in: range, with: change.replacement)
+        let start = change.caret(caret.location)
+        let end = change.caret(NSMaxRange(caret))
+        setSelectedRange(NSRange(location: start, length: max(0, end - start)))
+        didChangeText()
     }
 
     override func didChangeText() {
@@ -270,6 +382,39 @@ final class NotesTextView: NSTextView {
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if !stillSelecting { styler.selectionChanged() }
+    }
+
+    /// The input method ended its marked text: restyle once, now that it's plain text.
+    override func unmarkText() {
+        super.unmarkText()
+        styler.restylePending()
+        styler.selectionChanged()
+    }
+
+    // MARK: Spelling
+
+    /// Spell check skips code spans: the checker's marks go only on the parts of `range`
+    /// outside them, and the code parts are cleared.
+    override func setSpellingState(_ value: Int, range charRange: NSRange) {
+        for (part, isCode) in spellingParts(of: charRange) {
+            super.setSpellingState(isCode ? 0 : value, range: part)
+        }
+    }
+
+    /// `range` split into runs inside and outside code spans, in order.
+    func spellingParts(of range: NSRange) -> [(NSRange, isCode: Bool)] {
+        guard let storage = textStorage, range.location != NSNotFound else { return [] }
+        let clampedRange = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
+        guard clampedRange.length > 0 else { return [(range, false)] }
+        var parts: [(NSRange, isCode: Bool)] = []
+        storage.enumerateAttribute(.markdownCode, in: clampedRange) { value, sub, _ in
+            parts.append((sub, value != nil))
+        }
+        return parts
+    }
+
+    fileprivate func clearSpelling(in range: NSRange) {
+        super.setSpellingState(0, range: range)
     }
 
     // MARK: Lines
@@ -306,7 +451,7 @@ final class NotesTextView: NSTextView {
         let sel = selectedRange()
         let (start, text) = line(at: sel.location)
         let block = MarkdownStyle.block(text)
-        guard sel.length == 0, block.kind != .paragraph, !isHeading(block.kind),
+        guard sel.length == 0, block.kind != .paragraph, block.kind.headingLevel == nil,
               sel.location >= start + block.marker.upperBound else {
             super.insertNewline(sender)
             return
@@ -321,11 +466,6 @@ final class NotesTextView: NSTextView {
         let indent = String(utf16CodeUnits: Array(u[block.indent]), count: block.indent.count)
         let marker = String(utf16CodeUnits: Array(u[block.marker]), count: block.marker.count)
         insertText("\n" + indent + Self.nextMarker(after: marker, kind: block.kind), replacementRange: sel)
-    }
-
-    private func isHeading(_ kind: MarkdownStyle.BlockKind) -> Bool {
-        if case .heading = kind { return true }
-        return false
     }
 
     /// The marker that continues a list: the same bullet, the next number,
@@ -350,25 +490,18 @@ final class NotesTextView: NSTextView {
     override func insertTab(_ sender: Any?) {
         let sel = selectedRange()
         let (start, text) = line(at: sel.location)
-        guard isListItem(MarkdownStyle.blockKind(text)) else { return super.insertTab(sender) }
+        guard MarkdownStyle.blockKind(text).isListItem else { return super.insertTab(sender) }
         replace(NSRange(location: start, length: 0), with: "\t", keeping: sel)
     }
 
     override func insertBacktab(_ sender: Any?) {
         let sel = selectedRange()
         let (start, text) = line(at: sel.location)
-        guard isListItem(MarkdownStyle.blockKind(text)) else { return super.insertBacktab(sender) }
+        guard MarkdownStyle.blockKind(text).isListItem else { return super.insertBacktab(sender) }
         let lead = text.utf16.prefix(4)
         let count = lead.first == 9 ? 1 : lead.prefix { $0 == 32 }.count
         guard count > 0 else { return }
         replace(NSRange(location: start, length: count), with: "", keeping: sel)
-    }
-
-    private func isListItem(_ kind: MarkdownStyle.BlockKind) -> Bool {
-        switch kind {
-        case .bullet, .numbered, .task: true
-        default: false
-        }
     }
 
     // MARK: Task boxes
@@ -383,13 +516,14 @@ final class NotesTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
-    /// Toggles "[ ]" and "[x]" when `index` is on a task box. Undoable.
+    /// Toggles "[ ]" and "[x]" when `index` is on a task box: from just before "[" up to,
+    /// not including, the insertion point after "]". Undoable.
     @discardableResult
     func toggleTask(at index: Int) -> Bool {
         let (start, text) = line(at: index)
         let block = MarkdownStyle.block(text)
         guard case .task(let done) = block.kind, let box = block.box,
-              index >= start + box.lowerBound, index <= start + box.upperBound else { return false }
+              index >= start + box.lowerBound, index < start + box.upperBound else { return false }
         let mark = NSRange(location: start + box.lowerBound + 1, length: 1)
         replace(mark, with: done ? " " : "x", keeping: selectedRange())
         return true
