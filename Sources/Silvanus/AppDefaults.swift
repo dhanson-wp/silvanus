@@ -57,6 +57,7 @@ enum AppearanceChoice: String, CaseIterable, Identifiable {
 extension AppDefaults {
     static let appearanceKey = "appearance.mode"
     static let showInDockKey = "general.showInDock"
+    static let promptOnMeetingKey = "general.promptOnMeeting"
     static let settingsPaneKey = "settings.pane"
     static let meNameKey = "meName"
 
@@ -69,6 +70,12 @@ extension AppDefaults {
     static var appearance: AppearanceChoice {
         get { AppearanceChoice(rawValue: shared.string(forKey: appearanceKey) ?? "") ?? .system }
         set { shared.set(newValue.rawValue, forKey: appearanceKey) }
+    }
+
+    /// Settings > General > Prompt when a meeting starts. On until it's turned off.
+    static var promptOnMeeting: Bool {
+        get { shared.object(forKey: promptOnMeetingKey) as? Bool ?? true }
+        set { shared.set(newValue, forKey: promptOnMeetingKey) }
     }
 
     /// Saved only for now; the Dock icon follows it once that behavior lands.

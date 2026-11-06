@@ -38,6 +38,10 @@ final class AppModel {
     let recorder: Recorder
     /// The floating recording pill's window, made once per process.
     @ObservationIgnored private(set) var pill: RecordingPanel?
+    /// Notices a meeting starting (CallDetector.swift), made once per process.
+    @ObservationIgnored private(set) var detector: CallDetector?
+    /// The "Meeting detected" prompt's window.
+    @ObservationIgnored private(set) var meetingPrompt: MeetingPromptPanel?
     /// Every meeting on disk, newest first. Setting it rebuilds the sidebar's folders and days.
     var meetings: [Meeting] = [] {
         didSet {
@@ -141,6 +145,14 @@ final class AppModel {
     var showInDock: Bool = AppDefaults.showInDock {
         didSet { AppDefaults.showInDock = showInDock }
     }
+    /// Settings > General > Prompt when a meeting starts. Turning it off hides a prompt
+    /// that's up.
+    var promptOnMeeting: Bool = AppDefaults.promptOnMeeting {
+        didSet {
+            AppDefaults.promptOnMeeting = promptOnMeeting
+            if !promptOnMeeting { meetingPrompt?.hide() }
+        }
+    }
 }
 
 extension AppModel {
@@ -153,9 +165,23 @@ extension AppModel {
         guard !Self.servicesStarted else { return }
         Self.servicesStarted = true
         pill = RecordingPanel(recorder: recorder, model: self)
+        meetingPrompt = MeetingPromptPanel(model: self)
+        detector = makeDetector()
         if !SelfTest.requested && !Snapshot.requested {
             recorder.recoverInterrupted(library: library)
+            // Checks and snapshots drive their own detector with a fake probe.
+            detector?.start()
         }
+    }
+
+    /// A call detector wired to this model: a meeting start shows the prompt, and each poll
+    /// tells the recorder whether a call app runs.
+    func makeDetector(probe: CallDetector.Probe = .live) -> CallDetector {
+        let detector = CallDetector(probe: probe, isRecording: { [weak self] in self?.recorder.isRecording ?? false },
+                                    isEnabled: { [weak self] in self?.promptOnMeeting ?? false })
+        detector.meetingStarted = { [weak self] in self?.meetingPrompt?.show() }
+        detector.callAppsChanged = { [weak self] running in self?.recorder.callAppRunning = running }
+        return detector
     }
 
     /// Seeds when asked (scratch stores only), then reads the meetings from disk.
@@ -342,7 +368,8 @@ extension AppModel {
         }
         permissionsRequest = nil
         do {
-            try recorder.start(into: request == .quickNote ? nil : recordingTarget)
+            try recorder.start(into: request == .quickNote ? nil : recordingTarget, quickNote: request == .quickNote)
+            meetingPrompt?.hide()
         } catch {
             print("RECORDER couldn't start: \(error.localizedDescription)")
         }
