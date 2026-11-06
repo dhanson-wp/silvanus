@@ -1,0 +1,12 @@
+{
+ "id": "11111111-2222-4333-8444-555555555554",
+ "title": "Hooli planning",
+ "meeting_at": "2026-03-08T17:00:00Z",
+ "known_participants": ["Jordan Lee", {"name": "Priya Natarajan", "email": "priya.natarajan@example.com"}, {"email": "casey.ng@example.com"}],
+ "private_notes": "Budget first\n",
+ "summary": "Budget approved for Q2.",
+ "transcript": [
+  {"speaker": "Microphone", "text": "Let's review the budget.", "start": "2026-03-08T17:00:02Z", "end": "2026-03-08T17:00:06Z"},
+  {"speaker": "System audio", "text": "Looks fine to me.", "start": "2026-03-08T17:00:07Z", "end": "2026-03-08T17:00:10Z"}
+ ]
+}

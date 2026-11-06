@@ -46,6 +46,8 @@ public final class MeetingLibrary {
     public func save(_ m: Meeting) throws -> URL {
         let folder = try folderForSaving(m)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        // Known before the files are written, so a caller can clean up after a failed save.
+        folders[m.id] = folder
         try write(m.notes, to: MeetingFolder.notes, in: folder, always: true)
         try write(m.summary, to: MeetingFolder.summary, in: folder)
         try write(m.todo, to: MeetingFolder.todo, in: folder)

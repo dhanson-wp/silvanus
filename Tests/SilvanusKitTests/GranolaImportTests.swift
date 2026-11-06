@@ -25,12 +25,12 @@ private func imported(me: String = "Sam Rivera") throws -> (MeetingLibrary, Gran
     return (lib, result, byTitle)
 }
 
-@Test("The three fixture notes import with no failures")
+@Test("The four fixture notes import with no failures")
 func countsImported() throws {
     let (_, result, byTitle) = try imported()
-    #expect(result == GranolaImportResult(imported: 3, skipped: 0, failed: []))
-    #expect(result.summary == "imported 3, skipped 0, failed 0")
-    #expect(Set(byTitle.keys) == ["Acme kickoff", "Globex weekly", "Initech retro"])
+    #expect(result == GranolaImportResult(imported: 4, skipped: 0))
+    #expect(result.summary == "imported 4, skipped 0, failed 0")
+    #expect(Set(byTitle.keys) == ["Acme kickoff", "Globex weekly", "Initech retro", "Hooli planning"])
 }
 
 @Test("Fields map onto the meeting")
@@ -137,8 +137,8 @@ func idempotent() throws {
     _ = GranolaImport.run(archive: archive, library: lib)
     // A fresh library on the same folder, like a new launch.
     let again = GranolaImport.run(archive: archive, library: library(lib.root))
-    #expect(again == GranolaImportResult(imported: 0, skipped: 3, failed: []))
-    #expect(lib.loadAll().meetings.count == 3)
+    #expect(again == GranolaImportResult(imported: 0, skipped: 4))
+    #expect(lib.loadAll().meetings.count == 4)
 }
 
 @Test("A file that isn't a note is reported by name and the rest still import")
@@ -153,5 +153,104 @@ func failuresAreReported() throws {
     let result = GranolaImport.run(archive: dir, library: library(scratch()))
     #expect(result.imported == 1)
     #expect(result.failed == ["not_Broken.json", "not_Empty.json"])
+    #expect(result.failures.map(\.reason) == ["not a JSON object", "no note in the file"])
     #expect(result.summary == "imported 1, skipped 0, failed 2")
+}
+
+@Test("A note with no usable start time fails with a reason")
+func noStartFails() throws {
+    let dir = scratch()
+    let raw = dir.appending(path: "raw")
+    try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+    try Data(#"{"note": {"id": "not_NoStart", "title": "Floating"}, "transcript": []}"#.utf8)
+        .write(to: raw.appending(path: "not_NoStart.json"))
+    let lib = library(scratch())
+    let result = GranolaImport.run(archive: dir, library: lib)
+    #expect(result.imported == 0)
+    #expect(result.failures.count == 1 && result.failures[0].file == "not_NoStart.json")
+    #expect(result.failures[0].reason.hasPrefix("no start time"))
+    #expect(lib.loadAll().meetings.isEmpty)
+}
+
+@Test("MCP field names map: meeting_at, known_participants, string speakers, start and end")
+func mcpFieldNames() throws {
+    let (lib, _, byTitle) = try imported()
+    let m = try #require(byTitle["Hooli planning"])
+    #expect(m.info.start == Date(timeIntervalSince1970: 1_772_989_200))  // 2026-03-08 17:00 UTC
+    #expect(m.info.attendees == ["Jordan Lee", "Priya Natarajan", "casey.ng@example.com"])
+    #expect(m.notes == "Budget first\n")
+    #expect(m.summary.hasPrefix("## Imported summary\n\nBudget approved"))
+    let folder = try #require(lib.folderURL(for: m.id))
+    let t = try MeetingInfo.decoder().decode(
+        Transcript.self, from: Data(contentsOf: folder.appending(path: "transcript.json")))
+    #expect(t.lines.map(\.side) == [.me, .them])
+    #expect(t.lines[1].start == 5)
+}
+
+private struct Boom: Error {}
+
+@Test("A failed transcript write leaves no folder, and a re-run imports the meeting")
+func allOrNothing() throws {
+    let root = scratch()
+    let lib = library(root)
+    let failed = GranolaImport.run(archive: archive, library: lib, writeTranscript: { _, _ in throw Boom() })
+    // Only Globex weekly has no transcript to write; the other three fail whole.
+    #expect(failed.imported == 1)
+    #expect(failed.failures.count == 3)
+    // No half-written folder remains.
+    let series = try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "meetings").path).sorted()
+    #expect(series == ["Globex weekly"])
+    let again = GranolaImport.run(archive: archive, library: library(root))
+    #expect(again == GranolaImportResult(imported: 3, skipped: 1))
+}
+
+private func writeNote(_ dir: URL, file: String, id: String, title: String, created: String) throws {
+    let raw = dir.appending(path: "raw")
+    try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+    let json = #"{"note": {"id": "\#(id)", "title": "\#(title)", "created_at": "\#(created)"}, "transcript": []}"#
+    try Data(json.utf8).write(to: raw.appending(path: file))
+}
+
+@Test("Two notes with the same title in the same minute both import")
+func sameTitleSameMinute() throws {
+    let dir = scratch()
+    try writeNote(dir, file: "not_A.json", id: "not_A", title: "Acme sync", created: "2026-03-10T15:00:05Z")
+    try writeNote(dir, file: "not_B.json", id: "not_B", title: "Acme sync", created: "2026-03-10T15:00:40Z")
+    let lib = library(scratch())
+    let result = GranolaImport.run(archive: dir, library: lib)
+    #expect(result == GranolaImportResult(imported: 2, skipped: 0))
+    let all = lib.loadAll().meetings
+    #expect(all.count == 2)
+    #expect(Set(all.compactMap { lib.folderURL(for: $0.id) }).count == 2)
+}
+
+@Test("The same granola_id as an API note and an MCP file imports once, API first")
+func apiWinsOverMCP() throws {
+    let dir = scratch()
+    try writeNote(dir, file: "not_X.mcp.json", id: "not_X", title: "From MCP", created: "2026-03-10T15:00:00Z")
+    try writeNote(dir, file: "not_X.json", id: "not_X", title: "From API", created: "2026-03-10T15:00:00Z")
+    let lib = library(scratch())
+    let result = GranolaImport.run(archive: dir, library: lib)
+    #expect(result == GranolaImportResult(imported: 1, skipped: 1))
+    #expect(lib.loadAll().meetings.map(\.info.title) == ["From API"])
+}
+
+@Test("Lines with equal start times keep their original order")
+func stableOrder() throws {
+    let dir = scratch()
+    let raw = dir.appending(path: "raw")
+    try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+    let seg = { (who: String, text: String) in
+        #"{"text": "\#(text)", "start_time": "2026-03-10T15:00:00Z", "end_time": "2026-03-10T15:00:04Z", "speaker": {"source": "\#(who)"}}"#
+    }
+    let json = #"{"note": {"id": "not_S", "title": "Tie", "created_at": "2026-03-10T15:00:00Z"}, "transcript": ["#
+        + [seg("system", "one"), seg("microphone", "two"), seg("system", "three")].joined(separator: ",") + "]}"
+    try Data(json.utf8).write(to: raw.appending(path: "not_S.json"))
+    let lib = library(scratch())
+    _ = GranolaImport.run(archive: dir, library: lib)
+    let m = try #require(lib.loadAll().meetings.first)
+    let folder = try #require(lib.folderURL(for: m.id))
+    let t = try MeetingInfo.decoder().decode(
+        Transcript.self, from: Data(contentsOf: folder.appending(path: "transcript.json")))
+    #expect(t.lines.map(\.text) == ["one", "two", "three"])
 }

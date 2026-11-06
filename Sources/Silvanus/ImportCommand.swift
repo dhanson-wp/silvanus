@@ -31,7 +31,7 @@ enum ImportCommand {
         let me = env["APP_ME_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "Me"
         let result = GranolaImport.run(archive: archive, library: MeetingLibrary(root: Store.root), me: me)
         print(result.summary)
-        for name in result.failed { print("failed: \(name)") }
+        for f in result.failures { print("failed: \(f.file): \(f.reason)") }
         return result.failed.isEmpty ? 0 : 1
     }
 }
