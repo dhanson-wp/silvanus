@@ -5,6 +5,7 @@ import SwiftUI
 //   Silvanus                      the app
 //   APP_STORE=<dir> Silvanus      use another meetings folder (tests, experiments)
 //   APP_SEED=1 APP_STORE=/tmp/<dir> Silvanus   fill an empty /tmp store with fictional meetings
+//   APP_IMPORT_GRANOLA=<dir> APP_STORE=/tmp/<dir> Silvanus   import the Granola archive, print the counts, quit
 //   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings tab in light and dark mode, then quit
 //   Silvanus --selftest           run the self-test on a /tmp folder and quit with 0 or 1 (tools/selftest.sh)
 //   APP_ACCENT=<id> Silvanus      run with another accent from Theme.all (UI/Theme.swift)
@@ -103,7 +104,8 @@ struct AboutCommand: Commands {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // The editor's checks and benchmark run before any window opens, then quit.
+        // The Granola import, the editor's checks, and the benchmark run before any window opens, then quit.
+        if let code = ImportCommand.runIfRequested() { exit(code) }
         if let code = EditorSpike.runHeadlessIfRequested() { exit(code) }
     }
 
