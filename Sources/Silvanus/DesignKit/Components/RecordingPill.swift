@@ -75,7 +75,7 @@ enum PillDrag { case began, moved, ended }
 
 /// The floating recording pill (KIT.md "Floating recording pill"): a capsule 34 tall and
 /// about 84 wide on `Ink.pillGround` (dark in both themes) with a 5-bar live wave in
-/// `Ink.recording` and the elapsed time in `monoTime`. Hovering grows it, with `Motion.pill`,
+/// `Ink.recordingOnPill` and the elapsed time in `monoTime`. Hovering grows it, with `Motion.pill`,
 /// to show Pause (disabled until Phase 2) and Stop. Clicking the body opens the meeting; a
 /// drag on the body moves the pill. A warning or a failure shows as a dot on the top
 /// trailing corner, with its text as the tooltip.
@@ -217,12 +217,13 @@ struct RecordingPill: View {
         if status == .stopping {
             ProgressView()
                 .controlSize(.mini)
-                .tint(Ink.onPillGround)
+                // The system spinner follows the window's scheme; the capsule is dark in both.
+                .environment(\.colorScheme, .dark)
                 .frame(width: LiveWave.width, height: Metric.waveMax)
         } else {
             // A failed pill shows the wave flat: nothing is being heard.
             LiveWave(meter: isFailed ? LevelMeter() : meter)
-                .foregroundStyle(Ink.recording)
+                .foregroundStyle(Ink.recordingOnPill)
         }
     }
 
@@ -241,7 +242,7 @@ struct RecordingPill: View {
     @ViewBuilder private var dot: some View {
         if notice != nil {
             Circle()
-                .fill(isFailed ? Ink.recording : Ink.warning)
+                .fill(isFailed ? Ink.recordingOnPill : Ink.warning)
                 .frame(width: Metric.recordingPillDot, height: Metric.recordingPillDot)
                 .overlay(Circle().strokeBorder(Ink.onPillGround, lineWidth: 1.5))
                 .padding(Metric.recordingPillDot / 2)

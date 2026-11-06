@@ -118,6 +118,15 @@ enum SelfTest {
                 }
             }
             check("every Ink text pair reads at 4.5:1 in both themes", weak.isEmpty, weak.joined(separator: ", "))
+            let faint = InkToken.graphicPairs.flatMap { pair in
+                [false, true].flatMap { dark in
+                    [ColorSet.silvanus, ColorSet.reference].compactMap { set -> String? in
+                        let ratio = Contrast.ratio(pair.graphic.rgb(set, dark: dark), pair.on.rgb(set, dark: dark))
+                        return ratio < 3 ? "\(pair.graphic) on \(pair.on) \(dark ? "dark" : "light") \(String(format: "%.2f", ratio))" : nil
+                    }
+                }
+            }
+            check("every Ink graphic pair on the pill reads at 3:1 in both themes and sets", faint.isEmpty, faint.joined(separator: ", "))
             let hoverShows = [false, true].allSatisfy { dark in
                 InkToken.controlHover.rgb(.silvanus, dark: dark) != InkToken.canvas.rgb(.silvanus, dark: dark)
                     && InkToken.controlHover.rgb(.reference, dark: dark) != InkToken.canvas.rgb(.reference, dark: dark)
@@ -1105,7 +1114,7 @@ enum SelfTest {
         panel.mainWindowIsKey = { false }
         panel.update()
         let shownElsewhere = panel.isShowing
-        let floating = NSApp.windows.contains { $0 is NSPanel && $0.isVisible && $0.level == .floating }
+        let floating = panel.window.map { $0.isVisible && $0.level == .floating && $0.identifier == RecordingPanel.windowID } ?? false
         panel.mainWindowIsKey = { true }
         panel.update()
         check("the recording pill shows, floating, only when the main window isn't key",
@@ -1151,7 +1160,7 @@ enum SelfTest {
         panel.update()
         check("the pill comes back where it was left",
               panel.anchor == moved && panel.frame.map { abs($0.maxX - Space.md - moved.x) < 1 } == true)
-        let onAll = NSApp.windows.first { $0 is NSPanel && $0.level == .floating }?.collectionBehavior.contains(.canJoinAllSpaces)
+        let onAll = panel.window?.collectionBehavior.contains(.canJoinAllSpaces)
         check("the pill joins every Space", onAll == true)
         panel.mainWindowIsKey = { true }
         panel.update()

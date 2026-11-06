@@ -130,7 +130,12 @@ final class MeetingPromptPanel {
         p.isReleasedWhenClosed = false
         p.setAccessibilityLabel("Meeting detected")
         if let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
-            p.setFrameOrigin(NSPoint(x: screen.maxX - size.width, y: screen.maxY - size.height))
+            // Below the recording pill's default spot (PillPlacement), right-aligned with it, so
+            // the two never overlap: the prompt shows only when no recording is up, but a
+            // recording can start while it's open.
+            let pillBottom = PillPlacement.defaultAnchor(in: screen).y - Metric.recordingPillHeight
+            p.setFrameOrigin(NSPoint(x: PillPlacement.defaultAnchor(in: screen).x + Space.md - size.width,
+                                     y: pillBottom - Space.sm + Space.md - size.height))
         }
         p.orderFrontRegardless()
         panel = p

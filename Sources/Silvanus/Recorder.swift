@@ -563,8 +563,22 @@ final class RecordingPanel {
                 MainActor.assumeIsolated { self?.update() }
             })
         }
+        // An unplugged display must never strand the pill off every screen.
+        observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
+                                            queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.screensChanged() }
+        })
         track()
         update()
+    }
+
+    /// Puts the pill back on a screen if the one it was on has gone, then re-places it.
+    func screensChanged() {
+        guard let panel else { return }
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        let main = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        anchor = PillPlacement.resolve(saved: anchor, screens: screens, main: main)
+        place(size: panel.frame.width >= expandedSize.width ? expandedSize : collapsedSize)
     }
 
     /// Updates when the recorder's phase or warning changes.
@@ -599,6 +613,9 @@ final class RecordingPanel {
     }
 
     var isShowing: Bool { panel != nil }
+    /// The pill's window, for the checks and for telling it from the other floating panels.
+    var window: NSWindow? { panel }
+    static let windowID = NSUserInterfaceItemIdentifier("silvanus.recordingPill")
     var frame: NSRect? { panel?.frame }
     var isExpanded: Bool { panel.map { $0.frame.width >= expandedSize.width } ?? false }
 
@@ -616,6 +633,7 @@ final class RecordingPanel {
         let p = NSPanel(contentRect: NSRect(origin: .zero, size: collapsedSize),
                         styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
         p.contentView = host
+        p.identifier = Self.windowID
         p.isFloatingPanel = true
         p.becomesKeyOnlyIfNeeded = true
         p.level = .floating

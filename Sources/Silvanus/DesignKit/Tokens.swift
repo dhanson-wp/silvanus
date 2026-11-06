@@ -145,7 +145,7 @@ enum InkToken: String, CaseIterable {
     case pillTrack, pillSegment, accent, accentText, focus, primaryControl, onPrimary
     case controlHover
     case recording, onRecording, recordingText
-    case pillGround, onPillGround, warning
+    case pillGround, onPillGround, warning, recordingOnPill
 
     /// The light and dark value in a set.
     func pair(_ set: ColorSet) -> InkPair {
@@ -198,6 +198,8 @@ enum InkToken: String, CaseIterable {
         case .pillGround: InkPair(P.midnight)
         case .onPillGround: InkPair(P.ivory)
         case .warning: InkPair(P.warnAmber)
+        // recordRed on midnight is 2.5:1; the light red clears 3:1 for the wave and the failure dot.
+        case .recordingOnPill: InkPair(P.recordRedLight)
         }
     }
 
@@ -217,12 +219,18 @@ enum InkToken: String, CaseIterable {
         case .accentText: P.refSpeaker
         case .primaryControl: P.refControlOn
         case .onPrimary: P.refControlKnob
+        case .recordingOnPill: InkPair(P.recordRedLight)
         case .focus, .recording, .onRecording, .recordingText, .pillGround, .onPillGround, .warning: nil
         }
     }
 
     /// Silvanus colors that fell back to the KIT.md value because the brand file lacked them.
     static var missingFromBrand: [String] { KitPalette.missingFromBrand }
+
+    /// Every pair KIT.md uses as a graphic (not text) on a surface; each must read at 3:1.
+    static let graphicPairs: [(graphic: InkToken, on: InkToken)] = [
+        (.recordingOnPill, .pillGround), (.warning, .pillGround), (.onPillGround, .pillGround),
+    ]
 
     /// Every pair KIT.md uses as text on a surface. Each must read at 4.5:1 in the Silvanus
     /// set, light and dark (the self-test checks). textTertiary is left out: it colors icons
@@ -271,6 +279,8 @@ enum Ink {
     static let onPillGround = InkToken.onPillGround.color
     /// The pill's warning dot. Fill only.
     static let warning = InkToken.warning.color
+    /// The wave and the failure dot on the dark pill. Fill only.
+    static let recordingOnPill = InkToken.recordingOnPill.color
 }
 
 extension Ink {
