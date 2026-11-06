@@ -1,14 +1,14 @@
 #!/bin/zsh
-# Snapshots of every page in light and dark, with seed data, on a fresh test store.
+# Snapshots of every page in light and dark, on a fresh test folder, from the
+# dev bundle (./build.sh). Never runs or changes the installed app, and never
+# deletes saved window state: -ApplePersistenceIgnoreState skips it instead.
 # Usage: tools/snap.sh            all pages
 #        APP_SNAPSHOT_PAGES=all,settings tools/snap.sh
 set -u
-app=~/Applications/Silvanus.app/Contents/MacOS/Silvanus
-store=/tmp/Silvanus-test.store
+app=~/Library/Developer/Silvanus/Silvanus.app/Contents/MacOS/Silvanus
+[[ -x $app ]] || { echo "no dev bundle: run ./build.sh first"; exit 1; }
+store=/tmp/Silvanus-test
 shots=/tmp/Silvanus-shots
-# A crashed run leaves saved window state, and the next launch would wait on a "reopen windows?" alert.
-rm -rf ~/Library/Saved\ Application\ State/com.derekhanson.silvanus.savedState
-# Seed data only fills an empty store, so start from nothing.
-rm -f $store $store-shm $store-wal
-rm -rf $shots
-APP_STORE=$store APP_SEED=1 APP_SNAPSHOT=$shots $app
+rm -rf $store $shots
+mkdir -p $store
+APP_STORE=$store APP_SNAPSHOT=$shots $app -ApplePersistenceIgnoreState YES

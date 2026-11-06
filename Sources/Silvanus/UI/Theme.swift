@@ -45,7 +45,7 @@ struct Theme: Identifiable, Hashable {
     ]
 }
 
-/// The chosen accent, saved in UserDefaults. Views that read `theme` redraw
+/// The chosen accent, saved in AppDefaults.shared. Views that read `theme` redraw
 /// when it changes.
 @Observable
 final class ThemeStore {
@@ -62,7 +62,7 @@ final class ThemeStore {
     static let brand: Theme? = nil
 
     var themeID: String {
-        didSet { UserDefaults.standard.set(themeID, forKey: "appearance.accent") }
+        didSet { AppDefaults.shared.set(themeID, forKey: "appearance.accent") }
     }
 
     /// True while the Mac's accent is Multicolor.
@@ -78,7 +78,7 @@ final class ThemeStore {
 
     private init() {
         themeID = ProcessInfo.processInfo.environment["APP_ACCENT"]
-            ?? UserDefaults.standard.string(forKey: "appearance.accent") ?? Self.defaultID
+            ?? AppDefaults.shared.string(forKey: "appearance.accent") ?? Self.defaultID
         NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.macIsMulticolor = ThemeStore.readMulticolor() }
@@ -86,8 +86,9 @@ final class ThemeStore {
     }
 
     /// The Mac stores no accent number while the accent is Multicolor.
+    /// AppleAccentColor lives in the global domain, which every suite reads.
     private static func readMulticolor() -> Bool {
-        UserDefaults.standard.object(forKey: "AppleAccentColor") == nil
+        AppDefaults.shared.object(forKey: "AppleAccentColor") == nil
     }
 }
 

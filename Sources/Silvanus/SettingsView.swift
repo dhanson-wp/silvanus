@@ -54,11 +54,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 }
 
 struct GeneralSettings: View {
-    @AppStorage("confirmDelete") private var confirmDelete = true
+    @AppStorage("confirmTrash", store: AppDefaults.shared) private var confirmTrash = true
 
     var body: some View {
-        Section("Items") {
-            Toggle("Ask before deleting items", isOn: $confirmDelete)
+        Section("Meetings") {
+            Toggle("Ask before moving a meeting to the Trash", isOn: $confirmTrash)
         }
     }
 }

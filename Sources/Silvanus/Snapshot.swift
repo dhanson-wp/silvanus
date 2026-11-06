@@ -3,7 +3,8 @@ import IOKit.pwr_mgt
 import SwiftUI
 
 /// Screenshot mode for agents.
-///   APP_STORE=/tmp/test.store APP_SNAPSHOT=/tmp/shots ~/Applications/Silvanus.app/Contents/MacOS/Silvanus
+///   APP_STORE=/tmp/Silvanus-test APP_SNAPSHOT=/tmp/shots \
+///     ~/Library/Developer/Silvanus/Silvanus.app/Contents/MacOS/Silvanus -ApplePersistenceIgnoreState YES
 /// writes <page>-light.png and <page>-dark.png for every sidebar page, and
 /// settings-<tab>-light.png and settings-<tab>-dark.png for every Settings tab, then quits.
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
@@ -13,9 +14,9 @@ enum Snapshot {
     static func runIfRequested(model: AppModel, openSettings: OpenSettingsAction) {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["APP_SNAPSHOT"], !dir.isEmpty else { return }
-        // Snapshots never run against the real database.
+        // Snapshots never run against the real meetings folder.
         guard Store.isOverridden else {
-            print("SNAPSHOT refused: set APP_STORE to a file in /tmp")
+            print("SNAPSHOT refused: set APP_STORE to a folder in /tmp")
             NSApp.terminate(nil)
             return
         }

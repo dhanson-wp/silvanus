@@ -1,20 +1,19 @@
 import AppKit
-import SwiftData
 import SwiftUI
 
 // Silvanus
 //   Silvanus                      the app
-//   APP_STORE=<file> Silvanus     use another database (tests, experiments)
+//   APP_STORE=<dir> Silvanus      use another meetings folder (tests, experiments)
 //   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings tab in light and dark mode, then quit
-//   APP_SEED=1 Silvanus           fill an empty /tmp store with sample items (tools/snap.sh)
-//   Silvanus --selftest           run the self-test on a /tmp store and quit with 0 or 1 (tools/selftest.sh)
+//   Silvanus --selftest           run the self-test on a /tmp folder and quit with 0 or 1 (tools/selftest.sh)
 //   APP_ACCENT=<id> Silvanus      run with another accent from Theme.all (UI/Theme.swift)
 //   APP_GRID=1 Silvanus           draw the 8 pt grid and the layout probes over the window
+// Test runs read and write their own defaults (AppDefaults.swift).
 
 @main
 struct SilvanusApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var model = AppModel(container: Store.makeContainer())
+    @State private var model = AppModel()
 
     var body: some Scene {
         Window("Silvanus", id: "main") {
@@ -24,16 +23,11 @@ struct SilvanusApp: App {
                 .overlay { if GridOverlay.enabled { GridOverlay() } }
                 .frame(minWidth: 760, minHeight: 480)
         }
-        .modelContainer(model.container)
         .defaultSize(width: 1100, height: 720)
         .windowToolbarStyle(.unified)
         .commands {
             SidebarCommands()
             ToolbarCommands()
-            CommandGroup(replacing: .newItem) {
-                Button("New Item") { model.addItem() }
-                    .keyboardShortcut("n")
-            }
         }
 
         Settings {
@@ -60,27 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Where the data lives: ~/Library/Application Support/Silvanus/Silvanus.store
+/// Where the data lives. Meetings are folders of plain files; the folder
+/// store comes with the meeting type.
 enum Store {
-    /// True when APP_STORE points somewhere else (tests, snapshots, seed data).
+    /// True when APP_STORE points somewhere else (tests and snapshots).
     static var isOverridden: Bool {
         !(ProcessInfo.processInfo.environment["APP_STORE"] ?? "").isEmpty
-    }
-
-    static var url: URL {
-        if let path = ProcessInfo.processInfo.environment["APP_STORE"], !path.isEmpty {
-            return URL(fileURLWithPath: path)
-        }
-        let dir = URL.applicationSupportDirectory.appending(path: "Silvanus", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appending(path: "Silvanus.store")
-    }
-
-    static func makeContainer() -> ModelContainer {
-        do {
-            return try ModelContainer(for: Item.self, configurations: ModelConfiguration(url: url))
-        } catch {
-            fatalError("Could not open the database at \(url.path): \(error)")
-        }
     }
 }

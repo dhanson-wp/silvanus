@@ -1,20 +1,4 @@
 import Foundation
-import SwiftData
-import SilvanusKit
-
-@Model
-final class Item {
-    var title: String
-    var notes: String = ""
-    var isStarred: Bool = false
-    var createdAt: Date = Date.now
-    /// A stable id for links, sync, and the agent CLI.
-    var uuid: UUID = UUID()
-
-    init(title: String) {
-        self.title = title
-    }
-}
 
 /// The sidebar pages. Snapshot mode walks through every case.
 enum SidebarItem: String, CaseIterable, Identifiable {
@@ -24,7 +8,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .all: "All Items"
+        case .all: "All Meetings"
         case .starred: "Starred"
         }
     }
@@ -40,22 +24,13 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 /// App-wide state that menus, toolbars, and views share.
 @Observable
 final class AppModel {
-    let container: ModelContainer
+    /// Meeting titles, a stand-in until the real meeting type and the folder
+    /// store arrive. Empty, so every page shows its empty state.
+    var meetings: [String] = []
     var sidebar: SidebarItem? = .all
-    var selection: PersistentIdentifier?
-    /// Settings reopens on the last tab. Test and snapshot runs leave it alone.
-    var settingsTab: SettingsTab = SettingsTab(rawValue: UserDefaults.standard.string(forKey: "settings.tab") ?? "") ?? .general {
-        didSet { if !Store.isOverridden { UserDefaults.standard.set(settingsTab.rawValue, forKey: "settings.tab") } }
-    }
-
-    init(container: ModelContainer) {
-        self.container = container
-    }
-
-    func addItem(title: String = "") {
-        let item = Item(title: ItemTitle.clean(title))
-        if sidebar == .starred { item.isStarred = true }
-        container.mainContext.insert(item)
-        selection = item.id
+    var selection: String?
+    /// Settings reopens on the last tab. Test and snapshot runs use their own defaults.
+    var settingsTab: SettingsTab = SettingsTab(rawValue: AppDefaults.shared.string(forKey: "settings.tab") ?? "") ?? .general {
+        didSet { AppDefaults.shared.set(settingsTab.rawValue, forKey: "settings.tab") }
     }
 }

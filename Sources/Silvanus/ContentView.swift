@@ -1,4 +1,3 @@
-import SwiftData
 import SwiftUI
 
 struct ContentView: View {
@@ -9,13 +8,12 @@ struct ContentView: View {
         NavigationSplitView {
             sidebar
         } content: {
-            ItemList(page: model.sidebar ?? .all)
+            MeetingList(page: model.sidebar ?? .all)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320)
         } detail: {
-            ItemDetail()
+            MeetingDetail()
         }
         .task {
-            SeedData.insertIfRequested(into: model)
             SelfTest.runIfRequested(model: model)
             Snapshot.runIfRequested(model: model, openSettings: openSettings)
         }
@@ -31,61 +29,45 @@ struct ContentView: View {
     }
 }
 
-struct ItemList: View {
+struct MeetingList: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.modelContext) private var context
-    @Query(sort: \Item.createdAt, order: .reverse) private var items: [Item]
     let page: SidebarItem
 
-    private var visible: [Item] {
-        page == .starred ? items.filter(\.isStarred) : items
+    /// Nothing is starred yet: starring arrives with the meeting type.
+    private var visible: [String] {
+        page == .starred ? [] : model.meetings
     }
 
     var body: some View {
         @Bindable var model = model
-        List(visible, selection: $model.selection) { item in
-            Label(item.title, systemImage: item.isStarred ? "star.fill" : "circle")
-                .tag(item.id)
-                .contextMenu {
-                    Button("Delete", role: .destructive) { context.delete(item) }
-                }
+        List(visible, id: \.self, selection: $model.selection) { title in
+            Text(title)
+                .tag(title)
         }
         .overlay {
             if visible.isEmpty {
                 ContentUnavailableView(
-                    "No Items",
+                    "No Meetings",
                     systemImage: page.symbol,
-                    description: Text("Press Command-N to add one.")
+                    description: Text("Meetings you record show up here.")
                 )
             }
         }
         .navigationTitle(page.title)
-        .toolbar {
-            ToolbarItem {
-                Button("New Item", systemImage: "plus") { model.addItem() }
-                    .help("Add an item (Command-N)")
-            }
-        }
     }
 }
 
-struct ItemDetail: View {
+struct MeetingDetail: View {
     @Environment(AppModel.self) private var model
-    @Query private var items: [Item]
 
     var body: some View {
-        if let item = items.first(where: { $0.id == model.selection }) {
-            @Bindable var item = item
-            Form {
-                TextField("Title", text: $item.title)
-                Toggle("Starred", isOn: $item.isStarred)
-                TextField("Notes", text: $item.notes, axis: .vertical)
-                    .lineLimit(4...)
-            }
-            .formStyle(.grouped)
-            } else {
-            ContentUnavailableView("No Selection", systemImage: "sidebar.right")
+        if let title = model.selection {
+            Text(title)
+                .font(.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+        } else {
+            ContentUnavailableView("No Meeting Selected", systemImage: "sidebar.right")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }

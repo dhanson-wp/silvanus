@@ -1,10 +1,9 @@
 import AppKit
-import SwiftData
-import SilvanusKit
 
-/// Self-test for agents: runs the app's real functions on a test store,
+/// Self-test for agents: runs the app's real functions on a test folder,
 /// prints PASS or FAIL per check, and quits with exit code 0 or 1.
-///   APP_STORE=/tmp/Silvanus-self.store ~/Applications/Silvanus.app/Contents/MacOS/Silvanus --selftest
+///   APP_STORE=/tmp/Silvanus-self ~/Library/Developer/Silvanus/Silvanus.app/Contents/MacOS/Silvanus \
+///     -ApplePersistenceIgnoreState YES --selftest
 /// (tools/selftest.sh does this.) Add a check for every story with logic.
 @MainActor
 enum SelfTest {
@@ -19,28 +18,22 @@ enum SelfTest {
         // Print each line at once, so a crash keeps the lines before it.
         setvbuf(stdout, nil, _IOLBF, 0)
         guard Store.isOverridden else {
-            print("SELFTEST refused: set APP_STORE to a file in /tmp")
+            print("SELFTEST refused: set APP_STORE to a folder in /tmp")
             finish(code: 1)
             return
         }
         Task {
             try? await Task.sleep(for: .seconds(0.5))
-            let context = model.container.mainContext
-            func items() -> [Item] { (try? context.fetch(FetchDescriptor<Item>())) ?? [] }
 
-            let before = items().count
-            model.addItem()
-            check("New Item adds one item", items().count == before + 1)
-            check("the new item is selected", model.selection != nil)
+            check("test runs use their own defaults", AppDefaults.isTest && AppDefaults.shared !== UserDefaults.standard)
+            check("the library starts empty", model.meetings.isEmpty)
+            check("All Meetings is selected", model.sidebar == .all)
 
-            if let item = items().first(where: { $0.id == model.selection }) {
-                item.isStarred.toggle()
-                check("starring an item marks it starred", item.isStarred)
-                context.delete(item)
-                try? context.save()
-                check("deleting the item removes it", items().count == before)
-            }
-            check("titles are cleaned", ItemTitle.clean("  Buy   milk ") == "Buy milk")
+            let saved = UserDefaults.standard.string(forKey: "settings.tab")
+            model.settingsTab = .appearance
+            check("the Settings tab is saved to the test defaults",
+                  AppDefaults.shared.string(forKey: "settings.tab") == "appearance")
+            check("the real defaults are left alone", UserDefaults.standard.string(forKey: "settings.tab") == saved)
 
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
