@@ -1051,6 +1051,52 @@ enum SelfTest {
               hiddenWhenKey && shownElsewhere && floating && !panel.isShowing,
               "hidden while key \(hiddenWhenKey), shown elsewhere \(shownElsewhere), floating \(floating), showing after \(panel.isShowing)")
 
+        // The pill's place: top right by default, wherever it was dragged to after that, and
+        // back on screen if its screen has gone.
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let home = PillPlacement.defaultAnchor(in: screen)
+        check("the pill starts near the top right of the screen",
+              home.x > screen.maxX * 0.9 && home.y > screen.maxY * 0.9, "\(home)")
+        check("a saved spot on a screen is kept, one off every screen falls back to the default",
+              PillPlacement.resolve(saved: NSPoint(x: 300, y: 400), screens: [screen], main: screen) == NSPoint(x: 300, y: 400)
+              && PillPlacement.resolve(saved: NSPoint(x: 5000, y: 400), screens: [screen], main: screen) == home
+              && PillPlacement.resolve(saved: nil, screens: [screen], main: screen) == home)
+        panel.mainWindowIsKey = { false }
+        panel.update()
+        let rest = panel.frame
+        panel.hoverChanged(true)
+        let wide = panel.frame
+        panel.hoverChanged(false)
+        check("hovering widens the pill's window leftward, holding its top right corner",
+              rest != nil && wide != nil && wide!.width > rest!.width && abs(wide!.maxX - rest!.maxX) < 1
+              && abs(wide!.maxY - rest!.maxY) < 1 && panel.isExpanded,
+              "rest \(String(describing: rest)), hovered \(String(describing: wide))")
+        try? await Task.sleep(for: .milliseconds(700))
+        check("…and narrows again once the pointer leaves",
+              panel.frame.map { $0.width == rest?.width } == true && !panel.isExpanded,
+              "\(String(describing: panel.frame)) vs \(String(describing: rest))")
+        let anchorBefore = panel.anchor
+        panel.drag(.began, mouse: NSPoint(x: 500, y: 500))
+        panel.drag(.moved, mouse: NSPoint(x: 460, y: 470))
+        panel.drag(.ended, mouse: NSPoint(x: 460, y: 470))
+        let moved = NSPoint(x: anchorBefore.x - 40, y: anchorBefore.y - 30)
+        check("dragging the body moves the pill and saves where it was left",
+              panel.anchor == moved && PillPlacement.saved() == moved
+              && panel.frame.map { abs($0.maxX - Space.md - moved.x) < 1 } == true,
+              "anchor \(panel.anchor), saved \(String(describing: PillPlacement.saved()))")
+        panel.mainWindowIsKey = { true }
+        panel.update()
+        panel.mainWindowIsKey = { false }
+        panel.update()
+        check("the pill comes back where it was left",
+              panel.anchor == moved && panel.frame.map { abs($0.maxX - Space.md - moved.x) < 1 } == true)
+        let onAll = NSApp.windows.first { $0 is NSPanel && $0.level == .floating }?.collectionBehavior.contains(.canJoinAllSpaces)
+        check("the pill joins every Space", onAll == true)
+        panel.mainWindowIsKey = { true }
+        panel.update()
+        check("the pill's one spoken label reads the minutes",
+              Clock.spokenMinutes(754) == "12 minutes" && Clock.spokenMinutes(20) == "less than a minute")
+
         // Notes typed while recording get a margin timestamp, kept beside the notes.
         await poll { editor() != nil }
         if let view = editor() {

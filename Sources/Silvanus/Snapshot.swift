@@ -306,7 +306,7 @@ enum Snapshot {
         model.selection = nil
     }
 
-    /// The pill in its three states, and the permissions sheet, drawn straight from the views
+    /// The pill in its states, and the permissions sheet, drawn straight from the views
     /// like the brand set: pill-<mode>.png and permissions-<mode>.png.
     @MainActor private static func renderRecordingParts(since: Date, levels: [Float], to dir: String) {
         let meter = LevelMeter(levels: levels)
@@ -314,11 +314,15 @@ enum Snapshot {
             let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
             NSApp.appearance = appearance
             let pills = VStack(alignment: .leading, spacing: Space.lg) {
-                RecordingPill(status: .recording(since: since), line: "Acme kickoff", meter: meter, open: {}, stop: {})
-                RecordingPill(status: .recording(since: since), line: Recorder.silentCall, meter: meter, open: {}, stop: {})
-                RecordingPill(status: .stopping, line: "Acme kickoff", meter: meter, open: {}, stop: {})
-                RecordingPill(status: .failed("Couldn't write audio: The disk is full."), line: "Acme kickoff", meter: meter,
-                              open: {}, stop: {}, dismiss: {})
+                RecordingPill(status: .recording(since: since), title: "Acme kickoff", meter: meter, forcedHover: false,
+                              open: {}, stop: {})
+                RecordingPill(status: .recording(since: since), title: "Acme kickoff", meter: meter, forcedHover: true,
+                              open: {}, stop: {})
+                RecordingPill(status: .recording(since: since), title: "Acme kickoff", warning: Recorder.silentCall,
+                              meter: meter, forcedHover: false, open: {}, stop: {})
+                RecordingPill(status: .stopping, title: "Acme kickoff", meter: meter, forcedHover: false, open: {}, stop: {})
+                RecordingPill(status: .failed("Couldn't write audio: The disk is full."), title: "Acme kickoff", meter: meter,
+                              forcedHover: false, open: {}, stop: {}, dismiss: {})
             }
             .padding(Space.xxl)
             .background(Ink.background)

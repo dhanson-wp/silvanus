@@ -74,6 +74,9 @@ Parts read only these. Each row gives the reference value (for the pixel-compare
 | Ink.recording | n/a | n/a | recordRed | recordRed | Record button fill, live dot |
 | Ink.onRecording | n/a | n/a | ivory | ivory | label on the recording fill |
 | Ink.recordingText | n/a | n/a | recordRed | recordRedLight | "Recording" text and timer on canvas |
+| Ink.pillGround | n/a | n/a | midnight | midnight | the floating recording pill's fill; dark in both themes so it reads over any window |
+| Ink.onPillGround | n/a | n/a | ivory | ivory | time, icons, and the hairline (at 18%) on the pill (17.4:1) |
+| Ink.warning | n/a | n/a | warnAmber #F2B134 | warnAmber #F2B134 | **fill only**: the pill's warning dot (ringed in `onPillGround`) |
 
 Why these choices:
 
@@ -305,24 +308,33 @@ Organization part, adapted to this grid. It's the top of the canvas on a meeting
 
 ### Floating recording pill
 
-**Provisional, verify against a live capture.** Built from the reference's floating bottom bar (measured) and the 46 / 28 control rhythm.
+**The size is settled (84 × 34, no longer provisional); the behavior notes below are still to verify against a live capture.** The reference's floating window was 84 × 67 pt with a 42 × 33 pt stop control; ours keeps its width and drops to a single 34 pt capsule.
 
-- Bar (measured): 40 tall, fully rounded (corner 20), inset 31 from both canvas edges (x 240 to 879 in the reference window), bottom 12 above the window edge (y 548 to 588). 1 pt border (`refBarBorder` / Silvanus `Ink.divider`), fill `Ink.canvas`, a soft shadow below. Placeholder text `rowTitle` in `textSecondary`, starting 17 inside the bar.
-- Recording contents (provisional): a 28 × 28 live button at 6 inside the leading edge (`Ink.recording` fill, ivory waveform glyph), 10 gap, the draft line (`rowTitle`, `textSecondary`, one line, truncates), then the elapsed time (`monoTime`), then Pause and Stop as 28 × 28 icon buttons, 6 from the trailing edge.
-- As built (phase 1b): the pill floats in its own always-on-top panel, 320 wide, near the top right of the screen, and shows only while recording when the main window isn't key. Until there's a draft, the line holds the meeting's title (or a recording warning); a failure shows its reason there in `recordingText`. Pause is disabled until Phase 2.
+- Capsule: 34 tall, never narrower than 84 (it hugs its contents, so `1:59:59` runs about 100), fully rounded (corner 17), `Ink.pillGround` (dark in both themes) with a 1 pt hairline in `Ink.onPillGround` at 18% so it still shows over a dark window, and a soft shadow below.
+- At rest: the 5-bar live wave (bars 2 wide, 2 apart, 3 to 12 tall, 18 across) in `Ink.recording`, 12 from the leading end, 6 gap, then the elapsed time in `monoTime` in `Ink.onPillGround`, 12 from the trailing end. The wave reads the recorder's 10 Hz peak. The time ticks in a `TimelineView` inside the panel only, never in the menu bar.
+- Hover: the capsule grows to the right, with `Motion.pill`, to show Pause then Stop as 28 round buttons (`Ink.onPillGround` icons at 12, a 15% ivory fill on hover, 40% when disabled), 3 from the trailing end. Pause is disabled until Phase 2 (help: "Pause is coming soon"). Stop's help is "Stop recording; transcription starts (⇧⌘R)".
+- Click the body: Silvanus comes forward on the recording meeting. Drag the body (3 pt to start): the pill moves with the pointer, and where it was left is saved in `AppDefaults` (`recordingPill.anchor`, the capsule's top trailing corner). A saved spot that's no longer on any screen falls back to the default, 16 in from the top right of the main screen's visible frame.
+- Warning or failure: an 8 pt dot ringed in `Ink.onPillGround` on the capsule's top trailing rim, `Ink.warning` for a warning and `Ink.recording` for a failure. The text is the capsule's tooltip (and its VoiceOver value); the pill adds no line of its own. The same text shows in the main window's banner.
+- Failed: the wave goes flat, the time becomes "Stopped", the dot is red, and hover shows Close (`xmark`) instead of Pause and Stop. The pill stays until it's closed.
+- Stopping: a spinner for the wave, "Stopping" for the time, Stop disabled.
+- Panel: always on top, never takes focus, on every Space (and over full-screen apps), and shown only while recording when the main window isn't key. The window is 12 larger than the capsule on every side (room for the shadow and dot); it widens leftward on hover, holding the capsule's top right corner, and narrows again after the capsule has shrunk. The first click works without activating Silvanus.
+- VoiceOver: one element, "Recording, 12 minutes" (rounded down to the minute; "less than a minute" at the start), with the warning or failure as its value, Stop (Close when failed) as a named action, and open as the default action.
+- Contrast: `onPillGround` on `pillGround` is 17.4:1. The wave and the failure dot are `Ink.recording` on midnight, about 2.5:1: decorative (the time and the label carry the meaning), and the dot has its ring.
 - While recording, the view pill's Transcript tab shows a small live wave (bars 2 wide, 2 apart, 3 to 12 tall) in `recordingText` instead of its icon, sampled 10 times a second.
 - After Stop, the canvas header shows "Transcribing…" (`label`, `textSecondary`) and a 64 × 4 bar (track `divider`, fill `accent`) before the mic.
 - My notes while recording: each line's time (`mm:ss`, `monoSmall`, `textSecondary`) in a 64 pt trailing margin, level with the line's first row. The text keeps x 221 and wraps before the margin. Identical lines share one time (the times are keyed by the line's text), and a moved line keeps its time.
-- After a microphone failure the pill stays up with the reason in `recordingText`, and Stop becomes Close (`xmark`, 11), until it's closed.
 
 | State | Contents |
 | --- | --- |
 | idle | hidden (no AI bar in Silvanus) |
-| recording | live button pulses at 1 Hz, time counts up |
-| paused | live button `textSecondary`, time `textSecondary`, Pause becomes Resume |
-| stopping | spinner in the live button, Stop disabled |
-| hover on a button | selection fill, corner 7 |
-| focused | 2 pt focus ring on the focused button |
+| recording | wave, time counts up |
+| hover | grows to show Pause (disabled) and Stop |
+| warning | amber dot, text in the tooltip |
+| failed | red dot, "Stopped", hover shows Close |
+| paused | wave and time `onPillGround` at 60%, Pause becomes Resume (Phase 2) |
+| stopping | spinner, "Stopping", Stop disabled |
+| hover on a button | 15% ivory fill |
+| focused | 2 pt ivory focus ring on the focused button |
 
 ### Notes canvas text
 

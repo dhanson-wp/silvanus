@@ -121,6 +121,13 @@ func spokenTime(_ seconds: TimeInterval, text: String) {
     #expect(Clock.spoken(seconds) == text)
 }
 
+@Test("Times read aloud to the minute", arguments: [(0.0, "less than a minute"), (59.9, "less than a minute"), (60, "1 minute"),
+                                                     (754, "12 minutes"), (3600, "1 hour"), (3900, "1 hour 5 minutes"),
+                                                     (7199, "1 hour 59 minutes")])
+func spokenMinutes(_ seconds: TimeInterval, text: String) {
+    #expect(Clock.spokenMinutes(seconds) == text)
+}
+
 @Test("Each word's run, with its trailing space, links to its index in the whole transcript")
 func paragraphLinks() {
     let words = ["Café", "is", "open", "🎉", "today"].enumerated().map { i, w in

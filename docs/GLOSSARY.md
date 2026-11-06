@@ -22,9 +22,9 @@ Every word Silvanus puts on screen. One name per idea.
 | Them | The call-audio side, before speakers are named | Others, Remote, System |
 | Speaker | One voice in the call audio, named or numbered | Participant, Voice (in labels) |
 | Name Speakers | Assign names to the voices in a meeting | Identify, Label |
-| Recording pill | The small floating bar with the time, Pause, and Stop, shown while recording when Silvanus's window isn't in front | toolbar, HUD, Recording bar |
+| Recording pill | The small floating capsule with a live wave and the time (hover for Pause and Stop), shown while recording when Silvanus's window isn't in front | toolbar, HUD, Recording bar |
 | Recording since (time) | The menu bar item's line while recording ("Recording since 10:30 AM"); a clock time, never a running timer | Recording for, Live |
-| Open Silvanus | The menu bar item that brings the window forward; "Show Silvanus" is the recording pill's live button | Show App |
+| Open Silvanus | The menu bar item that brings the window forward; clicking the recording pill opens the recording meeting | Show App |
 | Timestamp | The time a note line or transcript block starts, from the start of the meeting | time code |
 | Microphone access / System audio access | The two macOS permissions Silvanus needs | Mic permission, Screen Recording |
 | Silvanus needs two permissions to record | The sheet the first Start Recording opens when access is missing; its buttons are Allow Microphone Access, Allow System Audio Access, Open System Settings…, Not Now, and Start Recording (or Quick Note) | Grant access, Setup |
