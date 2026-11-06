@@ -2,71 +2,127 @@ import AppKit
 import SilvanusKit
 import SwiftUI
 
-/// The "Meeting detected" prompt's measures (provisional): a card the recording pill's
-/// height plus one row of bordered buttons.
-extension Metric {
-    static let meetingPromptWidth: CGFloat = 300
-    /// How long the prompt stays up when nobody answers it.
-    static let meetingPromptSeconds: Double = 20
-}
-
-/// "Meeting detected", with Start Recording and Dismiss: a small card that offers to record
-/// a call that just started. On the canvas fill with a 1 pt divider border, like the
-/// recording pill. Not modal, and it never takes focus from the call.
+/// "Meeting detected" (KIT.md "Meeting detected prompt"): an in-app prompt that offers to
+/// record a call that just started, in the recording controls' look: 364 wide, as tall as
+/// its words, 20 inside, corner 16, opaque `Ink.barGround` with a gold `Ink.barEdge` edge
+/// and the soft shadow. The app icon at 42, then the title (`promptTitle`) over the source
+/// line (`barNote`, `barTextSecondary`), the question (`promptBody`), and Not now and Record
+/// meeting on the trailing edge.
 ///
-/// | State | Contents |
-/// | rest | title, one line, Start Recording (filled) and Dismiss (bordered) |
-/// | hover / pressed / focused | as the bordered button |
+/// With an app detection can name: "Meeting detected", "Silvanus · <App> is using your
+/// microphone", "Start recording this meeting?". With microphone evidence only: "Microphone
+/// in use", "Start a recording?", and Start recording; it never claims a meeting it can't
+/// see. No calendar line yet. It never starts recording on its own.
+///
+/// | State | Not now | Record meeting |
+/// | rest | outlined, muted ivory edge, ivory text | gold fill, midnight text |
+/// | hover / pressed | a little brighter / dimmer | a little brighter / dimmer |
+/// | focused | 2 pt gold ring 3 outside | 2 pt gold ring 3 outside |
 struct MeetingPrompt: View {
-    var start: () -> Void
-    var dismiss: () -> Void
+    var appName: String?
+    var record: () -> Void
+    var notNow: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            Text("Meeting detected")
-                .kitType(.settingTitle)
-                .foregroundStyle(Ink.text)
-            Text("A call is using the microphone.")
-                .kitType(.label)
-                .foregroundStyle(Ink.textSecondary)
+        let words = RecordingWords.prompt(appName: appName)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: Space.md) {
+                Image(nsImage: Brand.appIcon)
+                    .resizable()
+                    .frame(width: Metric.promptIcon, height: Metric.promptIcon)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(words.title)
+                        .kitType(.promptTitle)
+                        .foregroundStyle(Ink.barText)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(words.source)
+                        .kitType(.barNote)
+                        .foregroundStyle(Ink.barTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text(words.question)
+                .kitType(.promptBody)
+                .foregroundStyle(Ink.barText)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, Space.lg)
             HStack(spacing: Space.sm) {
                 Spacer(minLength: 0)
-                Button("Dismiss", action: dismiss)
-                    .buttonStyle(KitButtonStyle())
-                    .help("Hide this prompt")
-                Button("Start Recording", action: start)
-                    .buttonStyle(KitButtonStyle(isSelected: true))
-                    .help("Record this meeting")
+                Button(words.notNow, action: notNow)
+                    .buttonStyle(PromptButtonStyle(primary: false))
+                    .help("Hide this prompt; nothing is recorded")
+                Button(words.record, action: record)
+                    .buttonStyle(PromptButtonStyle(primary: true))
+                    .help("Start recording now")
             }
-            .padding(.top, Space.xs)
+            .padding(.top, Space.lg)
         }
-        .padding(Space.md)
-        .frame(width: Metric.meetingPromptWidth, alignment: .leading)
+        .padding(Metric.promptPadding)
+        .frame(width: Metric.promptWidth, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: Metric.canvasCorner)
-                .fill(Ink.canvas)
-                .shadow(radius: Space.xs, y: Space.xs / 2)
+            RoundedRectangle(cornerRadius: Metric.promptCorner)
+                .fill(Ink.barGround)
+                .shadow(color: Ink.barGround.opacity(Metric.barShadowOpacity), radius: Metric.barShadowRadius,
+                        y: Metric.barShadowY)
         }
-        .overlay(RoundedRectangle(cornerRadius: Metric.canvasCorner).strokeBorder(Ink.divider, lineWidth: Metric.hairline))
+        .overlay(RoundedRectangle(cornerRadius: Metric.promptCorner).strokeBorder(Ink.barEdge, lineWidth: Metric.hairline))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Meeting detected")
+        .accessibilityLabel(words.title)
     }
 }
 
-/// The prompt's window: a small always-on-top panel near the top right of the screen,
-/// shown when the call detector notices a meeting start while Silvanus isn't recording. It
-/// hides itself after 20 seconds, on Dismiss, or once a recording starts. It never takes
-/// focus from the app in front, and needs no notification permission.
+/// The prompt's buttons: 40 tall, corner 8, 13 inside. Record meeting is gold with midnight
+/// text (8.06:1); Not now is outlined in muted ivory.
+struct PromptButtonStyle: ButtonStyle {
+    var primary: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        Content(configuration: configuration, primary: primary)
+    }
+
+    private struct Content: View {
+        let configuration: Configuration
+        let primary: Bool
+        @Environment(\.isFocused) private var isFocused
+        @State private var hovering = false
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: Metric.barButtonCorner)
+            configuration.label
+                .kitType(primary ? .promptButton : .label)
+                .foregroundStyle(primary ? Ink.barGround : Ink.barText)
+                .padding(.horizontal, Metric.promptButtonPadding)
+                .frame(height: Metric.promptButtonHeight)
+                .background(shape.fill(primary ? Ink.barEdge : (hovering ? Ink.barRaised : Color.clear)))
+                .overlay(shape.strokeBorder(primary ? Ink.barEdge : Ink.barTextSecondary, lineWidth: Metric.hairline))
+                .brightness(configuration.isPressed ? -0.05 : hovering && primary ? 0.06 : 0)
+                .overlay {
+                    if isFocused {
+                        RoundedRectangle(cornerRadius: Metric.barButtonCorner + Metric.gripGap)
+                            .strokeBorder(Ink.barEdge, lineWidth: Metric.focusRing)
+                            .padding(-Metric.gripGap)
+                    }
+                }
+                .contentShape(shape)
+                .onHover { hovering = $0 }
+                .animation(Motion.hover, value: hovering)
+        }
+    }
+}
+
+/// The prompt's window: a small always-on-top panel at the top right of the screen, shown
+/// once per call while Silvanus isn't recording. It stays until Not now, Record meeting, a
+/// recording starting, or the call ending (no countdown). It never takes focus from the app
+/// in front and needs no notification permission. After Not now the menu bar keeps Record
+/// Meeting until the call ends.
 @MainActor
 final class MeetingPromptPanel {
     private weak var model: AppModel?
     private var panel: NSPanel?
-    private var timeout: Task<Void, Never>?
-    /// For the checks: how many times the prompt was shown.
+    /// For the checks: how many times the prompt was shown, and the name it last showed.
     private(set) var shown = 0
-    /// How long it stays up; the self-test shortens it.
-    var seconds = Metric.meetingPromptSeconds
+    private(set) var appName: String?
 
     init(model: AppModel) {
         self.model = model
@@ -74,50 +130,33 @@ final class MeetingPromptPanel {
 
     var isShowing: Bool { panel != nil }
 
-    /// Shows the prompt, or restarts its 20 seconds if it's up. Never while recording.
-    func show() {
+    /// Shows the prompt for a call. Never while recording.
+    func show(appName: String?) {
         guard let model, !model.isRecording else { return }
         shown += 1
-        if panel == nil { makePanel() }
-        timeout?.cancel()
-        let seconds = seconds
-        timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled else { return }
-            self?.hide()
-        }
+        self.appName = appName
+        hide()
+        makePanel(appName: appName)
     }
 
     func hide() {
-        timeout?.cancel()
-        timeout = nil
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
     }
 
-    /// Start Recording: records like ⇧⌘R. When access is missing, the permissions sheet
-    /// opens in the main window, so bring it forward.
-    func startRecording() {
-        hide()
-        guard let model else { return }
-        model.record(.startRecording)
-        if model.permissionsRequest != nil {
-            NSApp.activate()
-            NSApp.windows.first { $0.canBecomeMain && !($0 is NSPanel) }?.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    private func makePanel() {
-        let view = MeetingPrompt(start: { [weak self] in self?.startRecording() },
-                                 dismiss: { [weak self] in self?.hide() })
-            .padding(Space.md)
-        let host = NSHostingView(rootView: view)
+    private func makePanel(appName: String?) {
+        let view = MeetingPrompt(appName: appName,
+                                 record: { [weak self] in self?.model?.recordDetectedCall() },
+                                 notNow: { [weak self] in self?.hide() })
+            .padding(Metric.barWindowMargin)
+        let host = BarHostingView(rootView: view)
         let size = host.fittingSize
         host.setFrameSize(size)
         let p = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                         styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
         p.contentView = host
+        p.title = RecordingWords.prompt(appName: appName).title
         p.isFloatingPanel = true
         p.becomesKeyOnlyIfNeeded = true
         p.level = .floating
@@ -125,19 +164,19 @@ final class MeetingPromptPanel {
         p.isOpaque = false
         p.hasShadow = false
         p.isMovableByWindowBackground = true
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
-        p.setAccessibilityLabel("Meeting detected")
+        p.setAccessibilityLabel(p.title)
         if let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
-            // Below the recording pill's default spot (PillPlacement), right-aligned with it, so
-            // the two never overlap: the prompt shows only when no recording is up, but a
-            // recording can start while it's open.
-            let pillBottom = PillPlacement.defaultAnchor(in: screen).y - Metric.recordingPillHeight
-            p.setFrameOrigin(NSPoint(x: PillPlacement.defaultAnchor(in: screen).x + Space.md - size.width,
-                                     y: pillBottom - Space.sm + Space.md - size.height))
+            // Top right, clear of the recording controls at the bottom center.
+            p.setFrameOrigin(NSPoint(x: screen.maxX - size.width - Space.lg + Metric.barWindowMargin,
+                                     y: screen.maxY - size.height - Space.lg + Metric.barWindowMargin))
         }
         p.orderFrontRegardless()
         panel = p
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: "\(p.title). \(RecordingWords.prompt(appName: appName).question)",
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 }

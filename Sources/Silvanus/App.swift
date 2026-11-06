@@ -64,21 +64,29 @@ struct SilvanusApp: App {
     }
 }
 
-/// The menu bar item's menu. While recording: "Recording since 10:30" (static text, never
-/// a running timer), Stop, and Open Silvanus. Otherwise Start Recording and Quick Note.
-/// Then Quit.
+/// The menu bar item's menu. While recording: the state line ("Recording since 10:30 AM",
+/// "Paused", or "Audio lost"; static text, never a running timer), Pause, Resume, or Retry,
+/// Retry Call Audio while the microphone records alone, Stop, and the recording controls'
+/// Show or Hide and Reset Recording Controls Position. Otherwise Record Meeting while a
+/// detected call waits, Start Recording, and Quick Note. Then Open Silvanus and Quit.
 struct MenuBarMenu: View {
     let model: AppModel
     @Environment(\.openWindow) private var openWindow
 
+    /// One line of the menu.
+    enum Entry {
+        case text(String)
+        case button(String, () -> Void)
+        case divider
+    }
+
     var body: some View {
-        let recorder = model.recorder
-        if recorder.isRecording, let since = recorder.since {
-            Text(RecordingRules.since(since))
-            Button("Stop", action: recorder.stop)
-        } else {
-            Button("Start Recording") { showWindow(); model.record(.startRecording) }
-            Button("Quick Note") { showWindow(); model.record(.quickNote) }
+        ForEach(Array(Self.entries(model: model, showWindow: showWindow).enumerated()), id: \.offset) { _, entry in
+            switch entry {
+            case let .text(title): Text(title)
+            case let .button(title, action): Button(title, action: action)
+            case .divider: Divider()
+            }
         }
         Divider()
         Button("Open Silvanus", action: showWindow)
@@ -86,9 +94,68 @@ struct MenuBarMenu: View {
             .keyboardShortcut("q")
     }
 
+    /// The menu's lines before Open Silvanus and Quit. The self-test reads the titles.
+    static func entries(model: AppModel, showWindow: @escaping () -> Void = {}) -> [Entry] {
+        let recorder = model.recorder
+        guard recorder.isRecording else {
+            var entries: [Entry] = []
+            if model.detectedCall != nil { entries.append(.button("Record Meeting", model.recordDetectedCall)) }
+            entries.append(.button("Start Recording") { showWindow(); model.record(.startRecording) })
+            entries.append(.button("Quick Note") { showWindow(); model.record(.quickNote) })
+            return entries
+        }
+        var entries: [Entry] = [.text(statusLine(recorder))]
+        switch recorder.mode {
+        case .paused: entries.append(.button("Resume", recorder.resume))
+        case .interrupted: entries.append(.button("Retry", recorder.retryCapture))
+        default: entries.append(.button("Pause", recorder.pause))
+        }
+        if recorder.mode == .recording, recorder.callAudioDown != nil {
+            entries.append(.button("Retry Call Audio", recorder.retryCallAudio))
+        }
+        entries.append(.button("Stop", recorder.stop))
+        entries.append(.divider)
+        let controls = model.controls
+        if controls?.isHiddenByUser == true {
+            entries.append(.button("Show Recording Controls") { controls?.showByUser() })
+        } else {
+            entries.append(.button("Hide Recording Controls") { controls?.hideByUser() })
+        }
+        entries.append(.button("Reset Recording Controls Position") { controls?.resetPosition() })
+        return entries
+    }
+
+    /// Static text, never a running timer.
+    private static func statusLine(_ recorder: Recorder) -> String {
+        switch recorder.mode {
+        case .paused: RecordingWords.paused
+        case .interrupted: RecordingWords.audioLost
+        default: recorder.startedAt.map { RecordingRules.since($0) } ?? RecordingWords.recording
+        }
+    }
+
     private func showWindow() {
         NSApp.activate()
         openWindow(id: "main")
+    }
+}
+
+/// Show or Hide Recording Controls, and Reset Recording Controls Position: in the menu bar
+/// item while recording, and in the Window menu.
+struct RecordingControlsMenuItems: View {
+    let model: AppModel
+
+    var body: some View {
+        let controls = model.controls
+        if controls?.isHiddenByUser == true {
+            Button("Show Recording Controls") { controls?.showByUser() }
+                .disabled(!model.isRecording)
+        } else {
+            Button("Hide Recording Controls") { controls?.hideByUser() }
+                .disabled(!model.isRecording)
+        }
+        Button("Reset Recording Controls Position") { controls?.resetPosition() }
+            .disabled(!model.isRecording)
     }
 }
 
@@ -105,7 +172,8 @@ struct SidebarCommand: Commands {
     }
 }
 
-/// File > New Meeting (⌘N), Start Recording (⇧⌘R), and Quick Note (⌥⌘N); Meeting > Rename
+/// File > New Meeting (⌘N), Start Recording (⇧⌘R), Pause or Resume (⇧⌘P, while recording),
+/// and Quick Note (⌥⌘N); Window > the recording controls' items; Meeting > Rename
 /// Meeting… (⌃⌘R), Show Attendees (⌃⌘A), Move to Folder, Move to Trash (⌘⌫), Search, and Filter;
 /// View > Summary, My notes, and Transcript (⌘1, ⌘2, ⌘3), which switch the canvas like the
 /// view pill. Meeting items are disabled with no meeting open; Quick Note while a meeting
@@ -123,9 +191,16 @@ struct MeetingCommands: Commands {
                 .keyboardShortcut("n")
             Button(model.isRecording ? "Stop" : "Start Recording", action: model.startRecording)
                 .keyboardShortcut("r", modifiers: [.shift, .command])
+            Button(model.recorder.mode == .paused ? "Resume" : "Pause", action: model.recorder.togglePause)
+                .keyboardShortcut("p", modifiers: [.shift, .command])
+                .disabled(model.recorder.mode != .recording && model.recorder.mode != .paused)
             Button("Quick Note", action: model.quickNote)
                 .keyboardShortcut("n", modifiers: [.option, .command])
                 .disabled(model.isRecording)
+        }
+        CommandGroup(after: .windowArrangement) {
+            Divider()
+            RecordingControlsMenuItems(model: model)
         }
         CommandMenu("Meeting") {
             Button("Rename Meeting…", action: model.requestRename)
@@ -225,7 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Closing the window quits, except while a meeting records: the menu bar item and the
-    /// recording pill keep it going, and Stop is still there.
+    /// recording controls keep it going, and Stop is still there.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !(Recorder.current?.isRecording ?? false)
     }

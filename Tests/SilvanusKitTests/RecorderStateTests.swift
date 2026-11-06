@@ -89,12 +89,92 @@ struct RecorderStateTests {
         #expect(s.phase == .transcribing(progress: 1))
     }
 
-    @Test func thePillShowsOnlyWhileRecordingAndTheWindowIsNotKey() {
-        #expect(RecorderState(phase: .recording(since: since)).showsPill(mainWindowIsKey: false))
-        #expect(!RecorderState(phase: .recording(since: since)).showsPill(mainWindowIsKey: true))
-        #expect(RecorderState(phase: .stopping).showsPill(mainWindowIsKey: false))
-        #expect(!RecorderState(phase: .idle).showsPill(mainWindowIsKey: false))
-        #expect(!RecorderState(phase: .transcribing(progress: 0)).showsPill(mainWindowIsKey: false))
+    @Test func theControlsShowForTheWholeRecording() {
+        #expect(RecorderState(phase: .recording(since: since)).showsControls)
+        #expect(RecorderState(phase: .paused(elapsed: 5)).showsControls)
+        #expect(RecorderState(phase: .interrupted(elapsed: 5, reason: "x")).showsControls)
+        #expect(!RecorderState(phase: .stopping).showsControls)
+        #expect(!RecorderState(phase: .idle).showsControls)
+        #expect(!RecorderState(phase: .transcribing(progress: 0)).showsControls)
+    }
+
+    @Test func pauseHoldsTheCapturedTimeAndResumeGoesOn() {
+        var s = RecorderState(phase: .recording(since: since))
+        do { let ok = s.apply(.pause(since.addingTimeInterval(60))); #expect(ok) }
+        #expect(s.phase == .paused(elapsed: 60))
+        #expect(s.isRecording && s.isPaused && !s.isCapturing)
+        // Ten minutes paused: the time holds.
+        #expect(s.elapsed(at: since.addingTimeInterval(660)) == 60)
+        do { let ok = s.apply(.resume(since.addingTimeInterval(660))); #expect(ok) }
+        #expect(s.phase == .recording(since: since.addingTimeInterval(600)))
+        // Thirty seconds later: 90 seconds captured, the pause left out.
+        #expect(s.elapsed(at: since.addingTimeInterval(690)) == 90)
+    }
+
+    @Test func pauseAndResumeOnlyFitTheirPhases() {
+        var paused = RecorderState(phase: .paused(elapsed: 3))
+        do { let ok = paused.apply(.pause(since)); #expect(!ok) }
+        var recording = RecorderState(phase: .recording(since: since))
+        do { let ok = recording.apply(.resume(since)); #expect(!ok) }
+        for phase: RecorderPhase in [.idle, .starting, .stopping, .transcribing(progress: 0)] {
+            var s = RecorderState(phase: phase)
+            do { let ok = s.apply(.pause(since)); #expect(!ok) }
+            do { let ok = s.apply(.resume(since)); #expect(!ok) }
+        }
+    }
+
+    @Test func pauseWhileInterruptedIsNotAllowed() {
+        var s = RecorderState(phase: .interrupted(elapsed: 42, reason: "The microphone stopped"))
+        do { let ok = s.apply(.pause(since)); #expect(!ok) }
+        do { let ok = s.apply(.resume(since)); #expect(!ok) }
+        #expect(s.phase == .interrupted(elapsed: 42, reason: "The microphone stopped"))
+    }
+
+    @Test func anInterruptionHoldsTimeAndRetryGoesOn() {
+        var s = RecorderState(phase: .recording(since: since))
+        do { let ok = s.apply(.interrupt(since.addingTimeInterval(30), "The microphone stopped")); #expect(ok) }
+        #expect(s.phase == .interrupted(elapsed: 30, reason: "The microphone stopped"))
+        #expect(s.isRecording && s.isInterrupted)
+        #expect(s.elapsed(at: since.addingTimeInterval(500)) == 30)
+        do { let ok = s.apply(.recovered(since.addingTimeInterval(100))); #expect(ok) }
+        #expect(s.elapsed(at: since.addingTimeInterval(110)) == 40)
+    }
+
+    @Test func aTrackCanFailWhilePaused() {
+        var s = RecorderState(phase: .paused(elapsed: 12))
+        do { let ok = s.apply(.interrupt(since, "The microphone stopped")); #expect(ok) }
+        #expect(s.phase == .interrupted(elapsed: 12, reason: "The microphone stopped"))
+    }
+
+    @Test func retryAfterAFailureWhilePausedReturnsToPaused() {
+        var s = RecorderState(phase: .paused(elapsed: 12))
+        s.apply(.interrupt(since, "The microphone stopped"))
+        do { let ok = s.apply(.recoveredToPause); #expect(ok) }
+        #expect(s.phase == .paused(elapsed: 12))
+        var r = RecorderState(phase: .recording(since: since))
+        do { let ok = r.apply(.recoveredToPause); #expect(!ok) }
+    }
+
+    @Test func recoveredOnlyAfterAnInterruption() {
+        var s = RecorderState(phase: .paused(elapsed: 12))
+        do { let ok = s.apply(.recovered(since)); #expect(!ok) }
+    }
+
+    @Test func stopWhilePausedOrInterruptedFinalizes() {
+        for phase: RecorderPhase in [.paused(elapsed: 12), .interrupted(elapsed: 12, reason: "x")] {
+            var s = RecorderState(phase: phase)
+            do { let ok = s.apply(.stop); #expect(ok) }
+            #expect(s.phase == .stopping)
+            do { let ok = s.apply(.stopped); #expect(ok) }
+            #expect(s.phase == .transcribing(progress: 0))
+        }
+    }
+
+    @Test func startIsRefusedWhilePausedOrInterrupted() {
+        for phase: RecorderPhase in [.paused(elapsed: 1), .interrupted(elapsed: 1, reason: "x")] {
+            var s = RecorderState(phase: phase)
+            do { let ok = s.apply(.start); #expect(!ok) }
+        }
     }
 }
 

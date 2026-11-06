@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
+import SilvanusKit
 
 /// The format every track is stored in: 16 kHz mono float, what Parakeet expects.
 nonisolated enum TrackFormat {
@@ -8,66 +9,147 @@ nonisolated enum TrackFormat {
     static let segmentSeconds = 30.0
 }
 
+/// The captured clock both tracks of a recording share (`CaptureTimeline`), safe to read
+/// from audio threads. Pause and an interruption hold it; the writers drop what arrives
+/// while it's held, so both tracks skip the same stretch.
+nonisolated final class CaptureClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var timeline: CaptureTimeline
+
+    init(start: Date) {
+        timeline = CaptureTimeline(start: start)
+    }
+
+    var start: Date { timeline.start }
+    var isHeld: Bool { lock.withLock { timeline.isHeld } }
+
+    func hold(at date: Date) { lock.withLock { timeline.hold(at: date) } }
+    func release(at date: Date) { lock.withLock { timeline.release(at: date) } }
+
+    /// The captured time at `date`, or nil while held (the buffer is dropped).
+    func captured(at date: Date) -> TimeInterval? {
+        lock.withLock { timeline.isHeld ? nil : timeline.captured(at: date) }
+    }
+}
+
 /// Writes one track as 30-second CAF files (`mic-0001.caf`, `mic-0002.caf`…),
 /// converting whatever the device delivers to 16 kHz mono. A crash loses at most
 /// the segment being written. Safe to call from audio threads.
+///
+/// Times are captured time (`CaptureClock`): buffers that arrive while the clock is held
+/// (Pause, an interruption) are dropped, never written. After a break in the track (the
+/// microphone restarted, Retry), the first buffer is lined up with the clock again, with
+/// silence for the time the track missed, so the two tracks stay aligned.
 nonisolated final class SegmentWriter: @unchecked Sendable {
     let directory: URL
     let name: String
+    let clock: CaptureClock
     private let queue: DispatchQueue
     private var file: AVAudioFile?
     private var index = 0
     private var framesInSegment: AVAudioFramePosition = 0
     private var converter: AVAudioConverter?
     private var sourceFormat: AVAudioFormat?
-    /// Seconds from the recording's start to this track's first sample.
+    /// Captured seconds from the recording's start to this track's first sample.
     private(set) var startOffset: TimeInterval?
-    private let recordingStart: Date
-    /// Loudest recent level, 0 to 1, for "no call audio" warnings.
-    private(set) var recentPeak: Float = 0
     private(set) var framesWritten: AVAudioFramePosition = 0
     /// Guards what other threads read while the queue writes: the first failure and the
-    /// loudest level since the last sample.
+    /// levels since the last sample.
     private let lock = NSLock()
     private var firstFailure: String?
     private var peakSinceSample: Float = 0
+    private var squaresSinceSample: Double = 0
+    private var countSinceSample = 0
     /// Set by `finish`, on the queue: buffers that arrive later (a device callback still in
     /// flight) are dropped there, so none can open a segment after the close.
     private var finished = false
+    /// On the queue: the next buffer lines up with the clock (after a break).
+    private var realign = false
+    /// A gap shorter than this (5 ms) is left alone when lining up.
+    static let realignThreshold: TimeInterval = 0.005
+    /// Lining up never cuts more than this off a buffer.
+    static let maxTrim: TimeInterval = 0.05
 
-    init(directory: URL, name: String, recordingStart: Date) {
+    init(directory: URL, name: String, clock: CaptureClock) {
         self.directory = directory
         self.name = name
-        self.recordingStart = recordingStart
+        self.clock = clock
         queue = DispatchQueue(label: "silvanus.writer.\(name)")
     }
 
-    /// Copies the buffer and writes it on the writer's queue.
+    /// A writer with a clock of its own (one track on its own, the checks).
+    convenience init(directory: URL, name: String, recordingStart: Date) {
+        self.init(directory: directory, name: name, clock: CaptureClock(start: recordingStart))
+    }
+
+    /// Copies the buffer and writes it on the writer's queue. Dropped while the clock is held.
     func append(_ buffer: AVAudioPCMBuffer) {
+        guard let captured = clock.captured(at: Date()) else { return }
         guard let copy = Self.copy(buffer) else { return }
-        let arrived = Date()
         queue.async { [self] in
             guard !finished else { return }
-            if startOffset == nil {
-                let lead = Double(copy.frameLength) / copy.format.sampleRate
-                startOffset = max(0, arrived.timeIntervalSince(recordingStart) - lead)
-            }
+            let lead = Double(copy.frameLength) / copy.format.sampleRate
+            let begins = max(0, captured - lead)
             guard let converted = convert(copy) else { return }
+            if startOffset == nil {
+                startOffset = begins
+                realign = false
+                write(converted)
+                return
+            }
+            guard realign, let startOffset else {
+                write(converted)
+                return
+            }
+            // The first buffer after a release (Resume, Retry, a microphone change), and only
+            // that one: line the track up with the clock. Behind, pad silence; a little ahead
+            // (the buffer holds a moment from before the release), cut up to 50 ms off its
+            // front. Further ahead than that, keep it: within 50 ms is aligned enough.
+            realign = false
+            let position = startOffset + Double(framesWritten) / TrackFormat.sampleRate
+            let gap = begins - position
+            if gap > Self.realignThreshold {
+                writeSilence(min(gap, 4 * 3600))
+            } else if gap < -Self.realignThreshold, -gap <= Self.maxTrim {
+                let cut = AVAudioFrameCount((-gap * TrackFormat.sampleRate).rounded())
+                guard cut < converted.frameLength else { return }
+                guard let rest = Self.dropFront(converted, frames: cut) else { return }
+                write(rest)
+                return
+            }
             write(converted)
         }
+    }
+
+    /// The buffer without its first `frames` frames (16 kHz mono float, as converted).
+    private static func dropFront(_ buffer: AVAudioPCMBuffer, frames: AVAudioFrameCount) -> AVAudioPCMBuffer? {
+        let left = buffer.frameLength - frames
+        guard let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: left),
+              let src = buffer.floatChannelData?[0], let dst = out.floatChannelData?[0] else { return nil }
+        out.frameLength = left
+        memcpy(dst, src + Int(frames), Int(left) * MemoryLayout<Float>.size)
+        return out
+    }
+
+    /// Every release of the clock (Resume, Retry): the next buffer lines up with it.
+    func lineUp() {
+        queue.sync { realign = true }
     }
 
     /// Why writing failed ("Couldn't write audio: …"), from the first open, convert, or
     /// write error. Nil while all is well. Safe to read from any thread.
     var failure: String? { lock.withLock { firstFailure } }
 
-    /// The loudest level since the last call, 0 to 1, and starts over. The recorder samples
-    /// it 10 times a second for the live wave, never per buffer.
-    func samplePeak() -> Float {
+    /// The loudest level and the RMS since the last call, 0 to 1, and starts over. The
+    /// recorder samples them 10 times a second for the level bars, never per buffer.
+    func sampleLevels() -> (peak: Float, rms: Float) {
         lock.withLock {
             let peak = peakSinceSample
+            let rms = countSinceSample > 0 ? Float((squaresSinceSample / Double(countSinceSample)).squareRoot()) : 0
             peakSinceSample = 0
-            return peak
+            squaresSinceSample = 0
+            countSinceSample = 0
+            return (peak, rms)
         }
     }
 
@@ -78,6 +160,17 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
 
     private func fail(_ reason: String) {
         lock.withLock { if firstFailure == nil { firstFailure = "Couldn't write audio: \(reason)" } }
+    }
+
+    /// Retry: forgets the failure and starts a new segment in the same track, lined up with
+    /// the clock. What was written stays.
+    func resume() {
+        queue.sync {
+            file?.close()
+            file = nil
+            realign = true
+        }
+        lock.withLock { firstFailure = nil }
     }
 
     /// Writes what's queued and closes the current file. Later appends are dropped.
@@ -95,6 +188,7 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
         queue.async { [self] in
             file?.close()
             file = nil
+            realign = true
         }
     }
 
@@ -138,6 +232,26 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
     }
 
     private func write(_ buffer: AVAudioPCMBuffer) {
+        guard writeFrames(buffer) else { return }
+        if let data = buffer.floatChannelData?[0] {
+            var peak: Float = 0
+            var squares: Double = 0
+            for i in 0..<Int(buffer.frameLength) {
+                let sample = data[i]
+                peak = max(peak, abs(sample))
+                squares += Double(sample * sample)
+            }
+            lock.withLock {
+                peakSinceSample = max(peakSinceSample, min(1, peak))
+                squaresSinceSample += squares
+                countSinceSample += Int(buffer.frameLength)
+            }
+        }
+    }
+
+    /// Writes frames into the current segment, opening the next when this one is full.
+    /// False when the file couldn't open or write (the failure is recorded).
+    private func writeFrames(_ buffer: AVAudioPCMBuffer) -> Bool {
         if file == nil || framesInSegment >= AVAudioFramePosition(TrackFormat.segmentSeconds * TrackFormat.sampleRate) {
             index += 1
             framesInSegment = 0
@@ -149,22 +263,30 @@ nonisolated final class SegmentWriter: @unchecked Sendable {
             } catch {
                 file = nil
                 fail(error.localizedDescription)
-                return
+                return false
             }
         }
         do {
             try file?.write(from: buffer)
         } catch {
             fail(error.localizedDescription)
-            return
+            return false
         }
         framesInSegment += AVAudioFramePosition(buffer.frameLength)
         framesWritten += AVAudioFramePosition(buffer.frameLength)
-        if let data = buffer.floatChannelData?[0] {
-            var peak: Float = 0
-            for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(data[i])) }
-            recentPeak = max(peak, recentPeak * 0.9)
-            lock.withLock { peakSinceSample = max(peakSinceSample, min(1, peak)) }
+        return true
+    }
+
+    /// Silence for a stretch the track missed, so it stays on the recording's clock. Its
+    /// levels don't count toward the bars.
+    private func writeSilence(_ seconds: TimeInterval) {
+        var frames = AVAudioFramePosition(seconds * TrackFormat.sampleRate)
+        let chunk = AVAudioFrameCount(TrackFormat.sampleRate)
+        guard let silence = AVAudioPCMBuffer(pcmFormat: TrackFormat.format, frameCapacity: chunk) else { return }
+        while frames > 0 {
+            silence.frameLength = AVAudioFrameCount(min(AVAudioFramePosition(chunk), frames))
+            if !writeFrames(silence) { return }
+            frames -= AVAudioFramePosition(silence.frameLength)
         }
     }
 

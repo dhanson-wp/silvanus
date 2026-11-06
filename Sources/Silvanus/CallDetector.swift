@@ -32,8 +32,15 @@ final class CallDetector {
         /// The call apps in a call now, and whether the microphone counts as in use.
         /// `recording` says our own process runs the device (it matters to the fallback only).
         func read(recording: Bool) -> (apps: Set<String>, micInUse: Bool) {
-            if let apps = callAppsUsingInput() { return (apps, !apps.isEmpty) }
-            return (runningCallApps(), recording || micInUseElsewhere())
+            let now = readDetail(recording: recording)
+            return (now.apps, now.micInUse)
+        }
+
+        /// As `read`, and whether the apps are known to be the ones using the microphone
+        /// (the process list), not just running beside it (the fallback).
+        func readDetail(recording: Bool) -> (apps: Set<String>, micInUse: Bool, reliable: Bool) {
+            if let apps = callAppsUsingInput() { return (apps, !apps.isEmpty, true) }
+            return (runningCallApps(), recording || micInUseElsewhere(), false)
         }
 
         /// True when a call app is in a call: using input, or in the fallback, running while
@@ -49,8 +56,13 @@ final class CallDetector {
     var isRecording: () -> Bool
     /// False turns the prompt off (Settings > General > Prompt when a meeting starts).
     var isEnabled: () -> Bool
-    /// A meeting started while Silvanus wasn't recording.
-    var meetingStarted: () -> Void = {}
+    /// A meeting started while Silvanus wasn't recording, with the app's name when
+    /// detection can tell which one is using the microphone.
+    var meetingStarted: (String?) -> Void = { _ in }
+    /// The call ended (the microphone was free long enough to re-arm).
+    var meetingEnded: () -> Void = {}
+    /// A call app's name, by bundle id, read at runtime. The self-test fakes it.
+    var displayName: @MainActor (String) -> String? = CallDetector.liveDisplayName
     /// After each poll: whether a call app is in a call. The recorder's call-audio warning
     /// reads it.
     var callAppsChanged: (Bool) -> Void = { _ in }
@@ -88,14 +100,29 @@ final class CallDetector {
     func poll() {
         polls += 1
         let recording = isRecording()
-        let (apps, mic) = probe.read(recording: recording)
+        let (apps, mic, reliable) = probe.readDetail(recording: recording)
         callApps = mic ? apps : []
         callAppsChanged(mic && !apps.isEmpty)
         let (next, event) = CallDetection.step(previous: state, micInUse: mic, callApps: apps, recording: recording)
+        let ended = state != .armed && next == .armed
         state = next
         if event == .meetingStarted, isEnabled() {
-            meetingStarted()
+            // Name the app only when it's the one known to use the microphone, and only one.
+            let name = reliable && apps.count == 1 ? apps.first.flatMap(displayName) : nil
+            meetingStarted(name)
         }
+        if ended { meetingEnded() }
+    }
+
+    /// The app's name as the Mac shows it ("FaceTime"), from the running app or its bundle.
+    static func liveDisplayName(_ bundleID: String) -> String? {
+        if let name = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.localizedName,
+           !name.isEmpty {
+            return name
+        }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+        let name = FileManager.default.displayName(atPath: url.path)
+        return name.hasSuffix(".app") ? String(name.dropLast(4)) : name
     }
 
     // MARK: - Live probe

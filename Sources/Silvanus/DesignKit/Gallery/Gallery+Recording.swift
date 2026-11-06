@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// The recording family in the kit gallery: the floating recording pill in each state
-/// (recording, hovered, a warning dot, failed, a long call, stopping), the live wave on its own and in the
-/// view pill, the Transcribing… indicator at a few points, and the notice banner. Fictional
-/// words only.
+/// The recording family in the kit gallery: the recording controls in each state
+/// (recording, mic only, paused, audio lost, quiet, a long call, Reduce Motion), hover,
+/// pressed, and focus on both buttons and the grip's hover, the Meeting detected prompt with
+/// and without an app name, the live wave on its own and in the view pill, the Transcribing…
+/// indicator at a few points, and the notice banner. Fictional words only.
 struct RecordingGallery: View {
-    /// A fixed meter, so the waves look the same in every capture.
-    static let meter = LevelMeter(levels: [0.08, 0.35, 0.7, 0.25, 0.5])
+    /// A fixed meter, so the bars look the same in every capture.
+    static let meter = LevelMeter(levels: [0.25, 0.55, 0.9, 0.45, 0.7])
+    static let quiet = LevelMeter()
     /// 12 minutes 34 seconds before the moment the gallery is drawn.
     private var since: Date { Date().addingTimeInterval(-754) }
 
@@ -17,15 +19,30 @@ struct RecordingGallery: View {
                 .foregroundStyle(Ink.textSecondary)
             HStack(alignment: .top, spacing: Space.xxl) {
                 VStack(alignment: .leading, spacing: Space.lg) {
-                    sample("Recording") { pill(.recording(since: since)) }
-                    sample("Idle hover") { pill(.recording(since: since), hover: true) }
-                    sample("Warning dot") { pill(.recording(since: since), warning: Recorder.silentCall) }
-                    sample("Failed") { pill(.failed(Self.failure)) }
-                    sample("Failed, hover") { pill(.failed(Self.failure), hover: true) }
-                    sample("Long elapsed time") { pill(.recording(since: Date().addingTimeInterval(-7199))) }
-                    sample("Stopping") { pill(.stopping) }
+                    sample("Recording") { bar(.recording(since: since)) }
+                    sample("Mic only") { bar(.recording(since: since), callAudioDown: "The call audio device stopped.") }
+                    sample("Paused") { bar(.paused(elapsed: 754)) }
+                    sample("Audio lost") { bar(.lost(elapsed: 754, reason: "Couldn't restart the microphone.")) }
+                    sample("Quiet (flat bars)") { bar(.recording(since: since), meter: Self.quiet) }
+                    sample("Long elapsed time") { bar(.recording(since: Date().addingTimeInterval(-7199))) }
+                    sample("Reduce Motion") { bar(.recording(since: since), reduceMotion: true) }
                 }
                 VStack(alignment: .leading, spacing: Space.lg) {
+                    sample("Pause hover, Stop hover") { bar(.recording(since: since), pause: .hover, stop: .hover) }
+                    sample("Pause pressed, Stop pressed") { bar(.recording(since: since), pause: .pressed, stop: .pressed) }
+                    sample("Pause focused") { bar(.recording(since: since), pause: .focused) }
+                    sample("Stop focused") { bar(.recording(since: since), stop: .focused) }
+                    sample("Resume hover") { bar(.paused(elapsed: 754), pause: .hover) }
+                    sample("Retry focused") { bar(.lost(elapsed: 754, reason: "Couldn't restart the microphone."), pause: .focused) }
+                    sample("Grip hover") { GripHandle(forcedHover: true).padding(Space.sm).background(Ink.barGround) }
+                }
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    sample("Meeting detected, app named") {
+                        MeetingPrompt(appName: "Callbox", record: {}, notNow: {}).padding(Space.sm)
+                    }
+                    sample("Microphone in use, no app") {
+                        MeetingPrompt(appName: nil, record: {}, notNow: {}).padding(Space.sm)
+                    }
                     sample("Live wave") {
                         HStack(spacing: Space.lg) {
                             LiveWave(meter: Self.meter).foregroundStyle(Ink.recordingText)
@@ -46,7 +63,8 @@ struct RecordingGallery: View {
                         VStack(alignment: .leading, spacing: Space.sm) {
                             NoticeBanner(message: "Couldn't transcribe this meeting: The audio couldn't be read.",
                                          actionTitle: "Retry", action: {}, dismiss: {})
-                            NoticeBanner(message: "Finished transcribing an interrupted recording", dismiss: {})
+                            NoticeBanner(message: "Audio lost. Couldn't restart the microphone.", actionTitle: "Retry",
+                                         action: {})
                         }
                         .frame(width: 360)
                     }
@@ -58,12 +76,12 @@ struct RecordingGallery: View {
         }
     }
 
-    private static let failure = "Couldn't write audio: The disk is full."
-
-    /// A pill with room around it for its shadow, which the panel's margin gives it in life.
-    private func pill(_ status: RecordingPill.Status, hover: Bool = false, warning: String? = nil) -> some View {
-        RecordingPill(status: status, title: "Acme kickoff", warning: warning, meter: Self.meter, forcedHover: hover,
-                      open: {}, stop: {}, dismiss: {})
+    /// The controls with room around them for the shadow, which the panel's margin gives
+    /// them in life.
+    private func bar(_ status: RecordingControls.Status, callAudioDown: String? = nil, meter: LevelMeter = RecordingGallery.meter,
+                     pause: BarButtonLook? = nil, stop: BarButtonLook? = nil, reduceMotion: Bool = false) -> some View {
+        RecordingControls(status: status, callAudioDown: callAudioDown, meter: meter, pauseLook: pause, stopLook: stop,
+                          reduceMotion: reduceMotion)
             .padding(Space.sm)
     }
 

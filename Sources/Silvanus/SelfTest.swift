@@ -1088,7 +1088,7 @@ enum SelfTest {
         // Start Recording with nothing open: a new meeting titled with the date and time.
         model.startRecording()
         let first = recorder.meetingID
-        let since = recorder.since
+        let since = recorder.startedAt
         check("Start Recording makes a meeting titled with its date and time and opens it on My notes",
               recorder.isRecording && first != nil && model.selection == first && model.canvasMode == .notes
               && model.meetings.count == before + 1
@@ -1104,68 +1104,7 @@ enum SelfTest {
               recorder.samples >= 3 && recorder.meter.levels.contains { $0 > 0.05 },
               "samples \(recorder.samples), levels \(recorder.meter.levels)")
 
-        // The pill: hidden while the main window is key, shown when another window is.
-        // A run started from a terminal may never be the active app, so the main window's
-        // key state is given here; the panel reads the real one otherwise.
-        let panel = RecordingPanel(recorder: recorder, model: model)
-        panel.mainWindowIsKey = { true }
-        panel.update()
-        let hiddenWhenKey = !panel.isShowing
-        panel.mainWindowIsKey = { false }
-        panel.update()
-        let shownElsewhere = panel.isShowing
-        let floating = panel.window.map { $0.isVisible && $0.level == .floating && $0.identifier == RecordingPanel.windowID } ?? false
-        panel.mainWindowIsKey = { true }
-        panel.update()
-        check("the recording pill shows, floating, only when the main window isn't key",
-              hiddenWhenKey && shownElsewhere && floating && !panel.isShowing,
-              "hidden while key \(hiddenWhenKey), shown elsewhere \(shownElsewhere), floating \(floating), showing after \(panel.isShowing)")
-
-        // The pill's place: top right by default, wherever it was dragged to after that, and
-        // back on screen if its screen has gone.
-        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let home = PillPlacement.defaultAnchor(in: screen)
-        check("the pill starts near the top right of the screen",
-              home.x > screen.maxX * 0.9 && home.y > screen.maxY * 0.9, "\(home)")
-        check("a saved spot on a screen is kept, one off every screen falls back to the default",
-              PillPlacement.resolve(saved: NSPoint(x: 300, y: 400), screens: [screen], main: screen) == NSPoint(x: 300, y: 400)
-              && PillPlacement.resolve(saved: NSPoint(x: 5000, y: 400), screens: [screen], main: screen) == home
-              && PillPlacement.resolve(saved: nil, screens: [screen], main: screen) == home)
-        panel.mainWindowIsKey = { false }
-        panel.update()
-        let rest = panel.frame
-        panel.hoverChanged(true)
-        let wide = panel.frame
-        panel.hoverChanged(false)
-        check("hovering widens the pill's window leftward, holding its top right corner",
-              rest != nil && wide != nil && wide!.width > rest!.width && abs(wide!.maxX - rest!.maxX) < 1
-              && abs(wide!.maxY - rest!.maxY) < 1 && panel.isExpanded,
-              "rest \(String(describing: rest)), hovered \(String(describing: wide))")
-        try? await Task.sleep(for: .milliseconds(700))
-        check("…and narrows again once the pointer leaves",
-              panel.frame.map { $0.width == rest?.width } == true && !panel.isExpanded,
-              "\(String(describing: panel.frame)) vs \(String(describing: rest))")
-        let anchorBefore = panel.anchor
-        panel.drag(.began, mouse: NSPoint(x: 500, y: 500))
-        panel.drag(.moved, mouse: NSPoint(x: 460, y: 470))
-        panel.drag(.ended, mouse: NSPoint(x: 460, y: 470))
-        let moved = NSPoint(x: anchorBefore.x - 40, y: anchorBefore.y - 30)
-        check("dragging the body moves the pill and saves where it was left",
-              panel.anchor == moved && PillPlacement.saved() == moved
-              && panel.frame.map { abs($0.maxX - Space.md - moved.x) < 1 } == true,
-              "anchor \(panel.anchor), saved \(String(describing: PillPlacement.saved()))")
-        panel.mainWindowIsKey = { true }
-        panel.update()
-        panel.mainWindowIsKey = { false }
-        panel.update()
-        check("the pill comes back where it was left",
-              panel.anchor == moved && panel.frame.map { abs($0.maxX - Space.md - moved.x) < 1 } == true)
-        let onAll = panel.window?.collectionBehavior.contains(.canJoinAllSpaces)
-        check("the pill joins every Space", onAll == true)
-        panel.mainWindowIsKey = { true }
-        panel.update()
-        check("the pill's one spoken label reads the minutes",
-              Clock.spokenMinutes(754) == "12 minutes" && Clock.spokenMinutes(20) == "less than a minute")
+        await checkControls(model: model, main: main)
 
         // Notes typed while recording get a margin timestamp, kept beside the notes.
         await poll { editor() != nil }
@@ -1242,6 +1181,7 @@ enum SelfTest {
         check("Retry runs the after-call pass again", calls.ids.count == callsBefore + 1 && calls.ids.last == failing
               && recorder.notice == nil && recorder.phase == .idle, "calls \(calls.ids.count - callsBefore), phase \(recorder.phase)")
 
+        await checkPause(model: model, calls: calls)
         await checkRecordingFailures(model: model, calls: calls)
 
         // At launch: a meeting with segments and no transcript gets tracks.json and the pass.
@@ -1273,8 +1213,215 @@ enum SelfTest {
         model.show(.notes)
     }
 
-    /// The call detector with a fake probe: "Meeting detected" once per call, never with no
-    /// call app, never while recording, not when the setting is off, and gone after its time.
+    /// The recording controls on a live recording (fake captures): shown for the whole
+    /// recording whichever window is key, a non-activating panel on every Space, 264 × 48,
+    /// placed bottom center above the Dock, moved only by the grip (drag and arrow keys),
+    /// remembered per display, kept on screen, hidden and shown from the menu bar. The screens
+    /// are made up, so nothing depends on this Mac's displays.
+    private static func checkControls(model: AppModel, main: NSWindow) async {
+        guard let panel = model.controls else {
+            check("the recording controls exist", false)
+            return
+        }
+        let saved = (panel.screens, panel.preferredScreen)
+        defer { (panel.screens, panel.preferredScreen) = saved }
+        let a = BarPlacement.Screen(id: "A", visible: CGRect(x: 0, y: 80, width: 1440, height: 795)) // grid: ok a made-up screen
+        let b = BarPlacement.Screen(id: "B", visible: CGRect(x: 1440, y: 0, width: 1920, height: 1055)) // grid: ok a made-up screen
+        panel.screens = { [a, b] }
+        panel.preferredScreen = { "A" }
+        AppDefaults.shared.removeObject(forKey: RecordingPanel.positionsKey)
+        AppDefaults.shared.removeObject(forKey: RecordingPanel.displayKey)
+
+        main.makeKeyAndOrderFront(nil)
+        panel.hideByUser()
+        panel.showByUser()
+        let window = panel.window as? NSPanel
+        check("the recording controls show for the whole recording, Silvanus's window key or not",
+              panel.isShowing && window?.isVisible == true && window?.level == .floating
+              && window?.identifier == RecordingPanel.windowID)
+        check("…as a non-activating panel on every Space and over full-screen apps",
+              window.map { $0.styleMask.contains(.nonactivatingPanel) && $0.becomesKeyOnlyIfNeeded && !$0.hidesOnDeactivate
+                  && $0.collectionBehavior.contains(.canJoinAllSpaces) && $0.collectionBehavior.contains(.fullScreenAuxiliary)
+                  && !$0.isMovableByWindowBackground } == true)
+        check("…titled \"Silvanus recording controls\" for VoiceOver",
+              window?.title == "Silvanus recording controls" && window?.accessibilityLabel() == "Silvanus recording controls")
+        let size = NSHostingView(rootView: RecordingControls(status: .recording(since: Date()), meter: LevelMeter())).fittingSize
+        check("the bar is 264 × 48", size == NSSize(width: 264, height: 48), "\(size)")
+        let paused = NSHostingView(rootView: RecordingControls(status: .paused(elapsed: 7199), meter: LevelMeter())).fittingSize
+        check("…and stays 264 wide with the note and a long time", paused.width == 264 && paused.height > 48, "\(paused)")
+
+        let home = BarPlacement.defaultOrigin(size: panel.barFrame.size, in: a.visible, inset: Space.lg)
+        check("they start bottom center above the Dock on the main window's display",
+              panel.barOrigin == home && home == NSPoint(x: 588, y: 96), "\(panel.barOrigin)")
+        panel.dragBegan(at: NSPoint(x: 600, y: 120))
+        panel.dragMoved(to: NSPoint(x: 700, y: 300))
+        panel.dragEnded()
+        let dragged = NSPoint(x: 688, y: 276)
+        check("dragging the grip moves them and saves the spot for that display",
+              panel.barOrigin == dragged && RecordingPanel.savedPositions()["A"] == dragged && RecordingPanel.savedDisplay() == "A",
+              "\(panel.barOrigin), saved \(RecordingPanel.savedPositions())")
+        panel.dragBegan(at: NSPoint(x: 600, y: 120))
+        panel.dragMoved(to: NSPoint(x: 600, y: 1_000))
+        check("a drag past the menu bar stops at the visible frame", panel.barFrame.maxY == a.visible.maxY,
+              "\(panel.barFrame)")
+        panel.dragMoved(to: NSPoint(x: 700, y: 300))
+        panel.dragEnded()
+        let base = panel.barOrigin
+        await poll { window?.contentView.flatMap(findGrip) != nil }
+        if let grip = window?.contentView.flatMap(findGrip),
+           let left = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                       context: nil, characters: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                                       charactersIgnoringModifiers: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                                       isARepeat: false, keyCode: 123),
+           let up = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.shift], timestamp: 0, windowNumber: 0,
+                                     context: nil, characters: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                                     charactersIgnoringModifiers: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                                     isARepeat: false, keyCode: 126) {
+            grip.keyDown(with: left)
+            grip.keyDown(with: up)
+            check("the focused grip moves them with the arrow keys, farther with Shift",
+                  panel.barOrigin == NSPoint(x: base.x - 8, y: base.y + 24), "\(panel.barOrigin)")
+            check("the grip is the one drag region, named for VoiceOver",
+                  grip.accessibilityLabel() == "Move recording controls" && !grip.mouseDownCanMoveWindow
+                  && grip.acceptsFirstMouse(for: nil))
+        } else {
+            check("the grip is in the controls", false)
+        }
+        let afterKeys = panel.barOrigin
+        panel.dragBegan(at: NSPoint(x: 0, y: 0))
+        panel.dragMoved(to: NSPoint(x: 1_700, y: -100))
+        panel.dragEnded()
+        let onB = panel.barOrigin
+        check("dragged onto another display, the spot is saved for that one",
+              RecordingPanel.savedDisplay() == "B" && RecordingPanel.savedPositions()["B"] == onB && b.visible.contains(panel.barFrame),
+              "\(onB), \(RecordingPanel.savedPositions())")
+        panel.hideByUser()
+        check("Hide Recording Controls hides them, and the menu bar offers Show Recording Controls",
+              !panel.isShowing && menuBarTitles(model: model).contains("Show Recording Controls") && model.recorder.isRecording)
+        panel.showByUser()
+        check("…they come back where they were left", panel.isShowing && panel.barOrigin == onB, "\(panel.barOrigin)")
+        panel.screens = { [a] }
+        panel.screensChanged()
+        check("a display that goes away sends them to the main window's display, at its saved spot",
+              a.visible.contains(panel.barFrame) && panel.barOrigin == afterKeys, "\(panel.barFrame)")
+        let shrunk = BarPlacement.Screen(id: "A", visible: CGRect(x: 0, y: 80, width: 600, height: 300))
+        panel.screens = { [shrunk] }
+        panel.screensChanged()
+        check("a smaller resolution pulls them back inside", shrunk.visible.contains(panel.barFrame), "\(panel.barFrame)")
+        panel.screens = { [a, b] }
+        check("the menu bar has Reset Recording Controls Position, and so does the Window menu",
+              menuBarTitles(model: model).contains("Reset Recording Controls Position")
+              && menuItem(title: "Reset Recording Controls Position", in: NSApp.mainMenu) != nil)
+        panel.resetPosition()
+        check("Reset puts them back bottom center on the main window's display",
+              panel.barOrigin == home && RecordingPanel.savedPositions()["A"] == nil, "\(panel.barOrigin)")
+    }
+
+    private static func findGrip(_ view: NSView) -> GripView? {
+        if let grip = view as? GripView { return grip }
+        for subview in view.subviews { if let grip = findGrip(subview) { return grip } }
+        return nil
+    }
+
+    /// Pause and Resume on a recording with fake captures: Pause releases both devices and
+    /// Resume starts them again in the same tracks, the time holds (and the notes' times
+    /// with it), the controls show the note and flat bars, and the same meeting goes on.
+    /// Through several pauses, a microphone with ~30 ms buffers and call audio with 10 ms
+    /// buffers stay within 50 ms of each other. Stop while paused finalizes. A microphone
+    /// that won't restart is Audio lost; a failure while paused retries back to Paused.
+    private static func checkPause(model: AppModel, calls: AfterCallCalls) async {
+        let recorder = model.recorder
+        final class Made { var mic: [FakeCapture] = []; var system: [FakeCapture] = [] }
+        let made = Made()
+        func fakes(mic mode: FakeCapture.Mode = .tone) {
+            recorder.captures = CaptureFactory(
+                mic: { let f = FakeCapture(channels: 1, level: 0.3, mode: mode, chunk: 0.03, burst: 0); made.mic.append(f); return f },
+                system: { let f = FakeCapture(channels: 2, level: 0.5, chunk: 0.01, burst: 0); made.system.append(f); return f })
+        }
+        fakes()
+        let started = Date()
+        model.quickNote()
+        guard let id = recorder.meetingID else {
+            check("the pause recording starts", false)
+            return
+        }
+        await poll { recorder.meter.levels.contains { $0 > 0.05 } }
+        check("the level bars follow the captured audio (both tracks, never a microphone of their own)",
+              recorder.meter.levels.contains { $0 > 0.05 }, "\(recorder.meter.levels)")
+        try? await Task.sleep(for: .milliseconds(300))
+        let barBefore = model.controls?.barOrigin
+        recorder.pause()
+        let held = recorder.elapsed(for: id)
+        let pausedTitles = menuBarTitles(model: model)
+        check("Pause releases both devices", made.mic.last?.isRunning == false && made.system.last?.isRunning == false)
+        try? await Task.sleep(for: .milliseconds(1_500))
+        check("Pause holds the time", recorder.mode == .paused && recorder.elapsed(for: id) == held && held != nil,
+              "mode \(recorder.mode)")
+        check("…the bars go flat", recorder.meter.levels.allSatisfy { $0 == 0 }, "\(recorder.meter.levels)")
+        check("…the menu bar says Paused, with Resume and Stop", pausedTitles.starts(with: ["Paused", "Resume", "Stop"]),
+              pausedTitles.joined(separator: ", "))
+        check("…VoiceOver hears \"Paused. Audio isn't being saved.\"",
+              model.controls?.lastAnnouncement == "Paused. Audio isn't being saved.", model.controls?.lastAnnouncement ?? "none")
+        check("…and the note shows above the bar while the bar holds still",
+              (model.controls?.frame?.height ?? 0) > Metric.barHeight + 2 * Metric.barWindowMargin + Metric.barNoteGap
+              && model.controls?.barOrigin == barBefore)
+        recorder.resume()
+        check("Resume starts both devices again in the same tracks",
+              made.mic.count == 1 && made.system.count == 1 && made.mic[0].isRunning && made.system[0].isRunning
+              && made.mic[0].starts == 2 && made.system[0].starts == 2)
+        try? await Task.sleep(for: .milliseconds(500))
+        let after = recorder.elapsed(for: id) ?? 0
+        let wall = Date().timeIntervalSince(started)
+        check("Resume goes on in the same meeting, and the time leaves the pause out",
+              recorder.mode == .recording && recorder.meetingID == id && after > (held ?? 0) && after < wall - 1.3,
+              "captured \(after), wall \(wall)")
+        check("the notes' margin times use the captured time", recorder.elapsed(for: id).map { $0 < wall - 1.3 } == true)
+        for _ in 0..<3 {
+            recorder.pause()
+            try? await Task.sleep(for: .milliseconds(300))
+            recorder.resume()
+            try? await Task.sleep(for: .milliseconds(700))
+        }
+        recorder.pause()
+        let wallAtStop = Date().timeIntervalSince(started)
+        model.startRecording()
+        let tracks = model.library.audioURL(for: id).map { Tracks.load(from: $0) }
+        let mic = tracks?.mic?.seconds ?? 0, system = tracks?.system?.seconds ?? 0
+        check("Stop while paused finalizes the meeting", !recorder.isRecording && mic > 0, "\(recorder.phase)")
+        check("nothing heard while paused is saved, on either track", mic < wallAtStop - 1.5 && system < wallAtStop - 1.5,
+              "mic \(mic), system \(system), wall \(wallAtStop)")
+        check("…and after four pauses, tracks with different buffer sizes stay within 50 ms",
+              abs((tracks?.mic?.startOffset ?? 9) + mic - (tracks?.system?.startOffset ?? -9) - system) < 0.05,
+              "\(String(describing: tracks))")
+        await poll(timeout: 10) { !recorder.hasWork }
+
+        // A microphone that won't start again on Resume: Audio lost, and Retry records on.
+        fakes(mic: .failsOnRestart)
+        model.quickNote()
+        try? await Task.sleep(for: .milliseconds(300))
+        recorder.pause()
+        recorder.resume()
+        let lost: String? = if case let .interrupted(_, reason) = recorder.phase { reason } else { nil }
+        check("a microphone that won't restart on Resume is Audio lost",
+              lost?.hasPrefix("Couldn't restart the microphone") == true, lost ?? "\(recorder.phase)")
+        fakes()
+        recorder.retryCapture()
+        check("…and Retry records on", recorder.mode == .recording && made.system.last?.isRunning == true, "\(recorder.mode)")
+
+        // A failure that comes while paused: Retry goes back to Paused, devices released.
+        recorder.pause()
+        recorder.failMicForChecks("Couldn't restart the microphone: The test device went away.")
+        await poll { recorder.mode == .interrupted }
+        recorder.retryCapture()
+        check("Retry after a failure while paused returns to Paused", recorder.mode == .paused
+              && made.mic.last?.isRunning == false && made.system.last?.isRunning == false, "\(recorder.mode)")
+        model.startRecording()
+        await poll(timeout: 10) { !recorder.hasWork }
+    }
+
+    /// The call detector with a fake probe: "Meeting detected" once per call, naming the app
+    /// only when it's known, never with no call app, never while recording, not when the
+    /// setting is off, and gone when the call ends; Record Meeting in the menu bar meanwhile.
     private static func checkMeetingDetection(model: AppModel) async {
         // `mic` is any process using input; `apps` the call apps among them.
         final class Fake { var mic = false; var apps: Set<String> = [] }
@@ -1296,37 +1443,57 @@ enum SelfTest {
         detector.poll()
         check("the microphone in use with no call app shows no prompt", !prompt.isShowing && prompt.shown == shown)
         fake.apps = ["us.zoom.xos"]
+        detector.displayName = { _ in "Callbox" }
         detector.poll()
-        check("a call app using the microphone shows \"Meeting detected\"", prompt.isShowing && prompt.shown == shown + 1)
+        check("a call app using the microphone shows \"Meeting detected\", naming the app",
+              prompt.isShowing && prompt.shown == shown + 1 && prompt.appName == "Callbox"
+              && model.detectedCall == DetectedCall(appName: "Callbox"),
+              "app \(prompt.appName ?? "none")")
+        let menuTitles = { menuBarTitles(model: model) }
+        check("…and the menu bar offers Record Meeting while it waits", menuTitles().contains("Record Meeting"),
+              menuTitles().joined(separator: ", "))
+        prompt.hide()
+        check("Not now hides the prompt for this call, and Record Meeting stays in the menu bar",
+              !prompt.isShowing && model.detectedCall != nil && menuTitles().contains("Record Meeting"))
         detector.poll()
         detector.poll()
         check("…once per call", prompt.shown == shown + 1, "shown \(prompt.shown - shown)")
         check("…and the recorder hears that a call app runs", model.recorder.callAppRunning)
-        prompt.hide()
         release()
+        check("the call ending takes the offer away", model.detectedCall == nil && !prompt.isShowing
+              && !menuTitles().contains("Record Meeting"))
+        // Two call apps at once, or only the fallback's evidence: no app is named.
+        fake.mic = true
+        fake.apps = ["us.zoom.xos", "com.apple.FaceTime"]
+        detector.poll()
+        check("with no one app known to use the microphone, it asks \"Microphone in use\" instead",
+              prompt.isShowing && prompt.appName == nil
+              && RecordingWords.prompt(appName: prompt.appName).title == "Microphone in use")
+        prompt.hide()
+        fake.apps = ["us.zoom.xos"]
+        release()
+        let base = prompt.shown
         model.promptOnMeeting = false
         check("turning the prompt off is saved", AppDefaults.shared.object(forKey: AppDefaults.promptOnMeetingKey) as? Bool == false)
         fake.mic = true
         detector.poll()
-        check("with Prompt when a meeting starts off, nothing shows", !prompt.isShowing && prompt.shown == shown + 1)
+        check("with Prompt when a meeting starts off, nothing shows", !prompt.isShowing && prompt.shown == base)
         model.promptOnMeeting = true
         release()
         model.recorder.force(.recording(since: Date()))
         fake.mic = true
         detector.poll()
-        check("nothing shows while Silvanus records", !prompt.isShowing && prompt.shown == shown + 1)
+        check("nothing shows while Silvanus records", !prompt.isShowing && prompt.shown == base)
         model.recorder.force(.idle)
         detector.poll()
-        check("…nor after it stops mid-call", !prompt.isShowing && prompt.shown == shown + 1)
+        check("…nor after it stops mid-call", !prompt.isShowing && prompt.shown == base)
         release()
-        prompt.seconds = 0.3
         fake.mic = true
         detector.poll()
-        let up = prompt.isShowing
-        await poll { !prompt.isShowing }
-        check("the prompt hides itself after its time", up && !prompt.isShowing)
-        prompt.seconds = Metric.meetingPromptSeconds
-        prompt.hide()
+        try? await Task.sleep(for: .milliseconds(300))
+        check("the prompt has no countdown: it stays until it's answered or the call ends", prompt.isShowing)
+        release()
+        check("…and a prompt for a call that ended goes", !prompt.isShowing)
         // A browser open but not using input (an in-person meeting): no call.
         let chromeOpen = CallDetector.Probe(callAppsUsingInput: { [] }, micInUseElsewhere: { true },
                                             runningCallApps: { ["com.google.Chrome"] })
@@ -1456,49 +1623,71 @@ enum SelfTest {
               "notice \(String(describing: recorder.notice)), meetings \(count) -> \(model.meetings.count)")
         recorder.dismissNotice()
 
-        // 2. The microphone's writer fails mid-call: the pill keeps the reason until closed, and
-        // what was saved is transcribed.
+        // 2. The microphone's writer fails mid-call: "Audio lost", the time holds, nothing is
+        // saved, and Retry brings it back in the same meeting.
         captures(mic: .failsWriting)
         model.quickNote()
-        let broken = recorder.meetingID
-        await poll { recorder.recordingFailure != nil }
-        let panel = RecordingPanel(recorder: recorder, model: model)
-        panel.mainWindowIsKey = { false }
-        panel.update()
-        let pillUp = panel.isShowing
-        check("a microphone that fails stops the recording with \"Couldn't write audio: …\"",
-              recorder.recordingFailure?.hasPrefix("Couldn't write audio:") == true && !recorder.isRecording,
-              "failure \(recorder.recordingFailure ?? "none"), phase \(recorder.phase)")
+        let broken = recorder.meetingID ?? ""
+        await poll { recorder.mode == .interrupted }
+        let held = recorder.elapsed(for: broken)
+        try? await Task.sleep(for: .milliseconds(400))
+        check("a microphone that fails is \"Audio lost\": still recording, the time held",
+              recorder.mode == .interrupted && recorder.isRecording && held != nil && recorder.elapsed(for: broken) == held,
+              "mode \(recorder.mode), held \(held.map { "\($0)" } ?? "none") now \(recorder.elapsed(for: broken).map { "\($0)" } ?? "none")")
+        let lostTitles = menuBarTitles(model: model)
+        check("…the controls stay up, and the menu bar says \"Audio lost\" with Retry and Stop",
+              model.controls?.isShowing == true && lostTitles.starts(with: ["Audio lost", "Retry", "Stop"]),
+              lostTitles.joined(separator: ", "))
+        check("…and VoiceOver hears it once", model.controls?.lastAnnouncement?.hasPrefix("Audio lost") == true,
+              model.controls?.lastAnnouncement ?? "none")
+        recorder.pause()
+        check("Pause isn't allowed while audio is lost", recorder.mode == .interrupted)
+        captures(mic: .failsToStart)
+        recorder.retryCapture()
+        let stillLost: String? = if case let .interrupted(_, reason) = recorder.phase { reason } else { nil }
+        check("Retry while the microphone can't start stays \"Audio lost\", with the new reason",
+              stillLost?.hasPrefix("Couldn't restart the microphone") == true, stillLost ?? "\(recorder.phase)")
+        captures()
+        recorder.retryCapture()
+        // The fakes deliver half a second ahead of the clock; lining up drops that first.
+        try? await Task.sleep(for: .milliseconds(900))
+        check("Retry that works records on in the same meeting, and the time goes on from where it held",
+              recorder.mode == .recording && recorder.meetingID == broken
+              && (recorder.elapsed(for: broken) ?? 0) > (held ?? 0),
+              "mode \(recorder.mode)")
+        model.startRecording()
+        let brokenFiles = audioOf(broken).map { SegmentWriter.segments(named: "mic", in: $0).count } ?? 0
+        check("…and the microphone goes on in a new segment of the same track", brokenFiles >= 2, "segments \(brokenFiles)")
         await idle()
-        check("…the audio saved before it is transcribed on its own", calls.ids.last == broken && broken != nil,
-              "calls \(calls.ids.suffix(1))")
-        check("…and the pill stays up with the reason until it's closed", pillUp && recorder.recordingFailure != nil)
-        recorder.dismissNotice()
-        panel.update()
-        check("closing it clears the failure and hides the pill",
-              recorder.recordingFailure == nil && recorder.notice == nil && !panel.isShowing)
+        check("…and the meeting is transcribed after Stop", calls.ids.last == broken, "calls \(calls.ids.suffix(1))")
 
-        // 3. Call audio fails mid-call: the microphone records on.
+        // 3. Call audio fails mid-call: the microphone records on, and says so ("Mic only").
         captures(system: .failsWriting)
         model.quickNote()
         let micOnly = recorder.meetingID
-        await poll { recorder.warning?.hasPrefix(Recorder.micOnly) == true }
-        check("call audio that fails drops to the microphone alone and keeps recording",
-              recorder.isRecording && recorder.warning?.hasPrefix(Recorder.micOnly) == true,
-              "recording \(recorder.isRecording), warning \(recorder.warning ?? "none")")
-        try? await Task.sleep(for: .milliseconds(300))
+        await poll { recorder.callAudioDown != nil }
+        check("call audio that fails drops to the microphone alone and keeps recording, saying so",
+              recorder.mode == .recording && recorder.callAudioDown != nil && recorder.warning?.hasPrefix(Recorder.micOnly) == true
+              && menuBarTitles(model: model).contains("Retry Call Audio"),
+              "mode \(recorder.mode), warning \(recorder.warning ?? "none")")
+        captures()
+        recorder.retryCallAudio()
+        check("Retry Call Audio brings call audio back in its track", recorder.callAudioDown == nil
+              && recorder.warning?.hasPrefix(Recorder.micOnly) != true, recorder.warning ?? "none")
+        try? await Task.sleep(for: .milliseconds(900))
         model.startRecording()
         let micOnlyTracks = audioOf(micOnly).map { Tracks.load(from: $0) }
-        check("…and tracks.json keeps both sides, the call audio up to where it stopped",
-              (micOnlyTracks?.mic?.seconds ?? 0) > (micOnlyTracks?.system?.seconds ?? 0) && (micOnlyTracks?.system?.seconds ?? 0) > 0,
-              "\(String(describing: micOnlyTracks))")
+        let micOnlySystem = audioOf(micOnly).map { SegmentWriter.segments(named: "system", in: $0).count } ?? 0
+        check("…and tracks.json keeps both sides, call audio in two segments of one track",
+              (micOnlyTracks?.system?.seconds ?? 0) > 0 && micOnlySystem >= 2,
+              "\(String(describing: micOnlyTracks)), system segments \(micOnlySystem)")
         await idle()
 
         // 4. The microphone changes mid-call: a new segment in the same track. A quiet microphone warns.
         captures(mic: .changesDevice)
         model.quickNote()
         let changed = recorder.meetingID
-        try? await Task.sleep(for: .milliseconds(700))
+        try? await Task.sleep(for: .milliseconds(1_500))
         model.startRecording()
         let micSegments = audioOf(changed).map { SegmentWriter.segments(named: "mic", in: $0).count } ?? 0
         let micSeconds = audioOf(changed).map { Tracks.load(from: $0) }?.mic?.seconds ?? 0
@@ -1511,6 +1700,7 @@ enum SelfTest {
         await poll { recorder.warning?.contains(Recorder.silentMic) == true }
         check("a microphone that stays silent shows a warning", recorder.warning?.contains(Recorder.silentMic) == true,
               recorder.warning ?? "none")
+        check("…and silence is never \"Audio lost\"", recorder.mode == .recording, "\(recorder.mode)")
         recorder.silenceWarning = 30
 
         // 5. Stop before any audio arrives: nothing to transcribe, and the banner says so.
@@ -1652,10 +1842,10 @@ enum SelfTest {
         recorder.permissionsReady = { true }
         recorder.dismissNotice()
 
-        // The pill's window and the launch pass are made once per process.
-        let pill = model.pill
+        // The recording controls' window and the launch pass are made once per process.
+        let controls = model.controls
         model.startRecordingServices()
-        check("the recording pill's window is made once per process", pill != nil && model.pill === pill)
+        check("the recording controls' window is made once per process", controls != nil && model.controls === controls)
         captures()
         recorder.dismissNotice()
         for meeting in model.meetings { try? model.library.moveToTrash(meeting.id) }
@@ -1745,6 +1935,16 @@ enum SelfTest {
         writer.finish()
     }
 
+    /// The menu bar item's titles, as its menu lists them now.
+    private static func menuBarTitles(model: AppModel) -> [String] {
+        MenuBarMenu.entries(model: model).compactMap { entry in
+            switch entry {
+            case let .text(title), let .button(title, _): title
+            case .divider: nil
+            }
+        }
+    }
+
     private static func menuItem(title: String, in menu: NSMenu?) -> NSMenuItem? {
         for item in menu?.items ?? [] {
             if item.title == title { return item }
@@ -1815,19 +2015,30 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         case failsWriting
         /// The device changes after a few buffers: a new segment at 44.1 kHz, as MicCapture does.
         case changesDevice
+        /// Starts once, then throws on every later start (Resume after Pause).
+        case failsOnRestart
     }
 
     private let channels: AVAudioChannelCount
     private let level: Float
     private let buffer: AVAudioPCMBuffer?
     private let mode: Mode
+    /// Seconds per buffer after the first half second: devices differ (a microphone near
+    /// 85 ms, call audio near 10 ms).
+    private let chunk: Double
+    /// Audio delivered at once on start, ahead of the clock (a real device delivers none).
+    private let burst: Double
     private var timer: DispatchSourceTimer?
+    private(set) var starts = 0
+    var isRunning: Bool { timer != nil }
 
-    init(channels: AVAudioChannelCount, level: Float, mode: Mode = .tone) {
+    init(channels: AVAudioChannelCount, level: Float, mode: Mode = .tone, chunk: Double = 0.1, burst: Double = 0.5) {
         self.channels = channels
         self.level = level
         buffer = nil
         self.mode = mode
+        self.chunk = chunk
+        self.burst = burst
     }
 
     /// Feeds a whole buffer (16 kHz mono speech) at once, then nothing.
@@ -1836,31 +2047,34 @@ nonisolated final class FakeCapture: AudioCapture, @unchecked Sendable {
         level = 0
         self.buffer = buffer
         mode = .tone
+        chunk = 0.1
+        burst = 0.5
     }
 
     func start(into writer: SegmentWriter) throws {
-        if mode == .failsToStart { throw CocoaError(.featureUnsupported) }
+        if mode == .failsToStart || (mode == .failsOnRestart && starts > 0) { throw CocoaError(.featureUnsupported) }
+        starts += 1
         if mode == .silent { return }
         if let buffer {
             writer.append(buffer)
             return
         }
-        Self.feed(writer, channels: channels, level: level, seconds: 0.5)
+        if burst > 0 { Self.feed(writer, channels: channels, level: level, seconds: burst) }
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "silvanus.fake-capture"))
-        timer.schedule(deadline: .now() + 0.1, repeating: 0.1)
+        timer.schedule(deadline: .now() + chunk, repeating: chunk)
         final class Clock: @unchecked Sendable {
             var ticks = 0
             var rate = 48_000.0
         }
         let clock = Clock()
-        timer.setEventHandler { [channels, level, mode] in
+        timer.setEventHandler { [channels, level, mode, chunk] in
             clock.ticks += 1
             if clock.ticks == 3, mode == .failsWriting { writer.recordFailure("Couldn't write audio: The test disk is full.") }
             if clock.ticks == 3, mode == .changesDevice {
                 writer.breakSegment()
                 clock.rate = 44_100
             }
-            Self.feed(writer, channels: channels, level: level, seconds: 0.1, rate: clock.rate)
+            Self.feed(writer, channels: channels, level: level, seconds: chunk, rate: clock.rate)
         }
         timer.resume()
         self.timer = timer

@@ -11,8 +11,8 @@ enum KitIcon: String, CaseIterable {
     /// line, a folder row, and the meeting header's folder chip (KIT.md "Meeting header").
     case folderHeader, folderLine, folderRow, folderChip
     case more, play, record, quickNoteMic, pause, stop
-    /// Closes the recording pill after a failure.
-    case close
+    /// The recording controls' Pause, Resume (and Retry), and Stop: filled, as in the design.
+    case barPause, barResume, barStop
     case date, attendees, back
     /// The settings list.
     case settingsGeneral, settingsAppearance, settingsAudio, settingsMicrophone, settingsAbout
@@ -36,7 +36,9 @@ enum KitIcon: String, CaseIterable {
         case .quickNoteMic, .settingsMicrophone: "mic"
         case .pause: "pause"
         case .stop: "stop"
-        case .close: "xmark"
+        case .barPause: "pause.fill"
+        case .barResume: "play.fill"
+        case .barStop: "stop.fill"
         case .date: "calendar"
         case .attendees: "person.2"
         case .back: "chevron.left"
@@ -56,8 +58,9 @@ enum KitIcon: String, CaseIterable {
         case .hideSidebar, .transcriptTab, .folderHeader, .attendees: 15
         case .search, .newNote, .filter, .date, .folderChip: 13
         case .myNotesTab, .record, .pause, .stop: 12
-        case .summaryTab, .folderLine, .more, .disclosure, .close: 11
-        case .play: 9
+        case .summaryTab, .folderLine, .more, .disclosure: 11
+        case .play, .barPause, .barResume: 9
+        case .barStop: 7
         case .folderRow, .quickNoteMic, .back, .settingsGeneral, .settingsAppearance,
              .settingsAudio, .settingsMicrophone, .settingsAbout, .allMeetings: 14
         }

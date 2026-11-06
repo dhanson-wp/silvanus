@@ -74,10 +74,11 @@ Parts read only these. Each row gives the reference value (for the pixel-compare
 | Ink.recording | n/a | n/a | recordRed | recordRed | Record button fill, live dot |
 | Ink.onRecording | n/a | n/a | ivory | ivory | label on the recording fill |
 | Ink.recordingText | n/a | n/a | recordRed | recordRedLight | "Recording" text and timer on canvas |
-| Ink.pillGround | n/a | n/a | midnight | midnight | the floating recording pill's fill; dark in both themes so it reads over any window |
-| Ink.onPillGround | n/a | n/a | ivory | ivory | time, icons, and the hairline (at 18%) on the pill (17.4:1) |
-| Ink.recordingOnPill | recordRedLight | recordRedLight | recordRedLight #FF8A80 | recordRedLight #FF8A80 | **fill only**: the pill's wave and failure dot (7.8:1 on midnight; recordRed itself is 2.5:1) |
-| Ink.warning | n/a | n/a | warnAmber #F2B134 | warnAmber #F2B134 | **fill only**: the pill's warning dot (ringed in `onPillGround`) |
+| Ink.barGround | n/a | n/a | midnight | midnight | the recording controls' and the Meeting detected prompt's fill: opaque and dark in both themes, so they read the same over any window |
+| Ink.barRaised | n/a | n/a | raisedMidnight | raisedMidnight | hover fills on the bar (Pause, Not now, the grip) |
+| Ink.barEdge | n/a | n/a | gold | gold | the bar's and the prompt's 1 pt outer edge, the level bars, the state dot, focus rings on the bar, Record meeting's fill (gold on midnight 8.06:1) |
+| Ink.barText | n/a | n/a | ivory | ivory | the state, icons, the note, Stop's fill, the prompt's title and question (15.40:1 on midnight) |
+| Ink.barTextSecondary | n/a | n/a | mutedIvory | mutedIvory | the time, the grip's dots, quiet level bars, outlined button edges, the prompt's source line (8.93:1 on midnight, 7.79:1 on raisedMidnight) |
 
 Why these choices:
 
@@ -116,7 +117,7 @@ Why these choices:
 | --- | --- | --- |
 | hover | ease out 0.12 s | hover fills |
 | select | ease out 0.18 s | view pill segment slide, row selection |
-| pill | spring 0.3 s, no bounce | recording pill appearing and growing |
+| level | ease out 0.1 s | the recording controls' level bars following the audio; none with Reduce Motion |
 
 Motion isn't measurable from stills; these are our defaults.
 
@@ -144,6 +145,12 @@ System font throughout (SF Pro, and SF Mono for times). The reference uses the s
 | monoTime | SF Mono | 12 | regular | 14 | meeting row time, event time |
 | monoSmall | SF Mono | 11 | regular | 13 | player time, transcript timestamp |
 | dayNumber | system | 28 | regular | 28 | Coming up day number (adapted) |
+| barState | system | 11 | semibold | 13 | the recording controls' state ("Recording", "Paused", "Audio lost", "Mic only") |
+| barTime | system, tabular digits | 11 | regular | 13 | the recording controls' time ("12:34 elapsed") |
+| barNote | system | 12 | regular | 16 | the note above the recording controls, the prompt's source line (both wrap) |
+| promptTitle | system | 15 | semibold | 21 | "Meeting detected" |
+| promptBody | system | 13 | regular | 21 | the prompt's question |
+| promptButton | system | 12 | semibold | 14 | Record meeting (Not now uses `label`) |
 
 Notes:
 
@@ -171,6 +178,8 @@ Source: SF Symbols, regular weight, at 14 pt (the reference's set is 12 to 15 pt
 | quick note mic | 14 | `mic` |
 | pause | 12 | `pause` |
 | stop | 12 | `stop` |
+| bar pause, bar resume | 9 | `pause.fill`, `play.fill` (the recording controls; Retry uses resume) |
+| bar stop | 7 | `stop.fill` |
 | date chip | 13 | `calendar` |
 | attendees chip | 15 | `person.2` |
 | back (settings) | 14 | `chevron.left` |
@@ -307,35 +316,42 @@ Organization part, adapted to this grid. It's the top of the canvas on a meeting
 | focused | 2 pt focus ring | text |
 | empty value | none | textSecondary, placeholder words |
 
-### Floating recording pill
+### Recording controls
 
-**The size is settled (84 × 34, no longer provisional); the behavior notes below are still to verify against a live capture.** The reference's floating window was 84 × 67 pt with a 42 × 33 pt stop control; ours keeps its width and drops to a single 34 pt capsule.
+**Approved by Derek on November 6, 2026 (the compact bar with a live level meter).** It replaces the 84 × 34 floating pill. Native audio contract: the bars come from the recording's own capture (both tracks), never a microphone of their own.
 
-- Capsule: 34 tall, never narrower than 84 (it hugs its contents, so `1:59:59` runs about 100), fully rounded (corner 17), `Ink.pillGround` (dark in both themes) with a 1 pt hairline in `Ink.onPillGround` at 18% so it still shows over a dark window, and a soft shadow below.
-- At rest: the 5-bar live wave (bars 2 wide, 2 apart, 3 to 12 tall, 18 across) in `Ink.recordingOnPill`, 12 from the leading end, 6 gap, then the elapsed time in `monoTime` in `Ink.onPillGround`, 12 from the trailing end. The wave reads the recorder's 10 Hz peak. The time ticks in a `TimelineView` inside the panel only, never in the menu bar.
-- Hover: the capsule grows to the left (the top right corner holds still), with `Motion.pill`, to show Pause then Stop as 28 round buttons (`Ink.onPillGround` icons at 12, a 15% ivory fill on hover, 40% when disabled), 3 from the trailing end. Pause is disabled until Phase 2 (help: "Pause is coming soon"). Stop's help is "Stop recording; transcription starts (⇧⌘R)".
-- Click the body: Silvanus comes forward on the recording meeting. Drag the body (3 pt to start): the pill moves with the pointer, and where it was left is saved in `AppDefaults` (`recordingPill.anchor`, the capsule's top trailing corner). A saved spot that's no longer on any screen falls back to the default, 16 in from the top right of the main screen's visible frame.
-- Warning or failure: an 8 pt dot ringed in `Ink.onPillGround` on the capsule's top trailing rim, `Ink.warning` for a warning and `Ink.recordingOnPill` for a failure. The text is the capsule's tooltip (and its VoiceOver value); the pill adds no line of its own. The same text shows in the main window's banner.
-- Failed: the wave goes flat, the time becomes "Stopped", the dot is red, and hover shows Close (`xmark`) instead of Pause and Stop. The pill stays until it's closed.
-- Stopping: a spinner for the wave, "Stopping" for the time, Stop disabled.
-- Panel: always on top, never takes focus, on every Space (and over full-screen apps), and shown only while recording when the main window isn't key. The window is 12 larger than the capsule on every side (room for the shadow and dot); it widens leftward on hover, holding the capsule's top right corner, and narrows again after the capsule has shrunk. The first click works without activating Silvanus.
-- VoiceOver: one element, "Recording, 12 minutes" (rounded down to the minute; "less than a minute" at the start), with the warning or failure as its value, Stop (Close when failed) as a named action, and open as the default action.
-- Contrast: `onPillGround` on `pillGround` is 17.4:1; the wave and the failure dot (`recordingOnPill`) and the warning dot are checked at 3:1 for graphics in the self-test, in both themes and both sets. The stopping spinner is drawn in the dark scheme.
-- While recording, the view pill's Transcript tab shows a small live wave (bars 2 wide, 2 apart, 3 to 12 tall) in `recordingText` instead of its icon, sampled 10 times a second.
+- Bar: 264 × 48, corner 13, opaque `Ink.barGround`, a 1 pt `Ink.barEdge` gold edge, and a soft offset shadow (radius 12, 4 down, midnight at 31%); the gold edge stays when shadows don't show. Inside 5, parts 6 apart.
+- Grip, leading: a 34 × 36 target, corner 8, with six 2 pt dots in `barTextSecondary` (4 across, 5 down, center to center), 3 gap, and the 18 pt scribe (the menu bar glyph as a template, `barText`). It's the only drag region; hover fills it `barRaised`. A plain click focuses it (the panel takes the keyboard only then); the arrow keys move the bar 8 pt (24 with Shift) and Home puts it back. VoiceOver: "Move recording controls", with Move left, right, up, down, and Reset position actions.
+- State and time, filling the middle (98 wide): a 5 pt dot (`barEdge` circle; a `barTextSecondary` square while paused), 5 gap, then the state in `barState` `barText`: "Recording", "Mic only" (call audio stopped; the microphone records alone), "Paused", or "Audio lost". Below it the captured time in `barTime` `barTextSecondary`, with "elapsed", "paused", or "stopped". The time leaves out pauses and lost audio, so it matches the saved audio, the transcript, and the notes' margin times. "Audio interrupted" (96 pt) doesn't fit at 11 pt, so the compact label is "Audio lost", as approved.
+- Level bars: five, 3 wide, 2 apart, 3 to 18 tall, centered in 26 × 24. Gold (`barEdge`) while there's sound; flat and `barTextSecondary` when it's quiet, paused, or audio is lost. They show the last five smoothed levels: RMS of both tracks' captured audio on a decibel scale (−50 dBFS flat to −12 dBFS full), rising at once and falling softly, sampled 10 times a second (at most 15). Reduce Motion shows a steady 30/60/90/60/30% shape while there's sound and no motion. Never announced.
+- Pause/Resume (Retry while audio is lost): 36 × 36, corner 8, outlined in `barTextSecondary` with a `barText` icon (`barPause`, `barResume`). Stop: 36 × 36, corner 8, `barText` fill with a `barGround` icon (`barStop`). Labels and tooltips: "Pause recording", "Resume recording", "Retry audio capture", "Stop recording".
+- The note: while paused ("Audio isn't being saved.") or with audio lost ("The microphone stopped. Check your audio devices, then retry."), a `barGround` card the bar's width sits 9 above it: `barNote` in `barText`, 14 × 10 inside, corner 10, a 1 pt `barTextSecondary` edge. The window grows upward for it; the bar holds still.
+- Pause releases both devices (the microphone indicator goes off) and Resume starts them again into the same tracks; a microphone that won't start again is Audio lost. Every release of the clock lines both tracks up with it: each pads its first buffer, or trims at most 50 ms off it, to the same instant, so different buffer sizes never drift apart. Retry after a failure that came while paused goes back to Paused. The note above the bar never moves the bar's saved spot.
+- Panel: non-activating, always on top, on every Space and over full-screen apps, left out of window cycling, and shown for the whole recording whichever app is in front, Silvanus included (a persistent companion; hiding it when Silvanus comes forward would make it flicker as focus moves between the call and the notes, and Pause lives here). Pause, Resume, Retry, and Stop never activate Silvanus or take the keyboard. Its title is "Silvanus recording controls". Hide Recording Controls (menu bar, Window menu) puts it away for this recording; Show Recording Controls brings it back.
+- Place: bottom center, 16 above the bottom of the visible frame (above the Dock), on the main window's display. Where it's dragged is saved per display (`AppDefaults` `recordingControls.positions` and `recordingControls.display`); it comes back on the display it was last left on while that's connected, else on the main window's display. It's kept inside the screen's visible frame (with room for the note), and comes back onto a screen when one is unplugged or changes size. Reset Recording Controls Position puts it back.
+- VoiceOver: the group is "Silvanus recording controls". The state reads as one element ("Recording", value "12 minutes", to the minute); state changes are announced once ("Paused. Audio isn't being saved.", "Recording resumed", "Audio lost. …", "Audio is back. Recording.", "Mic only. …", "Recording stopped"); the time and the bars never are.
+- While recording, the view pill's Transcript tab shows a small live wave (bars 2 wide, 2 apart, 3 to 12 tall) in `recordingText` instead of its icon, from the same meter.
 - After Stop, the canvas header shows "Transcribing…" (`label`, `textSecondary`) and a 64 × 4 bar (track `divider`, fill `accent`) before the mic.
-- My notes while recording: each line's time (`mm:ss`, `monoSmall`, `textSecondary`) in a 64 pt trailing margin, level with the line's first row. The text keeps x 221 and wraps before the margin. Identical lines share one time (the times are keyed by the line's text), and a moved line keeps its time.
+- My notes while recording: each line's captured time (`mm:ss`, `monoSmall`, `textSecondary`) in a 64 pt trailing margin, level with the line's first row. The text keeps x 221 and wraps before the margin. Identical lines share one time (the times are keyed by the line's text), and a moved line keeps its time.
 
-| State | Contents |
-| --- | --- |
-| idle | hidden (no AI bar in Silvanus) |
-| recording | wave, time counts up |
-| hover | grows to show Pause (disabled) and Stop |
-| warning | amber dot, text in the tooltip |
-| failed | red dot, "Stopped", hover shows Close |
-| paused | wave and time `onPillGround` at 60%, Pause becomes Resume (Phase 2) |
-| stopping | spinner, "Stopping", Stop disabled |
-| hover on a button | 15% ivory fill |
-| focused | 2 pt ivory focus ring on the focused button |
+| State | State line | Time | Bars | First button |
+| --- | --- | --- | --- | --- |
+| recording | gold dot, Recording | counts up, "elapsed" | follow the audio | Pause |
+| mic only | gold dot, Mic only (reason in the tooltip) | counts up, "elapsed" | follow the audio | Pause |
+| paused | muted square, Paused; note above | held, "paused" | flat, muted | Resume |
+| audio lost | gold dot, Audio lost; note above | held, "stopped" | flat, muted | Retry |
+| quiet | as recording | counts up | flat, muted | Pause |
+| hover | Pause: `barRaised` fill; Stop: 6% brighter; grip: `barRaised` | | | |
+| pressed | 5% dimmer | | | |
+| focused | a 2 pt `barEdge` ring 3 outside the button (the grip: inside its edge) | | | |
+
+### Meeting detected prompt
+
+- An in-app prompt in the recording controls' look: 364 wide, as tall as its words, 20 inside, corner 16, `barGround`, a 1 pt `barEdge` edge, the bar's shadow. Top right of the screen, 16 in.
+- The app icon at 42, 12 gap, then the title (`promptTitle`, `barText`) over the source line (`barNote`, `barTextSecondary`); 16 below, the question (`promptBody`, `barText`); 16 below, Not now and Record meeting on the trailing edge, 8 apart.
+- Words: "Meeting detected", "Silvanus · (App) is using your microphone", "Start recording this meeting?". The app's name is read at runtime, and only when one app is known to be using the microphone; otherwise "Microphone in use", "Silvanus", "Start a recording?", and Start recording. No calendar line yet.
+- Buttons: 40 tall, corner 8, 13 inside. Record meeting: `barEdge` fill, `barGround` text (`promptButton`). Not now: outlined in `barTextSecondary`, `barText` text (`label`), `barRaised` on hover. Focus: a 2 pt `barEdge` ring 3 outside.
+- Once per call, never during a recording, never focus-stealing, no countdown, never records on its own. Not now hides it for this call; the menu bar keeps Record Meeting until the call ends. It goes when the call ends or a recording starts.
 
 ### Notes canvas text
 
