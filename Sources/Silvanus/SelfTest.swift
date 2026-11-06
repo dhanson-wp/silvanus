@@ -48,6 +48,13 @@ enum SelfTest {
                   AppDefaults.shared.string(forKey: "settings.tab") == "appearance")
             check("the real defaults are left alone", UserDefaults.standard.string(forKey: "settings.tab") == saved)
 
+            let palette = Brand.palette
+            let unresolved = palette.tokens.flatMap { token in
+                [false, true].compactMap { palette.color(token, dark: $0) == nil ? "\(token)/\($0 ? "dark" : "light")" : nil }
+            }
+            check("Brand.palette resolves every token in both themes",
+                  !palette.tokens.isEmpty && unresolved.isEmpty, unresolved.joined(separator: ", "))
+
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
         }

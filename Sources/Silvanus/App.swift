@@ -42,12 +42,34 @@ struct SilvanusApp: App {
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
 
+        // Static on purpose: no timer and no changing label (a live label here has hung the menu bar).
+        MenuBarExtra {
+            MenuBarMenu()
+        } label: {
+            Image(nsImage: Brand.menuBarGlyph)
+        }
+        .menuBarExtraStyle(.menu)
+
         Settings {
             SettingsView()
                 .environment(model)
                 .themed()
         }
         .windowResizability(.contentSize)
+    }
+}
+
+/// The menu bar item's menu: bring the main window forward, or quit.
+struct MenuBarMenu: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Open Silvanus") {
+            NSApp.activate()
+            openWindow(id: "main")
+        }
+        Button("Quit Silvanus") { NSApplication.shared.terminate(nil) }
+            .keyboardShortcut("q")
     }
 }
 

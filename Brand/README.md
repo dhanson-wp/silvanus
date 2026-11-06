@@ -4,14 +4,18 @@ Everything that carries the brand comes from this folder. Until the real files
 arrive it holds a neutral placeholder in `placeholder/`: a plain rounded square
 with a gray "s", and a circle outline for the menu bar. Nothing here is designed.
 
+## Current brand
+
+The scribe icon and palette are in place. `Brand/` holds `app-icon.png` (the 1024 master), `app-icon.iconset/` (the ten production PNGs, packed into the `.icns` as is), `menubar.png` and `menubar@2x.png` (18 and 36 px, copied as is), and `colors.json` (the palette's colors and light and dark theme tokens, plus the gold `accent`). There's no `menubar-recording` glyph yet, so the recording state reuses the idle one. `placeholder/` stays as the fallback for anything missing.
+
 ## Files expected
 
 Drop these in `Brand/` (not in `placeholder/`). Each one that's present replaces
 its placeholder.
 
-- `app-icon.svg` (or a 1024 by 1024 `app-icon.png`): the Dock, Finder, and About icon. The artwork carries its own margin on the 1024 canvas; the placeholder's square is 824 wide, centered, which is Apple's macOS icon grid.
-- `menubar.svg`: a single-color template glyph for the menu bar, idle state, drawn on an 18 pt square. Any opaque color works; macOS tints it.
-- `menubar-recording.svg` (optional): the same glyph for the recording state.
+- `app-icon.iconset/` (the ten standard PNGs, used as is) or `app-icon.svg` (or a 1024 by 1024 `app-icon.png`): the Dock, Finder, and About icon. The artwork carries its own margin on the 1024 canvas; the placeholder's square is 824 wide, centered, which is Apple's macOS icon grid.
+- `menubar.png` and `menubar@2x.png` (copied as is) or `menubar.svg`: a single-color template glyph for the menu bar, idle state, drawn on an 18 pt square. Any opaque color works; macOS tints it.
+- `menubar-recording.svg` (optional): the same glyph for the recording state; without one, the idle glyph is reused.
 - `wordmark.svg` (optional): for the welcome window and About.
 - `colors.json` (optional): brand colors, for example `{"accent": "#2B6CB0"}`. These feed the accent token only; recording red and the neutral surfaces stay as the design kit measured them.
 

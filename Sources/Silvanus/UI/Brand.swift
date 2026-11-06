@@ -41,6 +41,13 @@ enum Brand {
         return UInt32(digits, radix: 16)
     }
 
+    /// The brand palette from the bundled `brand-colors.json`: theme tokens (`background`,
+    /// `text`, `accent`, ...) by name for the light and dark themes. Empty when the file is
+    /// missing. For the design kit to consume; no view reads it yet.
+    static var palette: BrandPalette {
+        BrandPalette(file: Bundle.main.url(forResource: "brand-colors", withExtension: "json"))
+    }
+
     private static func glyph(_ name: String, filled: Bool) -> NSImage {
         let image: NSImage
         if let bundled = NSImage(named: name) {
@@ -56,6 +63,34 @@ enum Brand {
         image.size = menuBarSize
         image.isTemplate = true
         return image
+    }
+}
+
+/// The brand's named colors and its light and dark theme tokens (`Brand/colors.json`).
+/// A theme maps each token name to a color name; `color(_:dark:)` resolves it to a `Color`.
+struct BrandPalette {
+    private let colors: [String: String]
+    private let light: [String: String]
+    private let dark: [String: String]
+
+    init(file: URL?) {
+        let json = file.flatMap { try? Data(contentsOf: $0) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let themes = json?["themes"] as? [String: [String: String]]
+        colors = json?["colors"] as? [String: String] ?? [:]
+        light = themes?["light"] ?? [:]
+        dark = themes?["dark"] ?? [:]
+    }
+
+    /// Every token name in either theme, sorted.
+    var tokens: [String] { Array(Set(light.keys).union(dark.keys)).sorted() }
+
+    /// The token's color in the light or dark theme; nil when the token or its color is unknown.
+    func color(_ token: String, dark isDark: Bool = false) -> Color? {
+        guard let name = (isDark ? dark : light)[token], let hex = colors[name] else { return nil }
+        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
+        return Color(hex: value)
     }
 }
 

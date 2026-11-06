@@ -1,0 +1,39 @@
+{
+  "colors": {
+    "midnight": "#17142C",
+    "ivory": "#F5EDDF",
+    "gold": "#C8AA73",
+    "paper": "#FFFBF5",
+    "parchment": "#E6DAC5",
+    "mutedInk": "#6D6674",
+    "mutedIvory": "#BCB4C5",
+    "raisedMidnight": "#252039"
+  },
+  "themes": {
+    "light": {
+      "background": "ivory",
+      "surface": "paper",
+      "navigation": "midnight",
+      "text": "midnight",
+      "textSecondary": "mutedInk",
+      "primaryControl": "midnight",
+      "onPrimary": "ivory",
+      "accent": "gold",
+      "divider": "parchment",
+      "focus": "midnight"
+    },
+    "dark": {
+      "background": "midnight",
+      "surface": "raisedMidnight",
+      "navigation": "midnight",
+      "text": "ivory",
+      "textSecondary": "mutedIvory",
+      "primaryControl": "ivory",
+      "onPrimary": "midnight",
+      "accent": "gold",
+      "divider": "mutedInk",
+      "focus": "gold"
+    }
+  },
+  "accent": "#C8AA73"
+}
