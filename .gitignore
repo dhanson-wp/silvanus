@@ -3,8 +3,9 @@
 DerivedData/
 *.xcuserstate
 .swiftpm/
-Resources/AppIcon.icns
-Resources/Assets.car
+# Generated from Brand/ by tools/brand.sh
+Resources/
+*.iconset/
 
 # Reference screenshots of other apps stay local
 design/reference/

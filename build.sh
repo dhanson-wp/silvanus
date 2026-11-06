@@ -51,20 +51,15 @@ rm -rf "${app:?}"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/$name"
 sed -e "s/__BUILD__/$(date +%Y%m%d%H%M)/" "$here/Info.plist.in" > "$app/Contents/Info.plist"
-# The icon: Icon/AppIcon.icon -> Resources/Assets.car + AppIcon.icns, rebuilt when it changed.
-# Compiling it needs actool, which comes with Xcode; with Command Line Tools
-# only, the build goes on without the icon.
-if [[ -d "$here/Icon/AppIcon.icon" ]]; then
-  car="$here/Resources/Assets.car"
-  if [[ ! -f "$car" || -n "$(find "$here/Icon/AppIcon.icon" -newer "$car" | head -1)" ]]; then
-    if xcrun --find actool >/dev/null 2>&1; then
-      "$here/tools/make_icon.sh"
-    else
-      echo "note: no actool (Command Line Tools only), so the bundle has no app icon"
-    fi
-  fi
-  [[ -f "$car" ]] && cp -X "$car" "$here/Resources/AppIcon.icns" "$app/Contents/Resources/"
+# The brand: Brand/ -> Resources/ (AppIcon.icns, menu bar images, brand-colors.json),
+# rebuilt by tools/brand.sh when anything in Brand/ or the renderer is newer than the outputs.
+icns="$here/Resources/AppIcon.icns"
+if [[ ! -f "$icns" || -n "$(find "$here/Brand" "$here/tools/brand.sh" "$here/tools/render_svg.swift" -type f -newer "$icns" | head -1)" ]]; then
+  "$here/tools/brand.sh" >/dev/null
 fi
+for file in AppIcon.icns menubar.png menubar@2x.png menubar-recording.png menubar-recording@2x.png brand-colors.json; do
+  [[ -f "$here/Resources/$file" ]] && cp -X "$here/Resources/$file" "$app/Contents/Resources/"
+done
 xattr -cr "$app"
 codesign --force --sign "$identity" "$app" 2>&1 | grep -v "replacing existing signature" || true
 echo "built $app (signed: ${identity})"

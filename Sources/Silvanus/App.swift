@@ -29,7 +29,16 @@ struct SilvanusApp: App {
         .commands {
             SidebarCommands()
             ToolbarCommands()
+            AboutCommand()
         }
+
+        Window("About Silvanus", id: "about") {
+            BrandAboutView()
+                .themed()
+                .noInitialFocus()
+        }
+        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
 
         Settings {
             SettingsView()
@@ -37,6 +46,17 @@ struct SilvanusApp: App {
                 .themed()
         }
         .windowResizability(.contentSize)
+    }
+}
+
+/// Replaces the standard About item with the About window (UI/Brand.swift).
+struct AboutCommand: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Silvanus") { openWindow(id: "about") }
+        }
     }
 }
 

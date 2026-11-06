@@ -12,7 +12,7 @@ is folders of plain files (Markdown and JSON), one folder per meeting.
 - `Sources/SilvanusKit/` rules and data logic with no SwiftUI. Tests in `Tests/SilvanusKitTests/`.
 - `Package.swift` a Swift package. FluidAudio (speech recognition) is pinned exactly and linked to the app target only.
 - `build.sh` builds and signs the dev bundle `~/Library/Developer/Silvanus/Silvanus.app`.
-- `Icon/AppIcon.icon` the app icon, an Icon Composer file. `tools/make_icon.sh` compiles it when `actool` (Xcode) is there; without it the build goes on with no icon.
+- `Brand/` the brand files (app icon, menu bar glyph, colors) with a neutral placeholder. `tools/brand.sh` renders them into the gitignored `Resources/`; `build.sh` runs it and copies the results into the bundle. Code reads them only through `Brand` (`UI/Brand.swift`). `tools/test-brand.sh` checks the script. See `Brand/README.md`.
 - `docs/STORIES.md` the user stories, `docs/GLOSSARY.md` every word on screen, `docs/FIXLOG.md` bugs worth remembering and the rule each one left.
 
 ## Build and check
@@ -23,7 +23,7 @@ is folders of plain files (Markdown and JSON), one folder per meeting.
 - Unit tests: `tools/test.sh` (adds the Command Line Tools flags Swift Testing needs).
 - Self-test (the app's real functions on a /tmp folder): `tools/selftest.sh`. Exit 0 when every check passes. Add a check for every story with logic in `SelfTest.swift`.
 - After every UI change, take snapshots and look at them: `tools/snap.sh`.
-  It writes `/tmp/Silvanus-shots/<page>-light.png` and `-dark.png` for every sidebar page, and `settings-<tab>-light.png` and `-dark.png` for every Settings tab, then quits. `APP_SNAPSHOT_PAGES=all,settings tools/snap.sh` limits the pages.
+  It writes `/tmp/Silvanus-shots/<page>-light.png` and `-dark.png` for every sidebar page, `settings-<tab>-light.png` and `-dark.png` for every Settings tab, and the brand set (`about-*`, `menubar-*`, `menubar-recording-*`), then quits. `APP_SNAPSHOT_PAGES=all,settings tools/snap.sh` limits the pages.
   For a panel, sheet, or popover, add a capture to `Snapshot.swift` like the Settings loop.
 - `snap.sh` and `selftest.sh` run the dev bundle's binary with `APP_STORE` in /tmp and `-ApplePersistenceIgnoreState YES`. Never run the installed app, never use `open` or `osascript` on it, and never delete its saved state.
 - Snapshots and the self-test refuse to run without `APP_STORE`. Never test against the real meetings folder.

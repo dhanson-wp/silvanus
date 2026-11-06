@@ -9,6 +9,7 @@ import SwiftUI
 /// settings-<tab>-light.png and settings-<tab>-dark.png for every Settings tab, then quits.
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "settings" to include Settings.
+/// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
 /// Add APP_ACCENT=<id> to see the pages in another accent.
 enum Snapshot {
     static func runIfRequested(model: AppModel, openSettings: OpenSettingsAction) {
@@ -53,11 +54,78 @@ enum Snapshot {
                     }
                 }
             }
+            if only == nil || only?.contains("brand") == true {
+                renderBrand(to: dir)
+            }
             print("SNAPSHOT done \(dir)")
             // An open sheet refuses terminate, and the run would wait forever.
             for window in NSApp.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
             NSApp.terminate(nil)
         }
+    }
+
+    /// The brand set: About in light and dark, and the menu bar glyphs (idle and
+    /// recording) on a light and a dark bar. Drawn straight from the views and
+    /// images, so no window or Screen Recording permission is needed.
+    ///   about-light.png, about-dark.png, menubar-light.png, menubar-dark.png,
+    ///   menubar-recording-light.png, menubar-recording-dark.png
+    @MainActor private static func renderBrand(to dir: String) {
+        for mode in ["light", "dark"] {
+            let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
+            NSApp.appearance = appearance
+            // About: the same view the About window shows, on the window background.
+            let host = NSHostingView(rootView: BrandAboutView().themed())
+            host.appearance = appearance
+            host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            var about: NSBitmapImageRep?
+            appearance.performAsCurrentDrawingAppearance {
+                about = bitmap(pixelsWide: Int(host.bounds.width * 2), pixelsHigh: Int(host.bounds.height * 2), size: host.bounds.size) { rect in
+                    NSColor.windowBackgroundColor.setFill()
+                    rect.fill()
+                    if let context = NSGraphicsContext.current {
+                        host.displayIgnoringOpacity(host.bounds, in: context)
+                    }
+                }
+            }
+            write(about, to: "\(dir)/about-\(mode).png")
+            // Menu bar: each glyph at 18 pt, 4x, in the bar's ink color on the bar's color.
+            let ink: NSColor = mode == "light" ? .black : .white
+            let bar: NSColor = mode == "light" ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.16, alpha: 1)
+            for (name, glyph) in [("menubar", Brand.menuBarGlyph), ("menubar-recording", Brand.menuBarRecordingGlyph)] {
+                let rep = bitmap(pixelsWide: 144, pixelsHigh: 96, size: NSSize(width: 36, height: 24)) { rect in
+                    bar.setFill()
+                    rect.fill()
+                    let tinted = NSImage(size: glyph.size, flipped: false) { r in
+                        glyph.draw(in: r)
+                        ink.set()
+                        r.fill(using: .sourceIn)
+                        return true
+                    }
+                    tinted.draw(in: NSRect(origin: NSPoint(x: 9, y: 3), size: Brand.menuBarSize))
+                }
+                write(rep, to: "\(dir)/\(name)-\(mode).png")
+            }
+        }
+    }
+
+    @MainActor private static func bitmap(pixelsWide: Int, pixelsHigh: Int, size: NSSize, draw: (NSRect) -> Void) -> NSBitmapImageRep? {
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixelsWide, pixelsHigh: pixelsHigh,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        draw(NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
+    private static func write(_ rep: NSBitmapImageRep?, to path: String) {
+        guard let data = rep?.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: URL(fileURLWithPath: path))
+        print("SNAPSHOT \(path)")
     }
 
     /// Captures the real window with screencapture, so glass, sidebars, and
