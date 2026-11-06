@@ -95,10 +95,20 @@ public final class MeetingLibrary {
         return try? MeetingInfo.decoder().decode(Transcript.self, from: data)
     }
 
-    /// Writes only `transcript.json`, atomically.
-    public func saveTranscript(_ t: Transcript, for id: String) throws {
+    /// Writes only `transcript.json`, atomically, and `transcript.md` too when `markdown`
+    /// is given. The notes, summary, to-dos, and details are never rewritten.
+    public func saveTranscript(_ t: Transcript, markdown: String? = nil, for id: String) throws {
         guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { throw NotFound(id: id) }
         try MeetingInfo.encoder().encode(t).write(to: folder.appending(path: MeetingFolder.transcriptJSON), options: .atomic)
+        if let markdown {
+            try Data(markdown.utf8).write(to: folder.appending(path: MeetingFolder.transcript), options: .atomic)
+        }
+    }
+
+    /// The meeting as it is on disk now, found there if this instance has not loaded it yet.
+    public func meeting(id: String) -> Meeting? {
+        guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { return nil }
+        return read(folder)
     }
 
     /// Writes only `meeting.json`, atomically: a rename or other detail change never

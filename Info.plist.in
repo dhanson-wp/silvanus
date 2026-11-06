@@ -13,4 +13,6 @@
 <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSMicrophoneUsageDescription</key><string>Silvanus records your microphone so your side of the call is in the transcript.</string>
+<key>NSAudioCaptureUsageDescription</key><string>Silvanus records call audio so the other people on the call are in the transcript.</string>
 </dict></plist>
