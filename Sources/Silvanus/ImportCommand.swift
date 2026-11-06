@@ -4,9 +4,9 @@ import SilvanusKit
 /// Headless Granola import for agents and the first real run.
 ///   APP_STORE=/tmp/Silvanus-import APP_IMPORT_GRANOLA=<archive dir> \
 ///     ~/Library/Developer/Silvanus/Silvanus.app/Contents/MacOS/Silvanus
-/// Reads `<archive>/raw/*.json` and `<archive>/folders.json` (docs/MIGRATION.md), writes
-/// meeting folders under APP_STORE, prints `imported N, skipped M, failed K` and the name
-/// of each file that failed, then quits. APP_ME_NAME names the microphone side (default "Me").
+/// Reads `<archive>/raw/*.json`, `mcp-gaps/*.json`, `folders.json`, and `mcp-folders.json` (docs/MIGRATION.md), writes
+/// meeting folders under APP_STORE, prints `imported N, skipped M, failed K` and each
+/// `failed: <file>: <reason>`, then quits. APP_ME_NAME names the microphone side (default: the Settings name, else "Me").
 /// Refuses unless APP_STORE is a folder under /tmp, so a trial run can't touch real meetings.
 enum ImportCommand {
     static var requested: Bool {
@@ -28,7 +28,7 @@ enum ImportCommand {
             print("IMPORT failed: no archive folder at \(archive.lastPathComponent)")
             return 1
         }
-        let me = env["APP_ME_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "Me"
+        let me = env["APP_ME_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? AppDefaults.meName
         let result = GranolaImport.run(archive: archive, library: MeetingLibrary(root: Store.root), me: me)
         print(result.summary)
         for f in result.failures { print("failed: \(f.file): \(f.reason)") }

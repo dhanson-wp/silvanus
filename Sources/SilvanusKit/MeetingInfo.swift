@@ -33,13 +33,15 @@ public struct MeetingInfo: Codable, Equatable, Sendable {
     /// "silvanus" for meetings recorded here, "granola" for imported ones.
     public var source: String
     public var granolaID: String?
+    /// The UUID in a Granola note's web link; ties an API note to its gap note.
+    public var granolaUUID: String?
     /// Speaker key to display name.
     public var speakers: [String: String]
     public var asr: ASRInfo?
 
     public init(id: String = UUID().uuidString.lowercased(), title: String, series: String = "",
                 start: Date, end: Date? = nil, attendees: [String] = [], folder: String? = nil,
-                source: String = "silvanus", granolaID: String? = nil,
+                source: String = "silvanus", granolaID: String? = nil, granolaUUID: String? = nil,
                 speakers: [String: String] = [:], asr: ASRInfo? = nil) {
         self.id = id
         self.title = title
@@ -50,6 +52,7 @@ public struct MeetingInfo: Codable, Equatable, Sendable {
         self.folder = folder
         self.source = source
         self.granolaID = granolaID
+        self.granolaUUID = granolaUUID
         self.speakers = speakers
         self.asr = asr
     }
@@ -57,6 +60,7 @@ public struct MeetingInfo: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, title, series, start, end, attendees, folder, source, speakers, asr
         case granolaID = "granola_id"
+        case granolaUUID = "granola_uuid"
     }
 
     static func encoder() -> JSONEncoder {
