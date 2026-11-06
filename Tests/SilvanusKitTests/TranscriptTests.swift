@@ -16,10 +16,10 @@ func clock(_ seconds: TimeInterval, text: String) {
 @Test("Word pieces join into words")
 func wordPieces() {
     let tokens: [(text: String, start: TimeInterval, end: TimeInterval, confidence: Float)] = [
-        ("▁Lo", 0.0, 0.2, 0.9), ("cus", 0.2, 0.4, 0.6), ("▁Mag", 0.5, 0.7, 0.95), (".", 0.7, 0.75, 0.99),
+        ("▁Pur", 0.0, 0.2, 0.9), ("ple", 0.2, 0.4, 0.6), ("▁Fox", 0.5, 0.7, 0.95), (".", 0.7, 0.75, 0.99),
     ]
     let w = TranscriptBuilder.words(fromTokens: tokens, offset: 10)
-    #expect(w.map(\.text) == ["Locus", "Mag."])
+    #expect(w.map(\.text) == ["Purple", "Fox."])
     #expect(w[0].start == 10 && w[0].end == 10.4)
     #expect(w[0].confidence == 0.6)
     let digits: [(text: String, start: TimeInterval, end: TimeInterval, confidence: Float)] = [

@@ -73,7 +73,7 @@ public enum TranscriptBuilder {
     }
 
     /// Groups one side's words into lines: a new line after a pause, or after
-    /// a sentence ends once the line is long enough.
+    /// a sentence ends once the line is long enough. The words must be sorted by start.
     public static func lines(_ words: [Word], side: Side, pause: TimeInterval = 1.2, maxLength: TimeInterval = 30) -> [TranscriptLine] {
         var lines: [TranscriptLine] = []
         var current: [Word] = []
@@ -115,9 +115,16 @@ public enum TranscriptBuilder {
     public static func build(me: [Word], them: [Word], engine: String) -> Transcript {
         let themLines = lines(them, side: .them)
         let meLines = lines(me, side: .me)
-        let kept = meLines.filter { !isEcho($0, them: themLines) }
-        let removed = meLines.filter { isEcho($0, them: themLines) }
-        return Transcript(lines: (kept + themLines).sorted { $0.start < $1.start }, removedEcho: removed, engine: engine)
+        var kept: [TranscriptLine] = []
+        var removed: [TranscriptLine] = []
+        for line in meLines {
+            if isEcho(line, them: themLines) { removed.append(line) } else { kept.append(line) }
+        }
+        // At equal start times my line comes first.
+        let ordered = (kept + themLines).sorted {
+            $0.start != $1.start ? $0.start < $1.start : ($0.side == .me && $1.side == .them)
+        }
+        return Transcript(lines: ordered, removedEcho: removed, engine: engine)
     }
 
     /// Lowercases a word and keeps only its letters, digits, and apostrophes.

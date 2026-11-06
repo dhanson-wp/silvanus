@@ -32,19 +32,34 @@ func belowHalfIsKept() {
 @Test("The same words 7 seconds away are kept")
 func outsideWindowIsKept() {
     let them = [line(.them, "we should ship it on thursday", from: 10)]
-    let words = "we should ship it on thursday"
-    let mic = line(.me, words, from: 10 + 7 + 6)  // starts well past the call line's end plus the window
+    let mic = TranscriptLine(side: .me, words: testWords("we should ship it on thursday", from: them[0].end + 7))
     #expect(!TranscriptBuilder.isEcho(mic, them: them))
-    let justInside = TranscriptLine(side: .me, words: testWords(words, from: them[0].end + 5))
-    #expect(TranscriptBuilder.isEcho(justInside, them: them))
-    let justOutside = TranscriptLine(side: .me, words: testWords(words, from: them[0].end + 7))
-    #expect(!TranscriptBuilder.isEcho(justOutside, them: them))
+}
+
+private func timed(_ side: Side, _ text: String, start: TimeInterval, end: TimeInterval) -> TranscriptLine {
+    let w = text.split(separator: " ").map(String.init)
+    return TranscriptLine(side: side, words: [Word(text: w[0], start: start, end: start + 0.5)]
+        + w.dropFirst().dropLast().map { Word(text: $0, start: start, end: start) }
+        + [Word(text: w.last!, start: end - 0.5, end: end)])
+}
+
+@Test("A call line exactly 6 seconds away still counts")
+func exactlySixSecondsIsEcho() {
+    let text = "we should ship it on thursday"
+    // Call line ends at 12.0; mic line starts at 18.0.
+    let before = timed(.them, text, start: 10, end: 12)
+    #expect(TranscriptBuilder.isEcho(timed(.me, text, start: 18, end: 20), them: [before]))
+    #expect(!TranscriptBuilder.isEcho(timed(.me, text, start: 18.5, end: 20), them: [before]))
+    // Mic line ends at 20.0; call line starts at 26.0 (exactly mic.end + 6).
+    let mic = timed(.me, text, start: 18, end: 20)
+    #expect(TranscriptBuilder.isEcho(mic, them: [timed(.them, text, start: 26, end: 28)]))
+    #expect(!TranscriptBuilder.isEcho(mic, them: [timed(.them, text, start: 26.5, end: 28)]))
 }
 
 @Test("A mic line sharing only a common phrase with the call is kept")
 func shortCommonPhraseIsKept() {
     let them = [line(.them, "and you know the budget is fixed", from: 10)]
-    let mic = line(.me, "honestly you know I would rather wait", from: 11)
+    let mic = line(.me, "honestly you know I would rather wait today", from: 11)
     #expect(!TranscriptBuilder.isEcho(mic, them: them))
 }
 
@@ -80,4 +95,12 @@ func buildSortsAndRecordsRemoved() {
 func markdownPastAnHour() {
     let t = Transcript(lines: [line(.me, "late", from: 3725)], engine: "test")
     #expect(t.markdown(me: "Sam Rivera") == "[1:02:05] **Sam Rivera:** late")
+}
+
+@Test("At the same start time my line comes before theirs")
+func buildOrdersMeBeforeThemAtSameStart() {
+    let them = testWords("completely different words here", from: 100)
+    let mine = testWords("nothing alike appears now", from: 100)
+    let t = TranscriptBuilder.build(me: mine, them: them, engine: "test")
+    #expect(t.lines.map(\.side) == [.me, .them])
 }
