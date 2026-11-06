@@ -12,7 +12,7 @@ import SwiftUI
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
-/// notes canvas, "transcript" for the Transcript view, "settings" for Settings.
+/// notes canvas, "summary" for the Summary view, "transcript" for the Transcript view, "settings" for Settings.
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
 /// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
 enum Snapshot {
@@ -58,6 +58,9 @@ enum Snapshot {
             }
             if only == nil || only?.contains("canvas") == true {
                 await captureCanvas(model: model, to: dir)
+            }
+            if only == nil || only?.contains("summary") == true {
+                await captureSummary(model: model, to: dir)
             }
             if only == nil || only?.contains("transcript") == true {
                 await captureTranscript(model: model, to: dir)
@@ -151,6 +154,29 @@ enum Snapshot {
         let open = main.contentView.map(editors) ?? []
         let other = model.meetings.last?.notes ?? ""
         print("SNAPSHOT canvas after picking another meeting: \(open.count) editor, showing it: \(open.map(\.string) == [other])")
+        model.selection = nil
+    }
+
+    /// The Summary view (⌘1) at 910 × 600:
+    ///   summary-<mode>.png        the recorded seed meeting: headings, bullets, bold, "## Imported summary"
+    ///   summary-empty-<mode>.png  a meeting with no summary yet
+    @MainActor private static func captureSummary(model: AppModel, to dir: String) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        model.sidebar = .all
+        model.sidebarVisible = true
+        main.setContentSize(Metric.windowDefault)
+        let empty = model.meetings.first { $0.id != SeedData.recordedID && $0.summary.isEmpty }?.id
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            model.selection = SeedData.recordedID
+            model.show(.summary)
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/summary-\(mode).png", window: main)
+            model.selection = empty
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/summary-empty-\(mode).png", window: main)
+        }
+        model.show(.notes)
         model.selection = nil
     }
 

@@ -130,6 +130,7 @@ enum SelfTest {
             await checkSettings(model: model)
             await checkNotesAcrossViews(model: model)
             await checkTranscript(model: model)
+            await checkSummary(model: model)
 
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
@@ -699,6 +700,99 @@ enum SelfTest {
 
         try? model.library.moveToTrash(recorded.id)
         try? model.library.moveToTrash(plain.id)
+        model.reload()
+    }
+
+    /// The Summary page: summary.md read back through the library, shown read-only in the
+    /// notes' styling under the meeting header, and never written (bytes and modification
+    /// time stay as they were after selecting, copying, and an attempt to type). Then the
+    /// open time of a 2,000-line summary. The look is checked by the snapshot run ("summary").
+    private static func checkSummary(model: AppModel) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else {
+            check("the main window is open for the Summary checks", false)
+            return
+        }
+        let text = "## Overview\nAgreed on **scope**.\n\n## Imported summary\n\n- one\n- two\n"
+        let withSummary = Meeting(info: MeetingInfo(id: "selftest-summary", title: "Acme kickoff", start: Date(timeIntervalSince1970: 1_793_975_400)), summary: text)
+        let without = Meeting(info: MeetingInfo(id: "selftest-no-summary", title: "Weekly sync", start: Date(timeIntervalSince1970: 1_793_971_800)))
+        _ = try? model.library.save(withSummary)
+        _ = try? model.library.save(without)
+        model.reload()
+        check("summary.md reads back through the library", model.library.readSummary(id: withSummary.id) == text)
+        check("a meeting without a summary reads none", (model.library.readSummary(id: without.id) ?? "").isEmpty)
+
+        let url = model.library.notesURL(for: withSummary.id)?.deletingLastPathComponent().appending(path: MeetingFolder.summary)
+        func stamp() -> (Data?, Date?) {
+            guard let url else { return (nil, nil) }
+            return (try? Data(contentsOf: url), (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date)
+        }
+        let before = stamp()
+        func editor() -> NotesTextView? { main.contentView.flatMap(NotesTextView.find) }
+        model.closeSettings()
+        model.sidebar = .all
+        model.selection = withSummary.id
+        // Set directly: show() animates, and an animated removal can wait on a display link.
+        model.canvasMode = .summary
+        await poll { editor()?.string == text }
+        let view = editor()
+        check("Summary shows summary.md in the notes' Markdown view", view?.string == text, view?.string.debugDescription ?? "no editor")
+        check("the Summary text is read-only, selectable, and findable",
+              view.map { !$0.isEditable && $0.isSelectable && $0.usesFindBar } == true)
+        let page = view?.superview as? HeaderedNotesView
+        check("Summary puts the meeting header above the text in one scroll view",
+              page != nil && page?.enclosingScrollView?.documentView === page
+              && (page?.header.frame.maxY ?? 0) <= (page?.textView.frame.minY ?? 0) + (view?.textContainerInset.height ?? 0))
+        check("VoiceOver calls the Summary text Summary", view?.accessibilityLabel() == "Summary", view?.accessibilityLabel() ?? "none")
+        if let view {
+            main.makeFirstResponder(view)
+            view.selectAll(nil)
+            view.insertText("typed", replacementRange: view.selectedRange())
+            view.deleteBackward(nil)
+            _ = view.toggleTask(at: 0)
+        }
+        check("typing into Summary changes nothing", editor()?.string == text, editor()?.string.debugDescription ?? "no editor")
+        try? await Task.sleep(for: .seconds(1.6))
+        let after = stamp()
+        check("the Summary page never writes summary.md",
+              before.0 != nil && before.0 == after.0 && before.1 == after.1,
+              "modified \(String(describing: before.1)) -> \(String(describing: after.1))")
+        check("the Summary page never writes notes.md", (model.library.readNotes(for: withSummary.id) ?? "").isEmpty)
+
+        model.selection = without.id
+        await poll { editor() == nil }
+        check("a meeting with no summary shows the empty state, not an editor", editor() == nil)
+
+        // Open time: read, style, lay out, and draw 2,000 lines in an off-screen window.
+        let long = (0..<2_000).map { line in
+            switch line % 10 {
+            case 0: "## Section \(line / 10)"
+            case 1, 5: "- A **decision** about the `staging` plan, line \(line), with _some_ words to wrap across the page when it runs long enough to need a second line."
+            default: "Line \(line) of the summary: Priya owns the plan and Sam shares the checklist by Friday."
+            }
+        }.joined(separator: "\n") + "\n"
+        let big = Meeting(info: MeetingInfo(id: "selftest-long-summary", title: "Acme planning day", start: Date()), summary: long)
+        _ = try? model.library.save(big)
+        let size = CGSize(width: Metric.windowDefault.width - Metric.canvasX, height: Metric.windowDefault.height - Metric.headerHeight)
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -6000, y: -6000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        let clock = ContinuousClock()
+        let open = clock.measure {
+            let read = MeetingLibrary(root: Store.root).readSummary(id: big.id) ?? ""
+            let host = NSHostingView(rootView: MarkdownEditor(text: .constant(read), readOnly: true).background(Ink.canvas))
+            host.frame = NSRect(origin: .zero, size: size)
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            host.display()
+        }
+        let ms = Double(open.components.attoseconds) / 1e15 + Double(open.components.seconds) * 1000
+        window.close()
+        print(String(format: "SUMMARY open 2,000 lines: %.1f ms", ms))
+        check("a 2,000-line summary opens in under 100 ms", ms < 100, String(format: "%.1f ms", ms))
+
+        model.selection = nil
+        model.canvasMode = .notes
+        for meeting in [withSummary, without, big] { try? model.library.moveToTrash(meeting.id) }
         model.reload()
     }
 

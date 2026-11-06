@@ -347,6 +347,17 @@ final class NotesTextView: NSTextView {
         }
     }
 
+    /// The Summary page's reader: the same styling and find bar, but nothing can be typed,
+    /// pasted, toggled, or dropped, and no spell check marks. It has no save path.
+    func makeReadOnly() {
+        isEditable = false
+        isSelectable = true
+        isContinuousSpellCheckingEnabled = false
+        allowsUndo = false
+        usesFindBar = true
+        isIncrementalSearchingEnabled = true
+    }
+
     var isTextKit2: Bool { textLayoutManager != nil && fallbacks == 0 }
 
     /// Replaces the whole text. The edit styles every paragraph once and clears undo.
@@ -363,6 +374,8 @@ final class NotesTextView: NSTextView {
     /// like a paste, so the undo stack still fits the text.
     func applyExternal(_ markdown: String) {
         guard let storage = textStorage else { return }
+        // A reader has no caret to keep and no undo: it just shows the new text.
+        if !isEditable { load(markdown); return }
         let change = TextChange.between(storage.string, markdown)
         guard !change.isEmpty else { return }
         let range = NSRange(location: change.range.lowerBound, length: change.range.count)
@@ -524,7 +537,7 @@ final class NotesTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let index = characterIndexForInsertion(at: point)
-        if event.clickCount == 1, event.modifierFlags.intersection([.shift, .command, .option]).isEmpty,
+        if isEditable, event.clickCount == 1, event.modifierFlags.intersection([.shift, .command, .option]).isEmpty,
            toggleTask(at: index) {
             return
         }

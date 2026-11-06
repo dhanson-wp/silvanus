@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The canvas for the open meeting, by the view pill's mode. Summary and My notes start with
 /// the meeting header (title and chips). On My notes the header is the top of the notes'
-/// scroll content (NotesCanvas); Summary shows its empty state until it lands; Transcript
+/// scroll content (NotesCanvas); Summary is SummaryView (read-only, same header); Transcript
 /// is TranscriptView, without the header.
 struct MeetingPage: View {
     @Environment(AppModel.self) private var model
@@ -15,7 +15,7 @@ struct MeetingPage: View {
         if let meeting {
             switch model.canvasMode {
             case .summary:
-                page(meeting) { emptyLine("No summary yet") }
+                SummaryView(meeting: meeting, header: AnyView(header(meeting)))
             case .notes:
                 NotesCanvas(meeting: meeting, documents: documents, header: AnyView(header(meeting)))
             case .transcript:
@@ -29,16 +29,6 @@ struct MeetingPage: View {
         }
     }
 
-    private func page(_ meeting: Meeting, @ViewBuilder body: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header(meeting)
-            body()
-            Spacer(minLength: 0)
-        }
-        // A new meeting gets a fresh header (no rename left half done on the last one).
-        .id(meeting.id)
-    }
-
     private func header(_ meeting: Meeting) -> some View {
         MeetingHeader(title: meeting.displayTitle, date: meeting.info.start, attendees: meeting.info.attendees,
                       folder: meeting.info.folder, folders: model.folders.map(\.name),
@@ -47,13 +37,5 @@ struct MeetingPage: View {
                       request: model.headerRequest, handled: model.headerRequestHandled)
             // The notes' scroll view hosts it outside this view's environment.
             .environment(model)
-    }
-
-    /// An empty page's one line, in `label` and `textSecondary` at the text's leading edge.
-    private func emptyLine(_ text: String) -> some View {
-        Text(text)
-            .kitType(.label)
-            .foregroundStyle(Ink.textSecondary)
-            .padding(.horizontal, Metric.contentX - Metric.canvasX)
     }
 }

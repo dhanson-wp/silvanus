@@ -334,3 +334,12 @@ private func names(_ folder: URL) -> [String] {
     try Data("{".utf8).write(to: folder.appending(path: MeetingFolder.transcriptJSON))
     #expect(lib.readTranscript(id: "one") == nil)
 }
+
+@Test func readSummaryReadsOnlySummaryMd() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let lib = library(root)
+    let m = kickoff()
+    try lib.save(m)
+    #expect(library(root).readSummary(id: m.id) == "Agreed on scope.")
+    #expect(library(root).readSummary(id: "no-such-meeting") == nil)
+}

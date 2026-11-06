@@ -79,6 +79,13 @@ public final class MeetingLibrary {
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
+    /// The meeting's `summary.md` as it is on disk now, or nil when the meeting is unknown or
+    /// the file is missing or can't be read. Read only: nothing in the app writes it after import.
+    public func readSummary(id: String) -> String? {
+        guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.summary) else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
     /// Writes only `notes.md`, atomically. The notes canvas saves this way so a summary,
     /// transcript, or details another app changed meanwhile are never overwritten with
     /// an older copy.
