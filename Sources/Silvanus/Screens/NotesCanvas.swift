@@ -11,7 +11,8 @@ struct NotesCanvas: View {
     /// The window's open notes. They outlive this view, so leaving My notes (Summary,
     /// Transcript, Settings) never drops typing still on its way to disk.
     let documents: OpenNotes
-    let header: AnyView
+    /// The meeting header; nil only on the reference-main snapshot.
+    let header: AnyView?
 
     var body: some View {
         NotesEditor(document: documents.open(meeting.id, model: model), header: header)

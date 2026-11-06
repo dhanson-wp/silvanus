@@ -305,7 +305,10 @@ struct EditorChecks {
         func font(at i: Int) -> NSFont? { attr(.font, at: i) as? NSFont }
         func color(at i: Int) -> NSColor? { attr(.foregroundColor, at: i) as? NSColor }
         func traits(at i: Int) -> NSFontTraitMask { font(at: i).map { NSFontManager.shared.traits(of: $0) } ?? [] }
-        func lineHeight(at i: Int) -> CGFloat? { (attr(.paragraphStyle, at: i) as? NSParagraphStyle)?.maximumLineHeight }
+        /// The line pitch: the line, plus the spacing that centers its glyphs (EditorStyle.paragraph).
+        func lineHeight(at i: Int) -> CGFloat? {
+            (attr(.paragraphStyle, at: i) as? NSParagraphStyle).map { $0.maximumLineHeight + $0.lineSpacing }
+        }
         func spin() { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
         /// Runs `body` as one undo group, as an event would.
         func grouped(_ body: () -> Void) {
@@ -328,6 +331,20 @@ struct EditorChecks {
               && lineHeight(at: 30) == 22, "weight \(weight(30)) vs bold \(weight(3))")
         check("list items sit 4 apart", (attr(.paragraphStyle, at: 52) as? NSParagraphStyle)?.paragraphSpacing == 4)
         check("text is Ink.text", color(at: 40) == style.text)
+        // Laid out, not just styled: wrapped body lines and list items land 24 and 28 apart
+        // (TextKit 2 once took a baseline offset off every body line: 21.5 apart).
+        reset(String(repeating: "Wrapped words go on and on. ", count: 40) + "\n- One\n- Two")
+        if let tlm = view.textLayoutManager {
+            tlm.ensureLayout(for: tlm.documentRange)
+            var tops: [CGFloat] = []
+            tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: []) { fragment in
+                tops += fragment.textLineFragments.map { fragment.layoutFragmentFrame.minY + $0.typographicBounds.minY }
+                return true
+            }
+            let wrapped = tops.count > 3 ? tops[1] - tops[0] : 0
+            let items = tops.count > 3 ? tops[tops.count - 1] - tops[tops.count - 2] : 0
+            check("wrapped body lines are 24 apart and list items 28", wrapped == 24 && items == 28, "\(wrapped) \(items)")
+        }
 
         // Format as you type.
         reset("")

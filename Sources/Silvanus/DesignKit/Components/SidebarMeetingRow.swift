@@ -5,8 +5,8 @@ import SwiftUI
 /// ellipsis, and the time in `monoTime`. Put it in a Button with `SidebarRowStyle`, which
 /// draws the pill and its states; the title turns medium when the row is selected.
 ///
-/// Without a folder line the row is 54 tall: title cap top at +12.75, time 20.5 below it.
-/// With one it's 72: folder line cap top at +11, title 20 below it, time 20.5 below that.
+/// Without a folder line the row is 54 tall: title cap top at +13.75, time 20.5 below it.
+/// With one it's 72: folder line cap top at +11.5, title 20 below it, time 20.5 below that.
 struct SidebarMeetingRow: View {
     let title: String
     let time: String

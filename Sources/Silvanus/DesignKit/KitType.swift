@@ -93,6 +93,16 @@ enum KitType: String, CaseIterable {
     /// already taller (dayNumber: 28 pt digits on a 28 pt line).
     var extraLeading: CGFloat { Self.leading[self] ?? 0 }
 
+    /// True when the font's own line is taller than the role's line box (dayNumber: 28 pt
+    /// digits draw a 33 pt line). Those roles are clamped to the box, so a single line takes
+    /// the height KIT.md gives it.
+    var clampsLine: Bool { Self.tallLine.contains(self) }
+
+    private static let tallLine: Set<KitType> = {
+        let layout = NSLayoutManager()
+        return Set(allCases.filter { layout.defaultLineHeight(for: $0.nsFont) > $0.lineHeight })
+    }()
+
     private static let leading: [KitType: CGFloat] = {
         let layout = NSLayoutManager()
         return Dictionary(uniqueKeysWithValues: allCases.map { type in
@@ -107,6 +117,7 @@ extension View {
         font(type.font)
             .lineSpacing(type.extraLeading)
             .padding(.vertical, type.extraLeading / 2)
+            .frame(height: type.clampsLine ? type.lineHeight : nil)
             .textCase(type.isUppercase ? .uppercase : nil)
     }
 }

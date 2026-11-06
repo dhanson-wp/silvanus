@@ -13,6 +13,8 @@ import SwiftUI
 /// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
 /// notes canvas, "summary" for the Summary view, "transcript" for the Transcript view, "settings" for Settings.
+/// "reference-main" (only when asked for by name) writes the reference-main page for the pixel
+/// compare (captureReferenceMain, tools/compare.sh).
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
 /// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
 enum Snapshot {
@@ -80,6 +82,9 @@ enum Snapshot {
                 }
                 model.closeSettings()
             }
+            if only?.contains("reference-main") == true {
+                await captureReferenceMain(model: model, to: dir)
+            }
             if only == nil || only?.contains("brand") == true {
                 renderBrand(to: dir)
             }
@@ -128,6 +133,36 @@ enum Snapshot {
         model.meetings = original
         model.sidebarVisible = true
         main.setContentSize(Metric.windowDefault)
+    }
+
+    /// The reference-main page, for the pixel compare against the reference capture
+    /// (tools/compare.sh, design/KIT.md "Compare"): reference-main-light.png and
+    /// reference-main-dark.png at 910 × 600, with SeedData.referenceMain's fictional meetings
+    /// laid out like the reference (seven rows under Yesterday, the sixth open on My notes,
+    /// no meeting header, no Folders section). Run it with APP_COLORS=reference. The meetings
+    /// are written to the scratch store; the sidebar lists only them.
+    @MainActor private static func captureReferenceMain(model: AppModel, to dir: String) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }), Store.isScratch else { return }
+        let meetings = SeedData.referenceMain()
+        for meeting in meetings { _ = try? model.library.save(meeting) }
+        let original = model.meetings
+        model.closeSettings()
+        model.sidebar = .all
+        model.folder = nil
+        model.sidebarVisible = true
+        model.referenceStage = true
+        model.meetings = meetings
+        model.canvasMode = .notes
+        model.selection = SeedData.referenceSelectedID
+        main.setContentSize(Metric.windowDefault)
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/reference-main-\(mode).png", window: main)
+        }
+        model.selection = nil
+        model.referenceStage = false
+        model.meetings = original
     }
 
     /// The notes canvas with the first seeded meeting open: canvas-light.png and

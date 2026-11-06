@@ -10,8 +10,17 @@ struct EditorStyle {
     let headingRoles: [KitType] = [.title, .heading, .subheading]
     /// List items sit 28 apart: a 24 pt line and 4 between items.
     let listItemSpacing: CGFloat = 4
-    /// Space above a heading that isn't the first line.
-    let headingSpaceBefore: CGFloat = 8
+    /// Space above a heading that isn't the first line, for H1, H2, and H3 (deeper headings
+    /// take H3's), and below every heading. From KIT.md "Notes canvas text": a list's last
+    /// line to the next H2 is 32 baseline to baseline, a paragraph (then an empty line) to an
+    /// H3 58.5, and a heading to its first item 28 to 30. H1 has no measure and keeps 8.
+    let headingSpaceBefore: [CGFloat] = [8, 5.5, 13.5]
+    let headingSpaceAfter: CGFloat = 3
+    /// KIT.md "Bullets": a top-level bullet's marker centers this far in from the text start,
+    /// and its text (and wrapped lines) start `bulletTextIndent` in, so the first letter's
+    /// ink lands at x 246 (the glyph's side bearing adds about a point).
+    let bulletCenter: CGFloat = 8
+    let bulletTextIndent: CGFloat = 24
     let tabInterval: CGFloat = 24
 
     /// Where the first line sits (KIT.md "Notes canvas text"): text starts at x 221 in the
@@ -46,30 +55,37 @@ struct EditorStyle {
     func headingRole(_ level: Int) -> KitType { headingRoles[min(level, headingRoles.count) - 1] }
     func headingFont(_ level: Int) -> NSFont { headings[min(level, headings.count) - 1] }
 
-    /// A paragraph whose lines are exactly `role`'s line height.
-    func paragraph(_ role: KitType, headIndent: CGFloat = 0, spaceBefore: CGFloat = 0, spaceAfter: CGFloat = 0) -> NSParagraphStyle {
+    /// A paragraph whose lines are `role`'s line height apart, with the glyphs centered in
+    /// each line box, as KIT.md measures (cap top 64, baseline 75.5, wrapped lines 24 apart).
+    /// TextKit puts a fixed line height's extra space above the glyphs, so each line is set
+    /// half the extra shorter and the other half goes in as line spacing. (A baseline offset
+    /// would center the glyphs too, but TextKit 2 takes it off the line's height: body lines
+    /// came out 21.5 apart, not 24.)
+    func paragraph(_ role: KitType, font: NSFont, headIndent: CGFloat = 0, firstLineHeadIndent: CGFloat = 0,
+                   spaceBefore: CGFloat = 0, spaceAfter: CGFloat = 0) -> NSParagraphStyle {
         let p = NSMutableParagraphStyle()
-        p.minimumLineHeight = role.lineHeight
-        p.maximumLineHeight = role.lineHeight
+        let lift = centering(font, role)
+        p.minimumLineHeight = role.lineHeight - lift
+        p.maximumLineHeight = role.lineHeight - lift
+        p.lineSpacing = lift
         p.defaultTabInterval = tabInterval
         p.tabStops = []
         p.headIndent = headIndent
+        p.firstLineHeadIndent = firstLineHeadIndent
         p.paragraphSpacingBefore = spaceBefore
         p.paragraphSpacing = spaceAfter
         return p
     }
 
-    /// TextKit puts a fixed line height's extra space above the glyphs, so the baseline
-    /// sits the font's descent above the line's bottom. Shifting glyphs up by half the
-    /// extra centers them in the line box, as KIT.md measures (cap top 64, baseline 75.5).
-    func baselineOffset(_ font: NSFont, _ role: KitType) -> CGFloat {
+    /// Half the space a role's line box adds to the font's own line: how far the glyphs move
+    /// up to sit centered in the box.
+    func centering(_ font: NSFont, _ role: KitType) -> CGFloat {
         let natural = ceil(font.ascender - font.descender + font.leading)
         return max(0, (role.lineHeight - natural) / 2)
     }
 
     var typing: [NSAttributedString.Key: Any] {
-        [.font: body, .foregroundColor: text, .paragraphStyle: paragraph(bodyRole),
-         .baselineOffset: baselineOffset(body, bodyRole)]
+        [.font: body, .foregroundColor: text, .paragraphStyle: paragraph(bodyRole, font: body)]
     }
 
 }
@@ -168,19 +184,33 @@ final class MarkdownStyler: NSObject {
         let runs = MarkdownStyle.lineRuns(line, offset: start)
 
         var base = style.typing
+        // A top-level bullet: the space after its marker is widened so the text starts at
+        // `bulletTextIndent` (where, and by how much).
+        var bulletKern: (at: Int, kern: CGFloat)?
         if let level = block.kind.headingLevel {
             let role = style.headingRole(level), font = style.headingFont(level)
             base[.font] = font
-            base[.paragraphStyle] = style.paragraph(role, spaceBefore: start == 0 ? 0 : style.headingSpaceBefore)
-            base[.baselineOffset] = style.baselineOffset(font, role)
+            base[.paragraphStyle] = style.paragraph(role, font: font,
+                                                    spaceBefore: start == 0 ? 0 : style.headingSpaceBefore[min(level, 3) - 1],
+                                                    spaceAfter: style.headingSpaceAfter)
         } else if block.kind != .paragraph {
             // Wrapped lines hang under the text, after the marker.
             let prefix = line.utf16.prefix(block.marker.upperBound)
             let width = NSAttributedString(string: String(prefix) ?? "", attributes: [.font: style.body]).size().width
-            base[.paragraphStyle] = style.paragraph(style.bodyRole, headIndent: ceil(width),
+            var headIndent = ceil(width), firstLine: CGFloat = 0
+            if block.kind == .bullet, block.indent.isEmpty, let bullet = bulletPlacement(line, block) {
+                headIndent = style.bulletTextIndent
+                firstLine = bullet.lead
+                bulletKern = (start + block.marker.upperBound - 1, bullet.kern)
+            }
+            base[.paragraphStyle] = style.paragraph(style.bodyRole, font: style.body, headIndent: headIndent,
+                                                    firstLineHeadIndent: firstLine,
                                                     spaceAfter: block.kind.isListItem ? style.listItemSpacing : 0)
         }
         storage.setAttributes(base, range: full)
+        if let bulletKern {
+            storage.addAttribute(.kern, value: bulletKern.kern, range: NSRange(location: bulletKern.at, length: 1))
+        }
 
         func nsRange(_ r: Range<Int>) -> NSRange { NSRange(location: r.lowerBound, length: r.count) }
         for run in runs {
@@ -222,6 +252,21 @@ final class MarkdownStyler: NSObject {
         // A span that just became code drops the spelling marks it had as plain words.
         for r in codeRanges { (textView as? NotesTextView)?.clearSpelling(in: r) }
         return full
+    }
+}
+
+extension MarkdownStyler {
+    /// Where a top-level bullet's marker goes (KIT.md "Bullets"): `lead` moves the dash so it
+    /// centers `bulletCenter` in, and `kern` widens the space after it so the text starts
+    /// `bulletTextIndent` in. Nil when the marker isn't one character and a space.
+    func bulletPlacement(_ line: Substring, _ block: MarkdownStyle.Block) -> (lead: CGFloat, kern: CGFloat)? {
+        guard block.marker.count == 2 else { return nil }
+        let marker = String(line.utf16.prefix(block.marker.upperBound).dropFirst(block.marker.lowerBound)) ?? ""
+        let attributes: [NSAttributedString.Key: Any] = [.font: style.body]
+        let dash = NSAttributedString(string: String(marker.prefix(1)), attributes: attributes).size().width
+        let whole = NSAttributedString(string: marker, attributes: attributes).size().width
+        let lead = max(0, style.bulletCenter - dash / 2)
+        return (lead, max(0, style.bulletTextIndent - lead - whole))
     }
 }
 
