@@ -248,17 +248,44 @@ enum SelfTest {
         check("Meeting has Rename Meeting… (⌃⌘R), Show Attendees (⌃⌘A), and Move to Folder",
               rename?.title == "Rename Meeting…" && attendees?.title == "Show Attendees" && move?.hasSubmenu == true,
               "\(rename?.title ?? "missing"), \(attendees?.title ?? "missing"), \(move?.title ?? "missing")")
-        let renames = model.renameRequest, shows = model.attendeesRequest
-        for item in [rename, attendees] {
+        // Each Meeting item works from Transcript, where the header isn't on screen yet: the
+        // request waits for the header to mount, and the header acts on it.
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        let newFolderItem = move?.submenu?.items.first { $0.title == "New Folder…" }
+        let cases: [(HeaderRequest, String, NSMenuItem?)] = [
+            (.rename, "Rename Meeting…", rename), (.attendees, "Show Attendees", attendees),
+            (.newFolder, "Move to Folder > New Folder…", newFolderItem),
+        ]
+        for (kind, title, item) in cases {
+            model.canvasMode = .transcript
+            try? await Task.sleep(for: .seconds(0.4))
+            let handledBefore = model.handledHeaderRequests.count
             if let item, let menu = item.menu { menu.performActionForItem(at: menu.index(of: item)) }
+            try? await Task.sleep(for: .seconds(0.8))
+            let consumed = model.headerRequest == nil && model.handledHeaderRequests.count == handledBefore + 1
+                && model.handledHeaderRequests.last == kind && model.canvasMode == .notes
+            let popovers = NSApp.windows.filter { $0.isVisible && $0.className.contains("Popover") }
+            let acted = switch kind {
+            case .rename: main.firstResponder is NSText
+            case .attendees: !popovers.isEmpty
+            case .newFolder: main.attachedSheet != nil || NSApp.windows.contains { $0.isVisible && $0 is NSPanel }
+            }
+            check("\(title) from Transcript opens My notes and the header acts on it", consumed && acted,
+                  "consumed \(consumed), acted \(acted), mode \(model.canvasMode)")
+            // Put things back: end the edit, close the popover and the prompt.
+            main.makeFirstResponder(nil)
+            popovers.forEach { $0.close() }
+            if let sheet = main.attachedSheet { main.endSheet(sheet) }
+            for panel in NSApp.windows where panel.isVisible && panel is NSPanel { panel.close() }
+            try? await Task.sleep(for: .seconds(0.4))
         }
-        try? await Task.sleep(for: .seconds(0.3))
-        check("Rename Meeting… and Show Attendees reach the meeting header",
-              model.renameRequest == renames + 1 && model.attendeesRequest == shows + 1)
-        // Close the rename field and the attendees popover the menu items opened.
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        for window in NSApp.windows where window.className.contains("Popover") { window.close() }
-        try? await Task.sleep(for: .seconds(0.3))
+        // ⌘F stays Edit > Find for the notes canvas; the Search placeholder has no shortcut.
+        let find = menuItem(key: "f", modifiers: [.command], in: NSApp.mainMenu)
+        let search = meetingMenu?.items.first { $0.title == "Search" }
+        let filter = meetingMenu?.items.first { $0.title == "Filter" }
+        check("⌘F is Edit > Find, and Search and Filter claim no shortcut",
+              find?.title.hasPrefix("Find") == true && search?.keyEquivalent == "" && filter?.keyEquivalent == "",
+              "⌘F: \(find?.title ?? "missing"), Search \(search?.keyEquivalent ?? "missing"), Filter \(filter?.keyEquivalent ?? "missing")")
 
         model.rename(id, to: "  Acme   kickoff  ")
         let reread = model.library.loadAll().meetings.first { $0.id == id }

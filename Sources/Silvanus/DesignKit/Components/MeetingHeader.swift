@@ -1,5 +1,11 @@
 import SwiftUI
 
+/// A Meeting menu item the meeting header carries out: Rename Meeting…, Show Attendees, or
+/// Move to Folder > New Folder….
+enum HeaderRequest: Equatable {
+    case rename, attendees, newFolder
+}
+
 /// KIT.md "Meeting header": where the title and chip row sit.
 extension Metric {
     /// The title's cap top below the canvas's top (y 65 in the window, under the 46 pt header).
@@ -20,9 +26,9 @@ extension Metric {
 ///
 /// Click the title (or Tab to it and press Space) to rename the meeting; Return keeps the
 /// new title, Escape puts the old one back, and clicking away keeps it. An empty title puts
-/// the old one back. Changing a request counter (`renameRequest`, `attendeesRequest`,
-/// `newFolderRequest`) does what its menu item asks: Meeting > Rename Meeting…, Show
-/// Attendees, and Move to Folder > New Folder….
+/// the old one back. `request` carries a Meeting menu item (Rename Meeting…, Show Attendees,
+/// Move to Folder > New Folder…): the header acts on it when it appears or when it changes,
+/// then calls `handled`, so a request made before the header was on screen still lands.
 struct MeetingHeader: View {
     let title: String
     let date: Date
@@ -32,12 +38,13 @@ struct MeetingHeader: View {
     var folders: [String] = []
     var rename: (String) -> Void = { _ in }
     var chooseFolder: (String?) -> Void = { _ in }
-    var renameRequest = 0
-    var attendeesRequest = 0
-    var newFolderRequest = 0
+    var request: HeaderRequest?
+    var handled: () -> Void = {}
 
     @State private var editing = false
     @State private var draft = ""
+    @State private var showingAttendees = false
+    @State private var namingFolder = false
     @FocusState private var fieldFocused: Bool
 
     /// The chip row's top below the canvas's top: under the title's lowest descender.
@@ -57,15 +64,29 @@ struct MeetingHeader: View {
             titleView
                 .capTop(Metric.headerTitleCapTop, .title)
             HStack(spacing: Metric.chipSpacing) {
-                DateChip(date: Self.dateText(date), attendees: attendees, showRequest: attendeesRequest)
+                DateChip(date: Self.dateText(date), attendees: attendees, showing: $showingAttendees)
                     .fixedSize()
-                FolderChip(folder: folder, folders: folders, newFolderRequest: newFolderRequest, choose: chooseFolder)
+                FolderChip(folder: folder, folders: folders, naming: $namingFolder, choose: chooseFolder)
                     .layoutPriority(-1)
             }
             .padding(.top, Self.chipRowTop)
         }
         .padding(.horizontal, Metric.contentX - Metric.canvasX)
-        .onChange(of: renameRequest) { startEditing() }
+        .onAppear {
+            // Once the header is in the window, so a popover or prompt has somewhere to open.
+            DispatchQueue.main.async { act(on: request) }
+        }
+        .onChange(of: request) { _, new in act(on: new) }
+    }
+
+    private func act(on request: HeaderRequest?) {
+        guard let request else { return }
+        switch request {
+        case .rename: startEditing()
+        case .attendees: showingAttendees = true
+        case .newFolder: namingFolder = true
+        }
+        handled()
     }
 
     private func startEditing() {

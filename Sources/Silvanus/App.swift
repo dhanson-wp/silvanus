@@ -39,6 +39,8 @@ struct SilvanusApp: App {
             SidebarCommand(model: model)
             MeetingCommands(model: model)
             AboutCommand()
+            // Edit > Find (⌘F), Find and Replace (⌥⌘F), and the rest, for the notes canvas.
+            TextEditingCommands()
         }
 
         Window("About Silvanus", id: "about") {
@@ -93,7 +95,7 @@ struct SidebarCommand: Commands {
 }
 
 /// File > New Meeting (⌘N), Start Recording (⇧⌘R), and Quick Note (⌥⌘N); Meeting > Rename
-/// Meeting… (⌃⌘R), Show Attendees (⌃⌘A), Move to Folder, Search (⌘F), and Filter (⌥⌘F);
+/// Meeting… (⌃⌘R), Show Attendees (⌃⌘A), Move to Folder, Search, and Filter;
 /// View > Summary, My notes, and Transcript (⌘1, ⌘2, ⌘3), which switch the canvas like the
 /// view pill. Meeting items are disabled with no meeting open; recording items until
 /// recording is wired in; Search and Filter until they land.
@@ -128,12 +130,11 @@ struct MeetingCommands: Commands {
             }
             .disabled(meeting == nil)
             Divider()
-            // Placeholders until search and filtering land.
+            // Placeholders until search and filtering land. No shortcuts yet: ⌘F and ⌥⌘F
+            // belong to Edit > Find and Find and Replace in the notes canvas.
             Button("Search") {}
-                .keyboardShortcut("f")
                 .disabled(true)
             Button("Filter") {}
-                .keyboardShortcut("f", modifiers: [.option, .command])
                 .disabled(true)
         }
         CommandGroup(before: .sidebar) {

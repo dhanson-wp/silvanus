@@ -148,15 +148,14 @@ struct FolderMenuItems: View {
 }
 
 /// The folder chip, the one place a meeting's folder is set on screen: it opens the folder
-/// menu (`FolderMenuItems`). New Folder… asks for a name. A change to `newFolderRequest`
-/// (Meeting > Move to Folder > New Folder…) asks too.
+/// menu (`FolderMenuItems`). New Folder… asks for a name; `naming` shows that prompt, so
+/// the meeting header can open it for Meeting > Move to Folder > New Folder….
 struct FolderChip: View {
     let folder: String?
     let folders: [String]
-    var newFolderRequest = 0
+    @Binding var naming: Bool
     let choose: (String?) -> Void
 
-    @State private var naming = false
     @State private var newName = ""
 
     private var trimmed: String { newName.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -172,7 +171,7 @@ struct FolderChip: View {
         .buttonStyle(ChipButtonStyle())
         .help(folder == nil ? "Add this meeting to a folder" : "Move this meeting to another folder")
         .accessibilityLabel(folder.map { "Folder: \($0)" } ?? "Add to folder")
-        .onChange(of: newFolderRequest) { askForName() }
+        .onChange(of: naming) { _, asking in if asking { newName = "" } }
         .alert("New Folder", isPresented: $naming) {
             TextField("Name", text: $newName)
             Button("Create") { choose(trimmed) }
@@ -189,14 +188,12 @@ struct FolderChip: View {
     }
 }
 
-/// The date chip, with the attendees in a popover: a click lists who was there. A change to
-/// `showRequest` (Meeting > Show Attendees) opens it too.
+/// The date chip, with the attendees in a popover: a click lists who was there. `showing`
+/// is the popover, so the meeting header can open it for Meeting > Show Attendees.
 struct DateChip: View {
     let date: String
     let attendees: [String]
-    var showRequest = 0
-
-    @State private var showing = false
+    @Binding var showing: Bool
 
     var body: some View {
         Button {
@@ -207,7 +204,6 @@ struct DateChip: View {
         .buttonStyle(ChipButtonStyle())
         .help(attendees.isEmpty ? "No attendees" : "Show who was there")
         .accessibilityLabel(accessibilityText)
-        .onChange(of: showRequest) { showing = true }
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             AttendeesList(attendees: attendees)
         }

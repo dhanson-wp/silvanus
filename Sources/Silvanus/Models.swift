@@ -76,11 +76,12 @@ final class AppModel {
     var isRecording = false
     /// False until recording is wired in: Start Recording and Quick Note show disabled.
     let canRecord = false
-    /// Bumped by Meeting > Rename Meeting…, Show Attendees, and Move to Folder > New Folder…;
-    /// the meeting header answers each change.
-    private(set) var renameRequest = 0
-    private(set) var attendeesRequest = 0
-    private(set) var newFolderRequest = 0
+    /// A Meeting menu item waiting for the meeting header (Rename Meeting…, Show Attendees,
+    /// Move to Folder > New Folder…). It stays until the header acts on it, so a request made
+    /// from Transcript, where the header isn't on screen, lands once the header appears.
+    var headerRequest: HeaderRequest?
+    /// How many requests the header has carried out. The self-test reads it.
+    @ObservationIgnored private(set) var handledHeaderRequests: [HeaderRequest] = []
     /// Settings reopens on the last tab. Test and snapshot runs use their own defaults.
     var settingsTab: SettingsTab = SettingsTab(rawValue: AppDefaults.shared.string(forKey: "settings.tab") ?? "") ?? .general {
         didSet { AppDefaults.shared.set(settingsTab.rawValue, forKey: "settings.tab") }
@@ -157,15 +158,22 @@ extension AppModel {
 
     /// Meeting > Rename Meeting…: the open meeting's title turns editable. The header lives
     /// on Summary and My notes, so Transcript switches to My notes first.
-    func requestRename() { revealHeader(); renameRequest += 1 }
+    func requestRename() { request(.rename) }
 
     /// Meeting > Show Attendees: opens the date chip's list of attendees.
-    func requestAttendees() { revealHeader(); attendeesRequest += 1 }
+    func requestAttendees() { request(.attendees) }
 
     /// Meeting > Move to Folder > New Folder…: asks for a folder name.
-    func requestNewFolder() { revealHeader(); newFolderRequest += 1 }
+    func requestNewFolder() { request(.newFolder) }
 
-    private func revealHeader() {
+    /// The meeting header calls this once it has acted on `headerRequest`.
+    func headerRequestHandled() {
+        if let headerRequest { handledHeaderRequests.append(headerRequest) }
+        headerRequest = nil
+    }
+
+    private func request(_ request: HeaderRequest) {
+        headerRequest = request
         if canvasMode == .transcript { show(.notes) }
     }
 

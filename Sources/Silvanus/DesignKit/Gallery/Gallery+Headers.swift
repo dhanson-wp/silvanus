@@ -45,11 +45,11 @@ struct HeadersGallery: View {
                         RecordButton {}
                     }
                     row("Date chip") {
-                        DateChip(date: MeetingHeader.dateText(Self.date), attendees: ["Sam Rivera", "Priya Natarajan", "Jordan Lee"])
+                        DateChip(date: MeetingHeader.dateText(Self.date), attendees: ["Sam Rivera", "Priya Natarajan", "Jordan Lee"], showing: .constant(false))
                     }
-                    row("No attendees") { DateChip(date: MeetingHeader.dateText(Self.date), attendees: []) }
-                    row("Folder chip") { FolderChip(folder: "Clients", folders: ["Clients"]) { _ in } }
-                    row("No folder") { FolderChip(folder: nil, folders: []) { _ in } }
+                    row("No attendees") { DateChip(date: MeetingHeader.dateText(Self.date), attendees: [], showing: .constant(false)) }
+                    row("Folder chip") { FolderChip(folder: "Clients", folders: ["Clients"], naming: .constant(false)) { _ in } }
+                    row("No folder") { FolderChip(folder: nil, folders: [], naming: .constant(false)) { _ in } }
                     ForEach(CanvasMode.allCases) { mode in
                         row("View pill, \(mode.title)") { ViewPill(mode: .constant(mode)) }
                     }
