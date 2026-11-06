@@ -46,17 +46,78 @@ public struct NotesSync: Equatable, Sendable {
     /// The text in `notes.md` as of the last save or reload.
     public private(set) var lastSaved: String
 
+    /// What to do about a change on disk.
+    public enum Action: Equatable, Sendable {
+        /// Nothing: our own write, an unreadable file, or the editor already shows it.
+        case none
+        /// Nothing unsaved in the editor: show the disk text.
+        case show(String)
+        /// Unsaved typing and the disk change touch different lines: show the merge, then save it.
+        case merged(String)
+        /// Both changed the same lines: keep the typing, keep `theirs` in a conflict copy, then save.
+        case conflict(theirs: String)
+    }
+
     public init(loaded: String) { lastSaved = loaded }
 
     /// The canvas wrote `text` to disk.
     public mutating func saved(_ text: String) { lastSaved = text }
 
-    /// `notes.md` changed on disk (`nil` when it can't be read). Returns the text to
-    /// load into the editor, or nil to keep the editor as it is. Unsaved typing wins:
-    /// it is written over the disk change at the next save.
-    public mutating func diskChanged(to disk: String?, editor: String, editorDirty: Bool) -> String? {
-        guard let disk, disk != lastSaved, !editorDirty else { return nil }
+    /// `notes.md` changed on disk (`nil` when it can't be read, as when it's missing:
+    /// never mistaken for an empty note). `editorDirty` is true when the editor holds
+    /// typing not yet saved.
+    public mutating func diskChanged(to disk: String?, editor: String, editorDirty: Bool) -> Action {
+        guard let disk, disk != lastSaved else { return .none }
+        let base = lastSaved
         lastSaved = disk
-        return disk == editor ? nil : disk
+        guard editorDirty else { return disk == editor ? .none : .show(disk) }
+        let merge = TextMerge.threeWay(base: base, ours: editor, theirs: disk)
+        return merge.conflict ? .conflict(theirs: disk) : .merged(merge.merged)
+    }
+}
+
+/// A line-based three-way merge. Each side's change from the base is taken as one
+/// block of lines (from its first changed line to its last); when the two blocks
+/// don't overlap both are applied, otherwise it's a conflict and `merged` is ours.
+/// Coarse on purpose: two edits far apart on one side count as one block, so the
+/// merge can call a conflict it could have resolved, but never drops a side's text.
+public enum TextMerge {
+    public static func threeWay(base: String, ours: String, theirs: String) -> (merged: String, conflict: Bool) {
+        if ours == theirs { return (ours, false) }
+        if ours == base { return (theirs, false) }
+        if theirs == base { return (ours, false) }
+        let b = lines(base), o = lines(ours), t = lines(theirs)
+        let a = block(b, o), c = block(b, t)
+        let overlap = (a.range.lowerBound < c.range.upperBound && c.range.lowerBound < a.range.upperBound)
+            || a.range.lowerBound == c.range.lowerBound
+        guard !overlap else { return (ours, true) }
+        // Apply the later block first, so the earlier one's line numbers still hold.
+        var merged = b
+        for edit in [a, c].sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
+            merged.replaceSubrange(edit.range, with: edit.lines)
+        }
+        return (merged.joined(), false)
+    }
+
+    /// The lines of a text, each with its newline (the last may have none).
+    static func lines(_ text: String) -> [String] {
+        var out: [String] = []
+        var current = ""
+        for c in text {
+            current.append(c)
+            if c == "\n" { out.append(current); current = "" }
+        }
+        if !current.isEmpty { out.append(current) }
+        return out
+    }
+
+    /// The base lines a side replaced, and what it put there.
+    private static func block(_ base: [String], _ side: [String]) -> (range: Range<Int>, lines: [String]) {
+        var prefix = 0
+        while prefix < base.count, prefix < side.count, base[prefix] == side[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < base.count - prefix, suffix < side.count - prefix,
+              base[base.count - 1 - suffix] == side[side.count - 1 - suffix] { suffix += 1 }
+        return (prefix..<(base.count - suffix), Array(side[prefix..<(side.count - suffix)]))
     }
 }

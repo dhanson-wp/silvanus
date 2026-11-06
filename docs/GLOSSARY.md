@@ -27,3 +27,6 @@ Every word Silvanus puts on screen. One name per idea.
 | Microphone access / System audio access | The two macOS permissions Silvanus needs | Mic permission, Screen Recording |
 | Folder | A group of meetings the user makes | Project, Space, Tag |
 | Move to Trash | Remove a meeting so it can be restored from the Trash | Delete (unless it can't come back) |
+| Pick a meeting or start one | What the canvas says when no meeting is selected | Select a note, Nothing selected |
+| Couldn't save notes: (reason) | The banner over My notes when writing notes.md fails; the reason is the system's | Save error, Sync failed |
+| Retry | Try the failed save again, from that banner | Try again, Resave |

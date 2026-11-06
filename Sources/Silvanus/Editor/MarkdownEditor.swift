@@ -25,6 +25,7 @@ struct MarkdownEditor: NSViewRepresentable {
         coordinator.view = view
         view.load(text)
         coordinator.known = text
+        view.onCharactersChanged = { [weak coordinator] in coordinator?.edited() }
         link?.attach(view: view, coordinator: coordinator)
         onReady?(view)
         return scroll
@@ -65,9 +66,12 @@ struct MarkdownEditor: NSViewRepresentable {
 
         var hasUnpushedEdits: Bool { version != pushedVersion }
 
-        /// A keystroke: count it and make sure a push is coming. No copy of the text.
-        func textDidChange(_ notification: Notification) {
+        /// A change to the characters (typing, paste, undo, redo): count it and make sure
+        /// a push is coming. No copy of the text. Undo and redo don't always reach
+        /// `textDidChange`, so this hangs off the storage's own edits.
+        func edited() {
             guard !taking else { return }
+            parent.link?.onTyping?()
             version += 1
             lastEdit = CFAbsoluteTimeGetCurrent()
             schedulePush(after: parent.pushDelay)
@@ -107,11 +111,8 @@ struct MarkdownEditor: NSViewRepresentable {
             known = text
             taking = true
             defer { taking = false }
-            if view.string.isEmpty || text.isEmpty {
-                view.load(text)
-            } else {
-                view.applyExternal(text)
-            }
+            // In place and undoable, even when the new text is empty: never a reload.
+            view.applyExternal(text)
             // Typing the binding never saw is replaced along with the rest.
             pushedVersion = version
         }
@@ -137,6 +138,10 @@ struct MarkdownEditor: NSViewRepresentable {
 
     /// True when the view holds typing the binding hasn't seen.
     var hasUnpushedEdits: Bool { coordinator?.hasUnpushedEdits ?? false }
+
+    /// Called on each keystroke (cheap: nothing is copied), so the owner can bound how
+    /// long typing stays unsaved.
+    var onTyping: (() -> Void)?
 
     /// Shows `text` (from disk) right away, keeping the caret on the same words.
     func show(_ text: String) { coordinator?.take(text) }

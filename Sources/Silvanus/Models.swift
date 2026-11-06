@@ -61,6 +61,13 @@ extension AppModel {
         withAnimation(Motion.select) { sidebarVisible.toggle() }
     }
 
+    /// The notes canvas saved a meeting's notes: keep the app's copy the same, so nothing
+    /// that saves the meeting later writes older notes.
+    func notesSaved(_ text: String, for id: String) {
+        guard let index = meetings.firstIndex(where: { $0.id == id }) else { return }
+        meetings[index].notes = text
+    }
+
     func reload() {
         let loaded = library.loadAll()
         meetings = loaded.meetings

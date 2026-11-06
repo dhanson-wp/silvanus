@@ -238,6 +238,7 @@ extension MarkdownStyler: @MainActor NSTextStorageDelegate {
         let last = ns.paragraphRange(for: NSRange(location: min(NSMaxRange(editedRange), ns.length), length: 0))
         let touched = NSUnionRange(first, last)
         pending = pending.map { NSUnionRange($0, touched) } ?? touched
+        (textView as? NotesTextView)?.onCharactersChanged?()
         shiftActive(editedRange: editedRange, delta: delta, touched: touched)
         // Edits that never reach didChangeText (setting `string`) still get styled.
         DispatchQueue.main.async { [weak self] in self?.restylePending() }
@@ -290,6 +291,8 @@ final class NotesTextView: NSTextView {
     /// For the checks: whole-text loads, and changes from disk applied in place.
     private(set) var loads = 0
     private(set) var externalChanges = 0
+    /// Called for every change to the characters: typing, paste, undo and redo alike.
+    var onCharactersChanged: (() -> Void)?
     private var fallbackObserver: NSObjectProtocol?
 
     /// A scroll view holding a TextKit 2 notes view, set up for Markdown.

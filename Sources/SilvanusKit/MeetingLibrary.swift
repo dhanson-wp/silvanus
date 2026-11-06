@@ -70,11 +70,11 @@ public final class MeetingLibrary {
         return folders[id]?.appending(path: MeetingFolder.notes)
     }
 
-    /// The meeting's notes as they are on disk now, or nil when the meeting is unknown.
-    /// A meeting whose `notes.md` is missing has empty notes.
+    /// The meeting's notes as they are on disk now, or nil when the meeting is unknown or
+    /// `notes.md` can't be read (missing, mid-replace, not UTF-8). Nil is never "empty".
     public func readNotes(for id: String) -> String? {
         guard let url = notesURL(for: id) else { return nil }
-        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return try? String(contentsOf: url, encoding: .utf8)
     }
 
     /// Writes only `notes.md`, atomically. The notes canvas saves this way so a summary,
@@ -83,6 +83,37 @@ public final class MeetingLibrary {
     public func saveNotes(_ notes: String, for id: String) throws {
         guard let url = notesURL(for: id) else { throw NotFound(id: id) }
         try Data(notes.utf8).write(to: url, options: .atomic)
+    }
+
+    /// Writes only `meeting.json`, atomically: a rename or other detail change never
+    /// rewrites the notes, summary, to-dos, or transcript from an older copy.
+    public func saveInfo(_ m: Meeting) throws {
+        if folders[m.id] == nil, let found = findFolder(for: m.id) { folders[m.id] = found }
+        guard let folder = folders[m.id] else { throw NotFound(id: m.id) }
+        try MeetingInfo.encoder().encode(m.info).write(to: folder.appending(path: MeetingFolder.info), options: .atomic)
+    }
+
+    /// Keeps another app's version of the notes beside `notes.md`, as
+    /// `notes.conflict-<yyyyMMdd-HHmmss>.md` (a number added if that name is taken), when
+    /// it couldn't be merged with unsaved typing. Returns where it went.
+    @discardableResult
+    public func saveConflictCopy(_ text: String, for id: String, at date: Date = Date()) throws -> URL {
+        guard let notes = notesURL(for: id) else { throw NotFound(id: id) }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let folder = notes.deletingLastPathComponent()
+        let stamp = formatter.string(from: date)
+        var url = folder.appending(path: "notes.conflict-\(stamp).md")
+        var n = 2
+        while fm.fileExists(atPath: url.path) {
+            url = folder.appending(path: "notes.conflict-\(stamp)-\(n).md")
+            n += 1
+        }
+        try Data(text.utf8).write(to: url, options: .atomic)
+        return url
     }
 
     /// Moves the whole meeting folder to the Trash, so it can be put back, and

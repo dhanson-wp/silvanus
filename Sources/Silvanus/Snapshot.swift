@@ -121,16 +121,17 @@ enum Snapshot {
             try? await Task.sleep(for: .seconds(0.8))
             capture(to: "\(dir)/canvas-\(mode).png", window: main)
         }
-        if let editor = main.contentView.flatMap(findEditor), let m = editor.firstLineMetrics() {
+        if let editor = main.contentView.flatMap(NotesTextView.find), let m = editor.firstLineMetrics() {
             print("SNAPSHOT canvas first line: x \(m.x), line top \(m.lineTop), cap top \(m.capTop), TextKit 2 \(editor.isTextKit2)")
         }
+        func editors(_ v: NSView) -> [NotesTextView] { ((v as? NotesTextView).map { [$0] } ?? []) + v.subviews.flatMap(editors) }
+        // Picking another meeting replaces the editor.
+        model.selection = model.meetings.last?.id
+        try? await Task.sleep(for: .seconds(0.8))
+        let open = main.contentView.map(editors) ?? []
+        let other = model.meetings.last?.notes ?? ""
+        print("SNAPSHOT canvas after picking another meeting: \(open.count) editor, showing it: \(open.map(\.string) == [other])")
         model.selection = nil
-    }
-
-    @MainActor private static func findEditor(in view: NSView) -> NotesTextView? {
-        if let editor = view as? NotesTextView { return editor }
-        for sub in view.subviews { if let found = findEditor(in: sub) { return found } }
-        return nil
     }
 
     /// The brand set: About in light and dark, and the menu bar glyphs (idle and

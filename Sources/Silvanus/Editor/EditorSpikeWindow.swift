@@ -268,6 +268,9 @@ struct EditorChecks {
         binding()
         placement()
         saving()
+        boundedSaves()
+        switching()
+        try? FileManager.default.removeItem(at: CheckStore.root)
         print(failures == 0 ? "EDITOR CHECK PASS \(count) checks" : "EDITOR CHECK FAIL \(failures) of \(count) checks")
         return failures == 0 ? 0 : 1
     }
@@ -671,18 +674,133 @@ struct EditorChecks {
         NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
         check("closing the window saves at once", disk() == outside + "\n- Hiring!", disk().debugDescription)
 
-        // Typing not yet saved wins over a change on disk; it's saved over it.
+        // Quitting saves at once.
+        view.insertText("~", replacementRange: view.selectedRange())
+        NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: NSApp)
+        check("quitting saves at once", disk() == outside + "\n- Hiring!~", disk().debugDescription)
+
+        // Unsaved typing and another app's change on other lines merge, then save.
         view.insertText("?", replacementRange: view.selectedRange())
+        spin(0.4)
+        let theirs = "Phone note\n" + disk()
+        try? Data(theirs.utf8).write(to: file, options: .atomic)
+        spin(0.4)
+        let merged = "Phone note\n" + outside + "\n- Hiring!~?"
+        check("typing and another app's change on other lines merge", view.string == merged, view.string.debugDescription)
+        check("the merge is saved", disk() == merged, disk().debugDescription)
+        let undo = view.undoManager
+        undo?.undo()
+        check("the merge undoes as one step", view.string == outside + "\n- Hiring!~?", view.string.debugDescription)
+        undo?.redo()
+        spin(1.6)
+
+        // Both changed the same line: the typing stays, the other version is kept beside it.
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        view.insertText("#", replacementRange: view.selectedRange())
         spin(0.4)
         try? Data("Overwritten elsewhere".utf8).write(to: file, options: .atomic)
         spin(0.4)
-        check("unsaved typing is kept over a change on disk", view.string.hasSuffix("Hiring!?"))
-        spin(1.0)
-        check("and is saved over it", disk() == outside + "\n- Hiring!?", disk().debugDescription)
+        check("on a conflict the typing stays", view.string == merged + "#", view.string.debugDescription)
+        let copy = document.conflicts.first.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        check("on a conflict the other version is kept as notes.conflict-*.md", copy == "Overwritten elsewhere"
+              && document.conflicts.first?.lastPathComponent.hasPrefix("notes.conflict-") == true,
+              "\(document.conflicts)")
+        check("and the typing is saved over notes.md", disk() == merged + "#", disk().debugDescription)
+
+        // A missing notes.md is not an empty note; an emptied one is, in place and undoable.
+        try? FileManager.default.removeItem(at: file)
+        spin(0.4)
+        check("a missing notes.md leaves the editor alone", view.string == merged + "#", view.string.debugDescription)
+        let loads = view.loads
+        try? Data().write(to: file)
+        spin(0.4)
+        check("an emptied notes.md empties the editor in place", view.string.isEmpty && view.loads == loads)
+        undo?.undo()
+        check("and that undoes", view.string == merged + "#", view.string.debugDescription)
+        spin(1.6)
+        check("the undo saves", disk() == merged + "#", disk().debugDescription)
+
+        // A save that fails shows the reason with Retry, and Retry saves.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        view.insertText("!", replacementRange: NSRange(location: (view.string as NSString).length, length: 0))
+        document.saveNow()
+        check("a failed save shows its reason", document.saveError != nil && document.isDirty, "\(document.saveError ?? "none")")
+        print("INFO save error banner: Couldn't save notes: \(document.saveError ?? "")")
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        document.saveNow()
+        check("Retry saves and clears it", document.saveError == nil && disk() == merged + "#!", disk().debugDescription)
 
         document.close()
         window.orderOut(nil)
-        try? FileManager.default.removeItem(at: CheckStore.root)
+    }
+
+    // MARK: Saving while typing never pauses
+
+    private mutating func boundedSaves() {
+        let root = CheckStore.root.appending(path: "bounded")
+        let library = MeetingLibrary(root: root, trash: { try FileManager.default.removeItem(at: $0) })
+        let meeting = Meeting(info: MeetingInfo(id: "check-bounded", title: "Design review", series: "Design review",
+                                                start: Date(), end: Date(), attendees: ["Priya Natarajan"]), notes: "")
+        _ = try? library.save(meeting)
+        let document = NotesDocument(meetingID: meeting.id, library: library)
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: NotesEditor(document: document))
+        window.orderFrontRegardless()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        guard let view = document.link.textView else { check("the notes editor appears", false); return }
+        let words = Array("Typing that never stops for long. ")
+        for i in 0..<50 {
+            view.insertText(String(words[i % words.count]), replacementRange: view.selectedRange())
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        }
+        check("typing every 0.2 s for 10 s saves at least 3 times", document.saves >= 3, "\(document.saves) saves")
+        document.close()
+        window.orderOut(nil)
+    }
+
+    // MARK: Switching meetings mid-typing
+
+    private mutating func switching() {
+        let root = CheckStore.root.appending(path: "switching")
+        let library = MeetingLibrary(root: root, trash: { try FileManager.default.removeItem(at: $0) })
+        let a = Meeting(info: MeetingInfo(id: "check-a", title: "Acme kickoff", series: "Acme kickoff",
+                                          start: Date(), end: Date(), attendees: ["Sam Rivera"]), notes: "Agenda\n")
+        let b = Meeting(info: MeetingInfo(id: "check-b", title: "Weekly sync", series: "Weekly sync",
+                                          start: Date().addingTimeInterval(-86_400), end: Date(), attendees: ["Jordan Lee"]),
+                        notes: "Status\n")
+        guard let folderA = try? library.save(a), let folderB = try? library.save(b) else { check("the check store is writable", false); return }
+        let model = AppModel(library: library)
+        model.reload()
+        model.selection = a.id
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: NotesCanvas().environment(model))
+        window.orderFrontRegardless()
+        var found: NotesTextView?
+        for _ in 0..<40 where found == nil {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            found = window.contentView.flatMap(NotesTextView.find)
+        }
+        guard let view = found else { check("the canvas shows an editor", false); return }
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        for c in "- Budget" { view.insertText(String(c), replacementRange: view.selectedRange()) }
+        model.selection = b.id
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        func read(_ folder: URL) -> String { (try? String(contentsOf: folder.appending(path: MeetingFolder.notes), encoding: .utf8)) ?? "" }
+        check("switching meetings mid-typing saves the typing to the old meeting", read(folderA) == "Agenda\n- Budget",
+              read(folderA).debugDescription)
+        check("and leaves the new meeting's notes alone", read(folderB) == "Status\n", read(folderB).debugDescription)
+        check("the app's copy of the old meeting has the saved notes",
+              model.meetings.first { $0.id == a.id }?.notes == "Agenda\n- Budget")
+        // Before the app finishes launching SwiftUI leaves the old editor's view in the
+        // window; the snapshot run checks that a running app keeps only one.
+        func editors(_ v: NSView) -> [NotesTextView] { ((v as? NotesTextView).map { [$0] } ?? []) + v.subviews.flatMap(editors) }
+        let shown = window.contentView.map(editors)?.map(\.string) ?? []
+        check("the canvas now shows the new meeting", shown.contains("Status\n"), "\(shown)")
+        window.orderOut(nil)
     }
 }
 
@@ -696,6 +814,13 @@ enum CheckStore {
 }
 
 extension NotesTextView {
+    /// The first notes editor in a view tree.
+    static func find(in view: NSView) -> NotesTextView? {
+        if let editor = view as? NotesTextView { return editor }
+        for sub in view.subviews { if let found = find(in: sub) { return found } }
+        return nil
+    }
+
     /// Where the first line sits in the window, top-left origin: the text's left edge, the
     /// line box's top, the baseline, and the first character's cap top.
     func firstLineMetrics() -> (x: CGFloat, lineTop: CGFloat, baseline: CGFloat, capTop: CGFloat)? {

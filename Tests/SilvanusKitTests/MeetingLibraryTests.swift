@@ -247,3 +247,45 @@ private func names(_ folder: URL) -> [String] {
     #expect(throws: MeetingLibrary.NotFound.self) { try library(root).saveNotes("x", for: "missing") }
     #expect(library(root).readNotes(for: "missing") == nil)
 }
+
+@Test func readNotesOfAMissingFileIsNil() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    try FileManager.default.removeItem(at: folder.appending(path: MeetingFolder.notes))
+    #expect(library(root).readNotes(for: "one") == nil)
+    try Data().write(to: folder.appending(path: MeetingFolder.notes))
+    #expect(library(root).readNotes(for: "one") == "")
+}
+
+@Test func saveInfoWritesOnlyMeetingJSON() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    var m = kickoff(id: "one")
+    let folder = try library(root).save(m)
+    // Other apps change the other files; saving details must leave them alone.
+    let others = [MeetingFolder.notes, MeetingFolder.summary, MeetingFolder.todo, MeetingFolder.transcript]
+    for name in others { try Data("changed \(name)".utf8).write(to: folder.appending(path: name)) }
+    try Data("{}".utf8).write(to: folder.appending(path: MeetingFolder.transcriptJSON))
+    m.info.title = "Acme kickoff, renamed"
+    m.notes = "stale copy"
+    let lib = library(root)
+    try lib.saveInfo(m)
+    for name in others {
+        #expect(try String(contentsOf: folder.appending(path: name), encoding: .utf8) == "changed \(name)")
+    }
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.transcriptJSON), encoding: .utf8) == "{}")
+    #expect(library(root).loadAll().meetings.first?.info.title == "Acme kickoff, renamed")
+    #expect(throws: MeetingLibrary.NotFound.self) { try lib.saveInfo(kickoff(id: "missing")) }
+}
+
+@Test func conflictCopySitsBesideTheNotes() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    let lib = library(root)
+    let first = try lib.saveConflictCopy("Theirs\n", for: "one", at: start)
+    #expect(first == folder.appending(path: "notes.conflict-20261106-143000.md"))
+    #expect(try String(contentsOf: first, encoding: .utf8) == "Theirs\n")
+    let second = try lib.saveConflictCopy("Again\n", for: "one", at: start)
+    #expect(second != first)
+    #expect(try String(contentsOf: first, encoding: .utf8) == "Theirs\n")
+    #expect(lib.loadAll().meetings.count == 1)
+}

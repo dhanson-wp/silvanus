@@ -7,13 +7,17 @@ import SwiftUI
 /// at x 221 and the first line's cap top at y 64, per design/KIT.md "Notes canvas text".
 struct NotesCanvas: View {
     @Environment(AppModel.self) private var model
+    @State private var documents = OpenNotes()
 
     var body: some View {
         if let id = model.selection, model.meetings.contains(where: { $0.id == id }) {
-            NotesPane(meetingID: id, library: model.library)
-                // A new meeting gets a new document and editor; the old one saves first.
-                .id(id)
+            NotesEditor(document: documents.open(id, library: model.library) { [model] text in
+                model.notesSaved(text, for: id)
+            })
+            // A new meeting gets a new editor; the old one hands over its typing as it goes.
+            .id(id)
         } else {
+            let _ = documents.closeCurrent()
             Text("Pick a meeting or start one")
                 .kitType(.subheading)
                 .foregroundStyle(Ink.text)
@@ -22,40 +26,74 @@ struct NotesCanvas: View {
     }
 }
 
-/// One meeting's notes: the document opens when the pane appears and saves and closes
-/// when it goes away.
-private struct NotesPane: View {
-    let meetingID: String
-    let library: MeetingLibrary
-    @State private var document: NotesDocument?
+/// The one notes document the canvas has open. Picking another meeting opens its
+/// document and closes the old one on the next turn of the run loop, after the old
+/// editor has handed its last typing to it, so the close saves everything.
+@MainActor final class OpenNotes {
+    private(set) var current: NotesDocument?
 
-    var body: some View {
-        Group {
-            if let document {
-                NotesEditor(document: document)
-            } else {
-                Color.clear
-            }
-        }
-        .onAppear { document = document ?? NotesDocument(meetingID: meetingID, library: library) }
-        .onDisappear { document?.close() }
+    func open(_ id: String, library: MeetingLibrary, onSaved: @escaping (String) -> Void) -> NotesDocument {
+        if let current, current.meetingID == id { return current }
+        closeCurrent()
+        let document = NotesDocument(meetingID: id, library: library)
+        document.onSaved = onSaved
+        current = document
+        return document
+    }
+
+    func closeCurrent() {
+        guard let old = current else { return }
+        current = nil
+        DispatchQueue.main.async { old.close() }
     }
 }
 
+/// The editor for one document, with the save error banner over its bottom edge.
 struct NotesEditor: View {
     @Bindable var document: NotesDocument
 
     var body: some View {
         MarkdownEditor(text: $document.text, link: document.link)
             .accessibilityLabel("My notes")
+            .overlay(alignment: .bottom) {
+                if let error = document.saveError {
+                    SaveErrorBanner(reason: error, retry: document.saveNow)
+                        .padding(.bottom, 12)
+                }
+            }
+    }
+}
+
+/// "Couldn't save notes: <reason>" with Retry. Not modal: typing goes on, and the next
+/// save or Retry clears it.
+private struct SaveErrorBanner: View {
+    let reason: String
+    let retry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("Couldn't save notes: \(reason)")
+                .kitType(.label)
+                .foregroundStyle(Ink.text)
+                .lineLimit(2)
+            Button("Retry", action: retry)
+                .kitType(.button)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Ink.canvas, in: RoundedRectangle(cornerRadius: Metric.buttonCorner))
+        .overlay(RoundedRectangle(cornerRadius: Metric.buttonCorner).stroke(Ink.divider, lineWidth: Metric.hairline))
+        .padding(.horizontal, 12)
+        .accessibilityElement(children: .combine)
     }
 }
 
 /// A meeting's `notes.md` while the canvas shows it. Typing reaches `text` when it
-/// pauses (MarkdownEditor); the file is written 1 s after the last change, when the
-/// window closes, when the app quits, and when another meeting is picked. A change to
-/// the file from another app is shown in place, unless there's typing not yet saved
-/// (`NotesSync` decides; that typing is saved over it).
+/// pauses (MarkdownEditor); the file is written 1 s after the last change, at least every
+/// 3 s while typing goes on, when the window closes, when the app quits, and when another
+/// meeting is picked. A change to the file from another app is shown in place; with
+/// unsaved typing it's merged, or, when both changed the same lines, the typing stays and
+/// the other version is kept beside the notes (`NotesSync` decides).
 @Observable
 @MainActor
 final class NotesDocument {
@@ -67,17 +105,25 @@ final class NotesDocument {
     }
     /// True when `text` has changes not yet written.
     private(set) var isDirty = false
-    /// For the checks: files written, and changes taken from disk.
+    /// Why the last save failed, until a save works.
+    private(set) var saveError: String?
+    /// Called with the text after each save, so the app's copy of the meeting stays current.
+    @ObservationIgnored var onSaved: ((String) -> Void)?
+    /// For the checks: files written, changes taken from disk, and conflict copies kept.
     @ObservationIgnored private(set) var saves = 0
     @ObservationIgnored private(set) var reloads = 0
+    @ObservationIgnored private(set) var conflicts: [URL] = []
     /// Seconds after the last change before the file is written.
     @ObservationIgnored var saveDelay: TimeInterval = 1
+    /// The longest typing goes unsaved while it never pauses for `saveDelay`.
+    @ObservationIgnored var maxWait: TimeInterval = 3
 
     private let library: MeetingLibrary
     @ObservationIgnored private var sync: NotesSync
     @ObservationIgnored private var applyingDisk = false
     @ObservationIgnored private var closed = false
     @ObservationIgnored private var saveWork: DispatchWorkItem?
+    @ObservationIgnored private var maxWaitWork: DispatchWorkItem?
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
@@ -90,6 +136,7 @@ final class NotesDocument {
         if let url = library.notesURL(for: meetingID) {
             watcher = FileWatcher(url: url) { [weak self] in self?.diskChanged() }
         }
+        link.onTyping = { [weak self] in self?.startMaxWait() }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] note in
             let closing = note.object as? NSWindow
@@ -106,10 +153,23 @@ final class NotesDocument {
     private func changed() {
         isDirty = true
         if closed { saveNow(); return }
+        startMaxWait()
         saveWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.saveNow() }
         saveWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + saveDelay, execute: work)
+    }
+
+    /// The first unsaved keystroke starts a clock: the note is saved `maxWait` later even
+    /// if typing never pauses.
+    private func startMaxWait() {
+        guard maxWaitWork == nil, !closed else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.maxWaitWork = nil
+            self?.saveNow()
+        }
+        maxWaitWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + maxWait, execute: work)
     }
 
     /// Writes the note now if anything changed, taking any typing still in the editor.
@@ -117,16 +177,25 @@ final class NotesDocument {
         link.flush()
         saveWork?.cancel()
         saveWork = nil
+        maxWaitWork?.cancel()
+        maxWaitWork = nil
         guard isDirty else { return }
         do {
             try library.saveNotes(text, for: meetingID)
             sync.saved(text)
             isDirty = false
+            saveError = nil
             saves += 1
+            onSaved?(text)
         } catch {
-            // Stays dirty: the next change or close tries again.
+            // Stays dirty: the banner's Retry, the next change, or closing tries again.
+            saveError = Self.reason(error)
             print("NOTES save failed for \(meetingID): \(error)")
         }
+    }
+
+    private static func reason(_ error: Error) -> String {
+        (error as NSError).localizedDescription
     }
 
     /// The file changed on disk: our own save, or another app's edit.
@@ -134,8 +203,34 @@ final class NotesDocument {
         guard !closed else { return }
         link.flush()
         let disk = library.readNotes(for: meetingID)
-        guard let fresh = sync.diskChanged(to: disk, editor: text, editorDirty: isDirty) else { return }
-        reloads += 1
+        switch sync.diskChanged(to: disk, editor: text, editorDirty: isDirty) {
+        case .none:
+            return
+        case .show(let fresh):
+            reloads += 1
+            show(fresh)
+        case .merged(let merged):
+            reloads += 1
+            show(merged)
+            isDirty = true
+            saveNow()
+        case .conflict(let theirs):
+            // Their text goes beside the notes first; only then is ours saved over it.
+            do {
+                conflicts.append(try library.saveConflictCopy(theirs, for: meetingID))
+                print("NOTES \(meetingID): another app changed the same lines; kept its version as \(conflicts.last?.lastPathComponent ?? "")")
+            } catch {
+                saveError = Self.reason(error)
+                print("NOTES \(meetingID): couldn't keep the other version: \(error)")
+                return
+            }
+            isDirty = true
+            saveNow()
+        }
+    }
+
+    /// Puts disk text in the editor as one undoable step, without counting it as typing.
+    private func show(_ fresh: String) {
         applyingDisk = true
         text = fresh
         applyingDisk = false
