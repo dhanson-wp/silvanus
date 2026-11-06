@@ -121,46 +121,13 @@ struct CallAppsUsingInputTests {
         #expect(CallApps.usingInput(call, ownPID: me) == ["us.zoom.xos"])
     }
 
-    /// Chrome open but not using input (an in-person meeting): no call, so no prompt and no
-    /// call-audio warning.
-    @Test func anInPersonRecordingWithChromeOpenNeverWarns() {
+    /// Chrome open but not using input (an in-person meeting): no call, so no prompt, and the
+    /// recording never stops on its own.
+    @Test func anInPersonRecordingWithChromeOpenIsNoCall() {
         let usingInput = CallApps.usingInput([InputProcess(pid: me, bundleID: "com.derekhanson.silvanus")], ownPID: me)
         #expect(usingInput.isEmpty)
-        #expect(CallAudioWarning.warning(quickNote: false, callAppAtStart: !usingInput.isEmpty, callAppNow: !usingInput.isEmpty,
-                                         silentFor: 600, threshold: 30) == nil)
+        #expect(CallEndStop(callAtStart: !usingInput.isEmpty, quickNote: false).phase == .off)
         let (_, event) = CallDetection.step(previous: .armed, micInUse: !usingInput.isEmpty, callApps: usingInput, recording: false)
         #expect(event == nil)
-    }
-}
-
-@Suite("Call audio warning")
-struct CallAudioWarningTests {
-    @Test func quickNoteNeverWarnsAboutCallAudio() {
-        for atStart in [false, true] {
-            for now in [false, true] {
-                #expect(!CallAudioWarning.applies(quickNote: true, callAppAtStart: atStart, callAppNow: now))
-                #expect(CallAudioWarning.warning(quickNote: true, callAppAtStart: atStart, callAppNow: now,
-                                                 silentFor: 600, threshold: 30) == nil)
-            }
-        }
-    }
-
-    @Test func noCallAppAtStartOrNowNeverWarns() {
-        #expect(CallAudioWarning.warning(quickNote: false, callAppAtStart: false, callAppNow: false,
-                                         silentFor: 600, threshold: 30) == nil)
-    }
-
-    @Test func duringACallSilenceWarnsWithTheExactWords() {
-        let text = "Nobody on the call is audible yet. Check System Audio access in Settings."
-        #expect(CallAudioWarning.warning(quickNote: false, callAppAtStart: true, callAppNow: false,
-                                         silentFor: 31, threshold: 30) == text)
-        // A call app opened after the recording started counts too.
-        #expect(CallAudioWarning.warning(quickNote: false, callAppAtStart: false, callAppNow: true,
-                                         silentFor: 31, threshold: 30) == text)
-    }
-
-    @Test func notBeforeTheThreshold() {
-        #expect(CallAudioWarning.warning(quickNote: false, callAppAtStart: true, callAppNow: true,
-                                         silentFor: 29, threshold: 30) == nil)
     }
 }

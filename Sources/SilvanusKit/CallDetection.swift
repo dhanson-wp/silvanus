@@ -60,11 +60,33 @@ public enum CallApps {
 
     /// The call apps whose processes are using audio input now.
     public static func usingInput(_ processes: [InputProcess], ownPID: Int32) -> Set<String> {
-        Set(processes.compactMap { app(for: $0, ownPID: ownPID) })
+        Set(processes.filter(\.isRunningInput).compactMap { app(for: $0, ownPID: ownPID) })
+    }
+
+    /// The call apps whose processes are playing audio now (a muted listener still hears the call).
+    public static func usingOutput(_ processes: [InputProcess], ownPID: Int32) -> Set<String> {
+        Set(processes.filter(\.isRunningOutput).compactMap { app(for: $0, ownPID: ownPID) })
+    }
+
+    /// Both, from one read of the process list.
+    public static func audio(_ processes: [InputProcess], ownPID: Int32) -> CallAppAudio {
+        CallAppAudio(input: usingInput(processes, ownPID: ownPID), output: usingOutput(processes, ownPID: ownPID))
     }
 }
 
-/// A process Core Audio reports as using audio input, with what's known about it.
+/// The call apps using audio input (the microphone: a call starting, and the prompt) and
+/// output (the call playing, so a muted listener is still in the call), from one read.
+public struct CallAppAudio: Equatable, Sendable {
+    public var input: Set<String>
+    public var output: Set<String>
+
+    public init(input: Set<String> = [], output: Set<String> = []) {
+        self.input = input
+        self.output = output
+    }
+}
+
+/// A process Core Audio reports as using audio input or output, with what's known about it.
 public struct InputProcess: Equatable, Sendable {
     public var pid: Int32
     public var bundleID: String?
@@ -72,12 +94,18 @@ public struct InputProcess: Equatable, Sendable {
     public var responsibleBundleID: String?
     /// The process's executable path.
     public var path: String?
+    /// kAudioProcessPropertyIsRunningInput and kAudioProcessPropertyIsRunningOutput.
+    public var isRunningInput: Bool
+    public var isRunningOutput: Bool
 
-    public init(pid: Int32, bundleID: String?, responsibleBundleID: String? = nil, path: String? = nil) {
+    public init(pid: Int32, bundleID: String?, responsibleBundleID: String? = nil, path: String? = nil,
+                isRunningInput: Bool = true, isRunningOutput: Bool = false) {
         self.pid = pid
         self.bundleID = bundleID
         self.responsibleBundleID = responsibleBundleID
         self.path = path
+        self.isRunningInput = isRunningInput
+        self.isRunningOutput = isRunningOutput
     }
 }
 
@@ -121,26 +149,5 @@ public enum CallDetection {
             let next = quiet + interval
             return next >= rearmAfter ? (.armed, nil) : (.inCall(quietFor: next), nil)
         }
-    }
-}
-
-/// When the call-audio warning ("Nobody on the call is audible yet…") may show. Quick Note
-/// is a voice note, never a call; and a recording with no call app using audio input at its
-/// start, and none now, has no call to hear (an in-person meeting with a browser open). The microphone-silence warning shows for every
-/// recording.
-public enum CallAudioWarning {
-    public static let text = "Nobody on the call is audible yet. Check System Audio access in Settings."
-
-    public static func applies(quickNote: Bool, callAppAtStart: Bool, callAppNow: Bool) -> Bool {
-        !quickNote && (callAppAtStart || callAppNow)
-    }
-
-    /// The warning to show now, or nil: call audio silent for `silentFor` seconds, past
-    /// `threshold`, in a recording the warning applies to.
-    public static func warning(quickNote: Bool, callAppAtStart: Bool, callAppNow: Bool,
-                               silentFor: TimeInterval, threshold: TimeInterval) -> String? {
-        guard applies(quickNote: quickNote, callAppAtStart: callAppAtStart, callAppNow: callAppNow),
-              silentFor > threshold else { return nil }
-        return text
     }
 }

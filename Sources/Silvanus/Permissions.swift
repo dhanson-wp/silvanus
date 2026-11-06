@@ -23,7 +23,7 @@ enum Permissions {
     static let systemAudioAskedKey = "permissions.systemAudioAsked"
 
     /// macOS has no public way to read the System Audio Recording permission.
-    /// Silvanus remembers that it asked; the recording bar warns if call audio stays silent.
+    /// Silvanus remembers that it asked. Silence is normal, so nothing warns about it.
     static var systemAudioAsked: Bool { AppDefaults.shared.bool(forKey: systemAudioAskedKey) }
     static func markSystemAudioAsked() { AppDefaults.shared.set(true, forKey: systemAudioAskedKey) }
 

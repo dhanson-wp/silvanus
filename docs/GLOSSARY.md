@@ -40,8 +40,9 @@ Every word Silvanus puts on screen. One name per idea.
 | Microphone access / System audio access | The two macOS permissions Silvanus needs | Mic permission, Screen Recording |
 | Silvanus needs two permissions to record | The sheet the first Start Recording opens when access is missing; its buttons are Allow Microphone Access, Allow System Audio Access, Open System Settings…, Not Now, and Start Recording (or Quick Note) | Grant access, Setup |
 | Recording your microphone only. (reason) | The warning when call audio couldn't start; the microphone records on its own | Mic-only mode |
-| Nobody on the call is audible yet. Check System Audio access in Settings. | The warning when call audio stays silent for 30 seconds during a call; never for Quick Note, nor for a recording with no call app using the microphone at its start or since (a browser that's merely open doesn't count) | No call audio yet, No system audio |
-| No microphone audio yet. Check the input in System Settings > Sound. | The warning when the microphone stays silent for 30 seconds while recording | Mic muted |
+| Call ended | The note above the recording controls when a recording started during a call sees no call app using audio (the microphone, or playing the call, so muted still counts as in the call) for 15 seconds: "Call ended. Stopping in 10 seconds.", with Keep recording. Never from silence: talking alone in a call is normal | Call over, Meeting ended, Hung up |
+| Stopping in 10 seconds | The countdown in the Call ended note, one second at a time down to "Stopping in 1 second"; at 0 the recording stops as Stop does | Auto-stop, Ending in |
+| Keep recording | The Call ended note's button: records on, and the recording won't stop on its own until a new call starts using the microphone | Cancel, Don't stop, Continue |
 | Nothing was recorded. | The banner after a Stop that came before any audio; nothing is transcribed | Empty recording |
 | Couldn't restart the microphone: (reason) | Why audio is lost after the microphone changed and couldn't come back, or Retry couldn't start it | Device error |
 | A meeting is recording. Stop and quit? | What ⌘Q asks while recording; Stop and Quit saves the recording (it's transcribed at the next launch), Cancel keeps recording | Are you sure? |
@@ -66,6 +67,7 @@ Every word Silvanus puts on screen. One name per idea.
 | Settings | The panes that open inside the main window (⌘,): General, Appearance, About, Transcription | Preferences, Options |
 | Show in Dock | The General switch that keeps Silvanus's icon in the Dock | Dock icon |
 | Prompt when a meeting starts | The General switch (on by default) that shows Meeting detected when a call app starts using the microphone; its description reads "When a call app starts using the microphone, offer to start recording." | Auto-detect meetings, Meeting notifications |
+| Stop when the call ends | The General switch (on by default) that stops a recording started during a call once the call app stops using audio, after the Call ended countdown; never for Quick Note. Its description reads "When the call app stops using audio, stop recording after a short countdown." with the footnote "Needs the Mac's per-app audio list; without it, waits for the call app to quit." | Auto-stop, End with call |
 | Open at login | The General switch that starts Silvanus when you log in; "Coming soon" for now | Launch at startup |
 | Theme | The Appearance choice: System, Light, or Dark | Mode, Color scheme |
 | Model | The Transcription pane's speech model, "Parakeet TDT v2, on this Mac" | Engine |

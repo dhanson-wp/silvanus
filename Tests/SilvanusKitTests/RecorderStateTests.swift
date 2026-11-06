@@ -350,3 +350,190 @@ struct RecorderFixTests {
         #expect(library.transcriptionAttempts(for: m.id) == 0)
     }
 }
+
+@Suite("Stop when the call ends")
+struct CallEndStopTests {
+    /// Steps once a second from `from` for `seconds`, returning the first action.
+    private func run(_ rule: inout CallEndStop, from: TimeInterval, seconds: Int, callInput: Bool = false,
+                     capturing: Bool = true, enabled: Bool = true) -> (action: CallEndStop.Action?, at: TimeInterval) {
+        for s in 0...seconds {
+            let t = from + TimeInterval(s)
+            if let action = rule.step(at: since.addingTimeInterval(t), callInput: callInput, capturing: capturing,
+                                      enabled: enabled) {
+                return (action, t)
+            }
+        }
+        return (nil, from + TimeInterval(seconds))
+    }
+
+    @Test func aCallStartedRecordingCountsDownAfter15QuietSecondsThenStops() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        _ = rule.step(at: since, callInput: true, capturing: true, enabled: true)
+        #expect(rule.stopAt == nil)
+        // The call app lets go of the microphone at 1 s.
+        _ = rule.step(at: since.addingTimeInterval(1), callInput: false, capturing: true, enabled: true)
+        _ = rule.step(at: since.addingTimeInterval(15.9), callInput: false, capturing: true, enabled: true)
+        #expect(rule.stopAt == nil, "not before 15 s of no call input")
+        _ = rule.step(at: since.addingTimeInterval(16), callInput: false, capturing: true, enabled: true)
+        #expect(rule.stopAt == since.addingTimeInterval(26))
+        #expect(rule.secondsLeft(at: since.addingTimeInterval(16)) == 10)
+        #expect(rule.secondsLeft(at: since.addingTimeInterval(25.2)) == 1)
+        #expect(rule.step(at: since.addingTimeInterval(25.9), callInput: false, capturing: true, enabled: true) == nil)
+        #expect(rule.step(at: since.addingTimeInterval(26), callInput: false, capturing: true, enabled: true) == .stop)
+        // Once only.
+        #expect(rule.phase == .off)
+        #expect(rule.step(at: since.addingTimeInterval(40), callInput: false, capturing: true, enabled: true) == nil)
+    }
+
+    @Test func reachingZeroFinalizesExactlyLikeStop() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        var state = RecorderState(phase: .recording(since: since))
+        let (action, _) = run(&rule, from: 0, seconds: 60)
+        #expect(action == .stop)
+        // The recorder applies the same events Stop does.
+        do { let ok = state.apply(.stop); #expect(ok) }
+        do { let ok = state.apply(.stopped); #expect(ok) }
+        #expect(state.phase == .transcribing(progress: 0))
+    }
+
+    @Test func callInputComingBackCancelsTheCountdown() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        _ = run(&rule, from: 0, seconds: 16)
+        #expect(rule.stopAt != nil)
+        _ = rule.step(at: since.addingTimeInterval(18), callInput: true, capturing: true, enabled: true)
+        #expect(rule.stopAt == nil)
+        #expect(rule.phase == .watching(quietSince: nil))
+        // The quiet starts over.
+        let (action, at) = run(&rule, from: 19, seconds: 60)
+        #expect(action == .stop)
+        #expect(at == 19 + 15 + 10)
+    }
+
+    @Test func keepRecordingSuppressesUntilANewCallStarts() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        _ = run(&rule, from: 0, seconds: 16)
+        #expect(rule.stopAt != nil)
+        rule.keepRecording()
+        #expect(rule.stopAt == nil)
+        #expect(run(&rule, from: 17, seconds: 600).action == nil, "kept for as long as no call starts")
+        // A new call starts using the microphone, then ends: the countdown comes back.
+        _ = rule.step(at: since.addingTimeInterval(700), callInput: true, capturing: true, enabled: true)
+        #expect(rule.phase == .watching(quietSince: nil))
+        let (action, at) = run(&rule, from: 701, seconds: 60)
+        #expect(action == .stop)
+        #expect(at == 701 + 25)
+    }
+
+    @Test func noCountdownWhilePaused() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        #expect(run(&rule, from: 0, seconds: 600, capturing: false).action == nil)
+        #expect(rule.stopAt == nil)
+        // Paused during the countdown cancels it; after Resume the quiet starts over.
+        _ = run(&rule, from: 600, seconds: 16)
+        #expect(rule.stopAt != nil)
+        _ = rule.step(at: since.addingTimeInterval(620), callInput: false, capturing: false, enabled: true)
+        #expect(rule.stopAt == nil)
+        let (action, at) = run(&rule, from: 700, seconds: 60)
+        #expect(action == .stop)
+        #expect(at == 725)
+    }
+
+    @Test func quickNoteAndRecordingsWithNoCallNeverStop() {
+        for (call, quick) in [(true, true), (false, true), (false, false)] {
+            var rule = CallEndStop(callAtStart: call, quickNote: quick)
+            #expect(rule.phase == .off)
+            #expect(run(&rule, from: 0, seconds: 600).action == nil)
+            // Even a call app that starts later doesn't make it a call recording.
+            _ = rule.step(at: since.addingTimeInterval(601), callInput: true, capturing: true, enabled: true)
+            #expect(run(&rule, from: 602, seconds: 600).action == nil)
+            rule.keepRecording()
+            #expect(rule.phase == .off)
+        }
+    }
+
+    @Test func theSettingOffNeverCountsDown() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        #expect(run(&rule, from: 0, seconds: 600, enabled: false).action == nil)
+        _ = run(&rule, from: 600, seconds: 16)
+        #expect(rule.stopAt != nil)
+        _ = rule.step(at: since.addingTimeInterval(617), callInput: false, capturing: true, enabled: false)
+        #expect(rule.stopAt == nil, "turning it off mid-countdown cancels")
+    }
+
+    @Test func theWords() {
+        #expect(RecordingWords.callEndedNote(seconds: 10) == "Call ended. Stopping in 10 seconds.")
+        #expect(RecordingWords.stoppingIn(1) == "Stopping in 1 second")
+        #expect(RecordingWords.keepRecording == "Keep recording")
+    }
+}
+
+@Suite("Stop when the call ends, muted")
+struct CallEndStopMutedTests {
+    private func step(_ rule: inout CallEndStop, _ t: TimeInterval, input: Bool, output: Bool) -> CallEndStop.Action? {
+        rule.step(at: since.addingTimeInterval(t), callInput: input, callOutput: output, capturing: true, enabled: true)
+    }
+
+    @Test func aMutedListenerNeverCountsDown() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        _ = step(&rule, 0, input: true, output: true)
+        // Muted: the call app lets go of the microphone but still plays the call.
+        for t in 1...3600 {
+            #expect(step(&rule, TimeInterval(t), input: false, output: true) == nil)
+        }
+        #expect(rule.stopAt == nil)
+    }
+
+    @Test func hangingUpWithNeitherCountsDownAndStops() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        _ = step(&rule, 0, input: false, output: true)
+        var stoppedAt: Int?
+        for t in 1...60 where stoppedAt == nil {
+            if step(&rule, TimeInterval(t), input: false, output: false) == .stop { stoppedAt = t }
+        }
+        #expect(stoppedAt == 1 + 15 + 10)
+    }
+
+    @Test func outputComingBackCancels() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        for t in 0...15 { _ = step(&rule, TimeInterval(t), input: false, output: false) }
+        #expect(rule.stopAt != nil)
+        _ = step(&rule, 16, input: false, output: true)
+        #expect(rule.stopAt == nil)
+        #expect(rule.phase == .watching(quietSince: nil))
+    }
+
+    @Test func keptWaitsForTheMicrophoneNotOutput() {
+        var rule = CallEndStop(callAtStart: true, quickNote: false)
+        for t in 0...15 { _ = step(&rule, TimeInterval(t), input: false, output: false) }
+        rule.keepRecording()
+        _ = step(&rule, 20, input: false, output: true)
+        #expect(rule.phase == .kept)
+        _ = step(&rule, 21, input: true, output: true)
+        #expect(rule.phase == .watching(quietSince: nil))
+    }
+
+    @Test func theNoteCountsDownOneSecondAtATime() {
+        let stopAt = since.addingTimeInterval(10)
+        let texts = (0..<10).map { RecordingWords.callEndedNote(seconds: CallEndStop.secondsLeft(until: stopAt,
+                                                                   at: since.addingTimeInterval(TimeInterval($0)))) }
+        #expect(texts.prefix(3) == ["Call ended. Stopping in 10 seconds.", "Call ended. Stopping in 9 seconds.",
+                                    "Call ended. Stopping in 8 seconds."])
+        #expect(texts.last == "Call ended. Stopping in 1 second.")
+    }
+}
+
+@Suite("Call apps using output")
+struct CallAppsOutputTests {
+    @Test func outputAndInputComeFromOneRead() {
+        let me: Int32 = 42
+        let processes = [
+            InputProcess(pid: 7, bundleID: "com.google.Chrome.helper", isRunningInput: false, isRunningOutput: true),
+            InputProcess(pid: 8, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true),
+            InputProcess(pid: me, bundleID: "com.apple.FaceTime", isRunningInput: true, isRunningOutput: true),
+            InputProcess(pid: 9, bundleID: "com.apple.Music", isRunningInput: false, isRunningOutput: true),
+        ]
+        let audio = CallApps.audio(processes, ownPID: me)
+        #expect(audio.input == ["us.zoom.xos"])
+        #expect(audio.output == ["com.google.Chrome", "us.zoom.xos"])
+    }
+}

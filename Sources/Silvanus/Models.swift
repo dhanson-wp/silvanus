@@ -160,6 +160,11 @@ final class AppModel {
             }
         }
     }
+    /// Settings > General > Stop when the call ends. The recorder reads the saved value at
+    /// each step, so turning it off cancels a countdown that's running.
+    var stopWhenCallEnds: Bool = AppDefaults.stopWhenCallEnds {
+        didSet { AppDefaults.stopWhenCallEnds = stopWhenCallEnds }
+    }
 }
 
 extension AppModel {
@@ -183,13 +188,17 @@ extension AppModel {
 
     /// A call detector wired to this model: a meeting start shows the prompt (and the menu
     /// bar's Record Meeting), the call's end takes both away, and each poll tells the
-    /// recorder whether a call app runs.
+    /// recorder whether a call app is using the microphone.
     func makeDetector(probe: CallDetector.Probe = .live) -> CallDetector {
         let detector = CallDetector(probe: probe, isRecording: { [weak self] in self?.recorder.isRecording ?? false },
                                     isEnabled: { [weak self] in self?.promptOnMeeting ?? false })
         detector.meetingStarted = { [weak self] appName in self?.callDetected(appName: appName) }
         detector.meetingEnded = { [weak self] in self?.callEnded() }
-        detector.callAppsChanged = { [weak self] running in self?.recorder.callAppRunning = running }
+        // A call app using the microphone, or playing (muted): Stop when the call ends watches them.
+        detector.callAppsChanged = { [weak self] input, output in
+            self?.recorder.callAppRunning = input
+            self?.recorder.callAppPlaying = output
+        }
         return detector
     }
 

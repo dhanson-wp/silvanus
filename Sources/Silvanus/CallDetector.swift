@@ -4,8 +4,8 @@ import Foundation
 import SilvanusKit
 
 /// Notices a meeting starting: every 2 seconds (on a timer, never per audio buffer) it asks
-/// Core Audio which processes are using audio input (kAudioHardwarePropertyProcessObjectList,
-/// kAudioProcessPropertyIsRunningInput) and keeps the call apps among them
+/// Core Audio which processes are using audio input and output (kAudioHardwarePropertyProcessObjectList,
+/// kAudioProcessPropertyIsRunningInput and IsRunningOutput) and keeps the call apps among them
 /// (`CallApps.usingInput`; our own process never counts), then steps `CallDetection`. A start
 /// while Silvanus isn't recording calls `meetingStarted` (the "Meeting detected" prompt), when
 /// Settings > General > Prompt when a meeting starts is on.
@@ -18,16 +18,32 @@ import SilvanusKit
 final class CallDetector {
     /// What the detector reads each poll. The self-test fakes it.
     struct Probe {
-        /// The call apps using audio input now, or nil when the process list can't be read.
-        var callAppsUsingInput: @MainActor () -> Set<String>?
+        /// The call apps using audio input and output now, from one read of the process
+        /// list, or nil when it can't be read.
+        var callAppAudio: @MainActor () -> CallAppAudio?
         /// The fallback: the default input device running in any process...
         var micInUseElsewhere: @MainActor () -> Bool
         /// ...while one of these call apps runs.
         var runningCallApps: @MainActor () -> Set<String>
 
-        static let live = Probe(callAppsUsingInput: CallDetector.liveCallAppsUsingInput,
+        static let live = Probe(callAppAudio: CallDetector.liveCallAppAudio,
                                 micInUseElsewhere: CallDetector.defaultInputIsRunning,
                                 runningCallApps: CallDetector.liveCallApps)
+
+        init(callAppAudio: @escaping @MainActor () -> CallAppAudio?, micInUseElsewhere: @escaping @MainActor () -> Bool,
+             runningCallApps: @escaping @MainActor () -> Set<String>) {
+            self.callAppAudio = callAppAudio
+            self.micInUseElsewhere = micInUseElsewhere
+            self.runningCallApps = runningCallApps
+        }
+
+        /// For the checks: input and (optionally) output as two fakes.
+        init(callAppsUsingInput: @escaping @MainActor () -> Set<String>?,
+             callAppsUsingOutput: @escaping @MainActor () -> Set<String> = { [] },
+             micInUseElsewhere: @escaping @MainActor () -> Bool, runningCallApps: @escaping @MainActor () -> Set<String>) {
+            self.init(callAppAudio: { callAppsUsingInput().map { CallAppAudio(input: $0, output: callAppsUsingOutput()) } },
+                      micInUseElsewhere: micInUseElsewhere, runningCallApps: runningCallApps)
+        }
 
         /// The call apps in a call now, and whether the microphone counts as in use.
         /// `recording` says our own process runs the device (it matters to the fallback only).
@@ -38,9 +54,10 @@ final class CallDetector {
 
         /// As `read`, and whether the apps are known to be the ones using the microphone
         /// (the process list), not just running beside it (the fallback).
-        func readDetail(recording: Bool) -> (apps: Set<String>, micInUse: Bool, reliable: Bool) {
-            if let apps = callAppsUsingInput() { return (apps, !apps.isEmpty, true) }
-            return (runningCallApps(), recording || micInUseElsewhere(), false)
+        func readDetail(recording: Bool) -> (apps: Set<String>, micInUse: Bool, reliable: Bool, playing: Set<String>) {
+            if let audio = callAppAudio() { return (audio.input, !audio.input.isEmpty, true, audio.output) }
+            // Without the process list, output can't be told apart: only the app quitting ends it.
+            return (runningCallApps(), recording || micInUseElsewhere(), false, [])
         }
 
         /// True when a call app is in a call: using input, or in the fallback, running while
@@ -63,9 +80,10 @@ final class CallDetector {
     var meetingEnded: () -> Void = {}
     /// A call app's name, by bundle id, read at runtime. The self-test fakes it.
     var displayName: @MainActor (String) -> String? = CallDetector.liveDisplayName
-    /// After each poll: whether a call app is in a call. The recorder's call-audio warning
-    /// reads it.
-    var callAppsChanged: (Bool) -> Void = { _ in }
+    /// After each poll: whether a call app is using the microphone, and whether one is
+    /// playing audio (a muted listener; our own process never counts). The recorder's Stop
+    /// when the call ends reads them.
+    var callAppsChanged: (_ input: Bool, _ output: Bool) -> Void = { _, _ in }
 
     private(set) var state: CallDetection.State = .armed
     /// The call apps in a call at the last poll.
@@ -100,9 +118,9 @@ final class CallDetector {
     func poll() {
         polls += 1
         let recording = isRecording()
-        let (apps, mic, reliable) = probe.readDetail(recording: recording)
+        let (apps, mic, reliable, playing) = probe.readDetail(recording: recording)
         callApps = mic ? apps : []
-        callAppsChanged(mic && !apps.isEmpty)
+        callAppsChanged(mic && !apps.isEmpty, !playing.isEmpty)
         let (next, event) = CallDetection.step(previous: state, micInUse: mic, callApps: apps, recording: recording)
         let ended = state != .armed && next == .armed
         state = next
@@ -127,9 +145,9 @@ final class CallDetector {
 
     // MARK: - Live probe
 
-    /// The call apps whose processes are using audio input, or nil when Core Audio's process
-    /// list can't be read. Silvanus's own process never counts.
-    static func liveCallAppsUsingInput() -> Set<String>? {
+    /// The call apps whose processes are using audio input, and output, in one read, or nil
+    /// when Core Audio's process list can't be read. Silvanus's own process never counts.
+    static func liveCallAppAudio() -> CallAppAudio? {
         let system = AudioObjectID(kAudioObjectSystemObject)
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
                                                  mScope: kAudioObjectPropertyScopeGlobal,
@@ -140,10 +158,11 @@ final class CallDetector {
         guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects) == noErr else { return nil }
         var processes: [InputProcess] = []
         for object in objects.prefix(Int(size) / MemoryLayout<AudioObjectID>.size) {
-            guard uint32(object, kAudioProcessPropertyIsRunningInput) == 1,
-                  let pid = int32(object, kAudioProcessPropertyPID) else { continue }
+            let input = uint32(object, kAudioProcessPropertyIsRunningInput) == 1
+            let output = uint32(object, kAudioProcessPropertyIsRunningOutput) == 1
+            guard input || output, let pid = int32(object, kAudioProcessPropertyPID) else { continue }
             let bundleID = string(object, kAudioProcessPropertyBundleID)
-            var process = InputProcess(pid: pid, bundleID: bundleID)
+            var process = InputProcess(pid: pid, bundleID: bundleID, isRunningInput: input, isRunningOutput: output)
             // Only WebKit's processes need their responsible app (Safari or not).
             if bundleID?.hasPrefix("com.apple.WebKit.") == true {
                 process.responsibleBundleID = responsibleBundleID(for: pid)
@@ -151,7 +170,7 @@ final class CallDetector {
             }
             processes.append(process)
         }
-        return CallApps.usingInput(processes, ownPID: getpid())
+        return CallApps.audio(processes, ownPID: getpid())
     }
 
     private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {

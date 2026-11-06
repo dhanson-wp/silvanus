@@ -1,13 +1,17 @@
 import SwiftUI
 
 /// A setting's row in a Settings pane, from KIT.md "Settings": the title in `settingTitle`,
-/// the description in `label` and `textSecondary` under it, and the control right-aligned.
+/// the description in `label` and `textSecondary` under it (then an optional one-line
+/// footnote in the same style), and the control right-aligned.
 /// Rows repeat every 56 pt. A control that can't be used yet passes `isEnabled: false` and a
 /// `help` that says why.
 struct SettingRow<Control: View>: View {
     let title: String
     var description: String?
+    var footnote: String?
     @ViewBuilder var control: Control
+
+    private var hint: String { [description, footnote].compactMap { $0 }.joined(separator: " ") }
 
     var body: some View {
         HStack(spacing: Space.lg) {
@@ -22,11 +26,17 @@ struct SettingRow<Control: View>: View {
                         // Read once, as the control's hint, not again on its own.
                         .accessibilityHidden(true)
                 }
+                if let footnote {
+                    Text(footnote)
+                        .kitType(.label)
+                        .foregroundStyle(Ink.textSecondary)
+                        .accessibilityHidden(true)
+                }
             }
             .lineLimit(2)
             Spacer(minLength: Space.lg)
             control
-                .accessibilityHint(description ?? "")
+                .accessibilityHint(hint)
         }
         .frame(minHeight: Metric.settingRowPitch)
         .accessibilityElement(children: .contain)
@@ -35,9 +45,9 @@ struct SettingRow<Control: View>: View {
 
 extension SettingRow where Control == AnyView {
     /// A row with a switch.
-    static func toggle(_ title: String, description: String? = nil, isOn: Binding<Bool>,
+    static func toggle(_ title: String, description: String? = nil, footnote: String? = nil, isOn: Binding<Bool>,
                        isEnabled: Bool = true, help: String? = nil) -> SettingRow<AnyView> {
-        SettingRow<AnyView>(title: title, description: description) {
+        SettingRow<AnyView>(title: title, description: description, footnote: footnote) {
             AnyView(
                 Toggle(title, isOn: isOn)
                     .toggleStyle(KitSwitchStyle(title: title))

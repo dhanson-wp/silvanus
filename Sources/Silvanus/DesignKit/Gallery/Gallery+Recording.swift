@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The recording family in the kit gallery: the recording controls in each state
-/// (recording, mic only, paused, audio lost, quiet, a long call, Reduce Motion), hover,
+/// (recording, mic only, call ended counting down, paused, audio lost, quiet, a long call,
+/// Reduce Motion), hover,
 /// pressed, and focus on both buttons and the grip's hover, the Meeting detected prompt with
 /// and without an app name, the live wave on its own and in the view pill, the Transcribing…
 /// indicator at a few points, and the notice banner. Fictional words only.
@@ -21,6 +22,9 @@ struct RecordingGallery: View {
                 VStack(alignment: .leading, spacing: Space.lg) {
                     sample("Recording") { bar(.recording(since: since)) }
                     sample("Mic only") { bar(.recording(since: since), callAudioDown: "The call audio device stopped.") }
+                    sample("Call ended, counting down") {
+                        bar(.recording(since: since), callEndStopAt: Date().addingTimeInterval(9.5))
+                    }
                     sample("Paused") { bar(.paused(elapsed: 754)) }
                     sample("Audio lost") { bar(.lost(elapsed: 754, reason: "Couldn't restart the microphone.")) }
                     sample("Quiet (flat bars)") { bar(.recording(since: since), meter: Self.quiet) }
@@ -78,10 +82,11 @@ struct RecordingGallery: View {
 
     /// The controls with room around them for the shadow, which the panel's margin gives
     /// them in life.
-    private func bar(_ status: RecordingControls.Status, callAudioDown: String? = nil, meter: LevelMeter = RecordingGallery.meter,
-                     pause: BarButtonLook? = nil, stop: BarButtonLook? = nil, reduceMotion: Bool = false) -> some View {
-        RecordingControls(status: status, callAudioDown: callAudioDown, meter: meter, pauseLook: pause, stopLook: stop,
-                          reduceMotion: reduceMotion)
+    private func bar(_ status: RecordingControls.Status, callAudioDown: String? = nil, callEndStopAt: Date? = nil,
+                     meter: LevelMeter = RecordingGallery.meter, pause: BarButtonLook? = nil, stop: BarButtonLook? = nil,
+                     reduceMotion: Bool = false) -> some View {
+        RecordingControls(status: status, callAudioDown: callAudioDown, callEndStopAt: callEndStopAt, meter: meter,
+                          pauseLook: pause, stopLook: stop, reduceMotion: reduceMotion)
             .padding(Space.sm)
     }
 

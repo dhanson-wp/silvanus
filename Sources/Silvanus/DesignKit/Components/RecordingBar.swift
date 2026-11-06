@@ -37,6 +37,8 @@ extension Metric {
     static let barNoteCorner: CGFloat = 10
     static let barNotePaddingX: CGFloat = 14
     static let barNotePaddingY: CGFloat = 10
+    /// Keep recording in the note: an outlined prompt button, 28 tall.
+    static let barNoteButtonHeight: CGFloat = 28
     /// The soft offset shadow under the bar and the prompt; the panel leaves room for it.
     static let barShadowRadius: CGFloat = 12
     static let barShadowY: CGFloat = 4
@@ -73,7 +75,8 @@ enum BarButtonLook: Equatable {
 /// soft shadow. From leading to trailing: the grip (six dots and the scribe, the only drag
 /// region), the state ("Recording", "Paused", "Audio lost", or "Mic only") with its dot over
 /// the captured time, five gold level bars, Pause/Resume (Retry while audio is lost), and
-/// Stop. While paused or with audio lost, a note sits 9 above it.
+/// Stop. While paused, with audio lost, or while Stop when the call ends counts down ("Call
+/// ended. Stopping in 10 seconds.", with Keep recording), a note sits 9 above it.
 ///
 /// | State | State line | Time | Bars | First button |
 /// | recording | gold dot, Recording | counts up, "elapsed" | follow the audio | Pause |
@@ -100,10 +103,13 @@ struct RecordingControls: View {
     var callAudioDown: String?
     /// A recording warning, for the state's tooltip.
     var warning: String?
+    /// When the recording stops because the call ended, while the countdown runs.
+    var callEndStopAt: Date?
     var meter: LevelMeter
     var togglePause: () -> Void = {}
     var retry: () -> Void = {}
     var stop: () -> Void = {}
+    var keepRecording: () -> Void = {}
     /// The panel, which the grip moves. Nil in the gallery.
     weak var mover: BarMover?
     /// The gallery forces a look on each button and Reduce Motion.
@@ -115,10 +121,33 @@ struct RecordingControls: View {
         VStack(spacing: Metric.barNoteGap) {
             if let note {
                 BarNote(text: note)
+            } else if let stopAt = countdown {
+                // The countdown's one-second tick, like the time's, lives in the panel.
+                TimelineView(Self.countdownSchedule(stopAt: stopAt)) { context in
+                    BarNote(text: Self.countdownText(stopAt: stopAt, at: context.date),
+                            action: (RecordingWords.keepRecording, keepRecording),
+                            actionHelp: "Keep recording after the call ends")
+                }
             }
             bar
         }
         .fixedSize()
+    }
+
+    /// The countdown's stop time, while recording (never while paused or with audio lost).
+    private var countdown: Date? {
+        if case .recording = status { callEndStopAt } else { nil }
+    }
+
+    /// Ticks once a second on the whole seconds before `stopAt`. Anchored in the past (a
+    /// periodic schedule from a future date wouldn't tick until then).
+    static func countdownSchedule(stopAt: Date) -> PeriodicTimelineSchedule {
+        .periodic(from: stopAt.addingTimeInterval(-CallEndStop.countdown), by: 1)
+    }
+
+    /// "Call ended. Stopping in 9 seconds." at `date`.
+    static func countdownText(stopAt: Date, at date: Date) -> String {
+        RecordingWords.callEndedNote(seconds: CallEndStop.secondsLeft(until: stopAt, at: date))
     }
 
     /// The note above the bar: paused, or audio lost.
@@ -239,26 +268,38 @@ struct RecordingControls: View {
 }
 
 /// The note above the bar: "Audio isn't being saved." while paused; what stopped while
-/// audio is lost. Midnight with a muted ivory edge, the bar's width.
+/// audio is lost; "Call ended. Stopping in 10 seconds." with Keep recording while Stop when
+/// the call ends counts down. Midnight with a muted ivory edge, the bar's width.
 struct BarNote: View {
     var text: String
+    /// A button under the text, on the trailing edge: its title and action.
+    var action: (title: String, run: () -> Void)?
+    var actionHelp: String?
 
     var body: some View {
-        Text(text)
-            .kitType(.barNote)
-            .foregroundStyle(Ink.barText)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(width: Metric.barWidth - 2 * Metric.barNotePaddingX, alignment: .leading)
-            .padding(.horizontal, Metric.barNotePaddingX)
-            .padding(.vertical, Metric.barNotePaddingY)
-            .background {
-                RoundedRectangle(cornerRadius: Metric.barNoteCorner)
-                    .fill(Ink.barGround)
-                    .shadow(color: Ink.barGround.opacity(Metric.barShadowOpacity / 2), radius: Metric.barShadowRadius / 2,
-                            y: Metric.barShadowY / 2)
+        VStack(alignment: .trailing, spacing: Space.sm) {
+            Text(text)
+                .kitType(.barNote)
+                .foregroundStyle(Ink.barText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let action {
+                Button(action.title, action: action.run)
+                    .buttonStyle(PromptButtonStyle(primary: false, height: Metric.barNoteButtonHeight))
+                    .help(actionHelp ?? action.title)
             }
-            .overlay(RoundedRectangle(cornerRadius: Metric.barNoteCorner)
-                .strokeBorder(Ink.barTextSecondary, lineWidth: Metric.hairline))
+        }
+        .frame(width: Metric.barWidth - 2 * Metric.barNotePaddingX, alignment: .leading)
+        .padding(.horizontal, Metric.barNotePaddingX)
+        .padding(.vertical, Metric.barNotePaddingY)
+        .background {
+            RoundedRectangle(cornerRadius: Metric.barNoteCorner)
+                .fill(Ink.barGround)
+                .shadow(color: Ink.barGround.opacity(Metric.barShadowOpacity / 2), radius: Metric.barShadowRadius / 2,
+                        y: Metric.barShadowY / 2)
+        }
+        .overlay(RoundedRectangle(cornerRadius: Metric.barNoteCorner)
+            .strokeBorder(Ink.barTextSecondary, lineWidth: Metric.hairline))
     }
 }
 
