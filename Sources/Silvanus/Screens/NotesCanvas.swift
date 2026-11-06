@@ -11,13 +11,10 @@ struct NotesCanvas: View {
 
     var body: some View {
         if let id = model.selection, model.meetings.contains(where: { $0.id == id }) {
-            NotesEditor(document: documents.open(id, library: model.library) { [model] text in
-                model.notesSaved(text, for: id)
-            })
-            // A new meeting gets a new editor; the old one hands over its typing as it goes.
-            .id(id)
+            NotesEditor(document: documents.open(id, model: model))
+                // A new meeting gets a new editor; the old one hands over its typing as it goes.
+                .id(id)
         } else {
-            let _ = documents.closeCurrent()
             Text("Pick a meeting or start one")
                 .kitType(.subheading)
                 .foregroundStyle(Ink.text)
@@ -26,25 +23,41 @@ struct NotesCanvas: View {
     }
 }
 
-/// The one notes document the canvas has open. Picking another meeting opens its
-/// document and closes the old one on the next turn of the run loop, after the old
-/// editor has handed its last typing to it, so the close saves everything.
+/// The notes documents the canvas has open: the selected meeting's, and, for a moment
+/// after picking another, the one it replaced. Old documents close when the selection
+/// changes (`AppModel.selectionChanged`, not the view body), on the next turn of the run loop, once their editor has handed over its
+/// last typing, so the close saves everything. It also saves the open notes before the
+/// app trashes that meeting.
 @MainActor final class OpenNotes {
     private(set) var current: NotesDocument?
+    private var replaced: [NotesDocument] = []
 
-    func open(_ id: String, library: MeetingLibrary, onSaved: @escaping (String) -> Void) -> NotesDocument {
+    func open(_ id: String, model: AppModel) -> NotesDocument {
+        model.selectionChanged = { [weak self] selected in self?.closeAll(except: selected) }
+        model.beforeTrash = { [weak self] trashed in
+            guard let self else { return }
+            for document in [current].compactMap({ $0 }) + replaced where document.meetingID == trashed {
+                document.saveNow()
+            }
+        }
         if let current, current.meetingID == id { return current }
-        closeCurrent()
-        let document = NotesDocument(meetingID: id, library: library)
-        document.onSaved = onSaved
+        if let current { replaced.append(current) }
+        let document = NotesDocument(meetingID: id, library: model.library)
+        document.onSaved = { [weak model] text in model?.notesSaved(text, for: id) }
         current = document
         return document
     }
 
-    func closeCurrent() {
-        guard let old = current else { return }
-        current = nil
-        DispatchQueue.main.async { old.close() }
+    /// Closes every open document but the one for `id`.
+    func closeAll(except id: String?) {
+        var closing = replaced
+        replaced = []
+        if let current, current.meetingID != id {
+            closing.append(current)
+            self.current = nil
+        }
+        guard !closing.isEmpty else { return }
+        DispatchQueue.main.async { for document in closing { document.close() } }
     }
 }
 
@@ -113,6 +126,9 @@ final class NotesDocument {
     @ObservationIgnored private(set) var saves = 0
     @ObservationIgnored private(set) var reloads = 0
     @ObservationIgnored private(set) var conflicts: [URL] = []
+    @ObservationIgnored private(set) var recovered: [URL] = []
+    /// Writes the other app's version beside the notes. The checks swap in one that fails.
+    @ObservationIgnored var writeConflictCopy: (String) throws -> URL
     /// Seconds after the last change before the file is written.
     @ObservationIgnored var saveDelay: TimeInterval = 1
     /// The longest typing goes unsaved while it never pauses for `saveDelay`.
@@ -126,10 +142,13 @@ final class NotesDocument {
     @ObservationIgnored private var maxWaitWork: DispatchWorkItem?
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// Another app's version that must be copied beside the notes before ours is saved.
+    @ObservationIgnored private var pendingConflict: String?
 
     init(meetingID: String, library: MeetingLibrary) {
         self.meetingID = meetingID
         self.library = library
+        writeConflictCopy = { [library] text in try library.saveConflictCopy(text, for: meetingID) }
         let loaded = library.readNotes(for: meetingID) ?? ""
         text = loaded
         sync = NotesSync(loaded: loaded)
@@ -173,6 +192,9 @@ final class NotesDocument {
     }
 
     /// Writes the note now if anything changed, taking any typing still in the editor.
+    /// With another app's conflicting version waiting, that version is copied beside the
+    /// notes first, and nothing is written over `notes.md` until the copy exists. When the
+    /// meeting's folder is gone (trashed, deleted), the text goes to `recovered/`.
     func saveNow() {
         link.flush()
         saveWork?.cancel()
@@ -180,6 +202,18 @@ final class NotesDocument {
         maxWaitWork?.cancel()
         maxWaitWork = nil
         guard isDirty else { return }
+        if let theirs = pendingConflict {
+            do {
+                conflicts.append(try writeConflictCopy(theirs))
+                pendingConflict = nil
+                print("NOTES \(meetingID): another app changed the same lines; kept its version as \(conflicts.last?.lastPathComponent ?? "")")
+            } catch {
+                // notes.md keeps the other version until Retry or the next save gets the copy out.
+                saveError = Self.reason(error)
+                print("NOTES \(meetingID): couldn't keep the other version, so notes.md is left as it is: \(error)")
+                return
+            }
+        }
         do {
             try library.saveNotes(text, for: meetingID)
             sync.saved(text)
@@ -187,10 +221,26 @@ final class NotesDocument {
             saveError = nil
             saves += 1
             onSaved?(text)
+        } catch where !library.folderExists(for: meetingID) {
+            recover()
         } catch {
             // Stays dirty: the banner's Retry, the next change, or closing tries again.
             saveError = Self.reason(error)
             print("NOTES save failed for \(meetingID): \(error)")
+        }
+    }
+
+    /// The meeting's folder is gone: keep the text under the store's `recovered/`.
+    private func recover() {
+        do {
+            let url = try library.saveRecoveredNotes(text, for: meetingID)
+            recovered.append(url)
+            sync.saved(text)
+            isDirty = false
+            print("NOTES \(meetingID): the meeting's folder is gone; kept the notes as \(url.path)")
+        } catch {
+            saveError = Self.reason(error)
+            print("NOTES \(meetingID): the meeting's folder is gone and the notes couldn't be kept: \(error)")
         }
     }
 
@@ -215,15 +265,7 @@ final class NotesDocument {
             isDirty = true
             saveNow()
         case .conflict(let theirs):
-            // Their text goes beside the notes first; only then is ours saved over it.
-            do {
-                conflicts.append(try library.saveConflictCopy(theirs, for: meetingID))
-                print("NOTES \(meetingID): another app changed the same lines; kept its version as \(conflicts.last?.lastPathComponent ?? "")")
-            } catch {
-                saveError = Self.reason(error)
-                print("NOTES \(meetingID): couldn't keep the other version: \(error)")
-                return
-            }
+            pendingConflict = theirs
             isDirty = true
             saveNow()
         }

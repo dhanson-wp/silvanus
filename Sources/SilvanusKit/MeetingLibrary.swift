@@ -93,27 +93,50 @@ public final class MeetingLibrary {
         try MeetingInfo.encoder().encode(m.info).write(to: folder.appending(path: MeetingFolder.info), options: .atomic)
     }
 
+    /// True when the meeting's folder is on disk now.
+    public func folderExists(for id: String) -> Bool {
+        guard let notes = notesURL(for: id) else { return false }
+        var isDirectory: ObjCBool = false
+        return fm.fileExists(atPath: notes.deletingLastPathComponent().path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// Typing that had nowhere to go (its meeting's folder was trashed or vanished) is
+    /// kept as `<root>/recovered/<meeting id>-<yyyyMMdd-HHmmss>.md`. Returns where it went.
+    @discardableResult
+    public func saveRecoveredNotes(_ text: String, for id: String, at date: Date = Date()) throws -> URL {
+        let folder = root.appending(path: "recovered")
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try writeUnique(text, in: folder, base: "\(MeetingFolder.safeSeries(id))-\(stamp(date))")
+    }
+
+    private func stamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: date)
+    }
+
+    /// Writes `<base>.md`, or `<base>-2.md` and so on when that's taken, atomically.
+    private func writeUnique(_ text: String, in folder: URL, base: String) throws -> URL {
+        var url = folder.appending(path: "\(base).md")
+        var n = 2
+        while fm.fileExists(atPath: url.path) {
+            url = folder.appending(path: "\(base)-\(n).md")
+            n += 1
+        }
+        try Data(text.utf8).write(to: url, options: .atomic)
+        return url
+    }
+
     /// Keeps another app's version of the notes beside `notes.md`, as
     /// `notes.conflict-<yyyyMMdd-HHmmss>.md` (a number added if that name is taken), when
     /// it couldn't be merged with unsaved typing. Returns where it went.
     @discardableResult
     public func saveConflictCopy(_ text: String, for id: String, at date: Date = Date()) throws -> URL {
         guard let notes = notesURL(for: id) else { throw NotFound(id: id) }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let folder = notes.deletingLastPathComponent()
-        let stamp = formatter.string(from: date)
-        var url = folder.appending(path: "notes.conflict-\(stamp).md")
-        var n = 2
-        while fm.fileExists(atPath: url.path) {
-            url = folder.appending(path: "notes.conflict-\(stamp)-\(n).md")
-            n += 1
-        }
-        try Data(text.utf8).write(to: url, options: .atomic)
-        return url
+        return try writeUnique(text, in: notes.deletingLastPathComponent(), base: "notes.conflict-\(stamp(date))")
     }
 
     /// Moves the whole meeting folder to the Trash, so it can be put back, and

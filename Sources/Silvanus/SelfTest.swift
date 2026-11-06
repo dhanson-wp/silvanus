@@ -37,7 +37,7 @@ enum SelfTest {
                   folder?.path.hasPrefix(Store.root.standardizedFileURL.path) == true
                   && FileManager.default.fileExists(atPath: folder?.appending(path: "meeting.json").path ?? ""))
             check("the saved meeting is listed after a reload", model.meetings.map(\.id) == [meeting.id])
-            try? model.library.moveToTrash(meeting.id)
+            try? model.moveToTrash(meeting.id)
             model.reload()
             check("a trashed meeting is gone from the list", model.meetings.isEmpty)
             check("All Meetings is selected", model.sidebar == .all)

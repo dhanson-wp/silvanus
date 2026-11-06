@@ -270,6 +270,8 @@ struct EditorChecks {
         saving()
         boundedSaves()
         switching()
+        conflictCopyFails()
+        trashing()
         try? FileManager.default.removeItem(at: CheckStore.root)
         print(failures == 0 ? "EDITOR CHECK PASS \(count) checks" : "EDITOR CHECK FAIL \(failures) of \(count) checks")
         return failures == 0 ? 0 : 1
@@ -800,6 +802,108 @@ struct EditorChecks {
         func editors(_ v: NSView) -> [NotesTextView] { ((v as? NotesTextView).map { [$0] } ?? []) + v.subviews.flatMap(editors) }
         let shown = window.contentView.map(editors)?.map(\.string) ?? []
         check("the canvas now shows the new meeting", shown.contains("Status\n"), "\(shown)")
+        window.orderOut(nil)
+    }
+
+    // MARK: A conflict copy that can't be written
+
+    private mutating func conflictCopyFails() {
+        let root = CheckStore.root.appending(path: "conflict-fails")
+        let library = MeetingLibrary(root: root, trash: { try FileManager.default.removeItem(at: $0) })
+        let meeting = Meeting(info: MeetingInfo(id: "check-conflict", title: "Acme kickoff", series: "Acme kickoff",
+                                                start: Date(), end: Date(), attendees: ["Sam Rivera"]), notes: "# Acme\n")
+        guard let folder = try? library.save(meeting) else { check("the check store is writable", false); return }
+        let file = folder.appending(path: MeetingFolder.notes)
+        func disk() -> String { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }
+        func copies() -> [String] {
+            ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix("notes.conflict-") }
+        }
+        func spin(_ s: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+        let document = NotesDocument(meetingID: meeting.id, library: library)
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: NotesEditor(document: document))
+        window.orderFrontRegardless()
+        spin(0.1)
+        guard let view = document.link.textView else { check("the notes editor appears", false); return }
+        document.writeConflictCopy = { _ in throw CocoaError(.fileWriteNoPermission) }
+        view.insertText("!", replacementRange: NSRange(location: 6, length: 0))
+        spin(0.4)
+        try? Data("Rewritten elsewhere\n".utf8).write(to: file, options: .atomic)
+        spin(0.4)
+        check("when the conflict copy fails, notes.md keeps the other version", disk() == "Rewritten elsewhere\n" && copies().isEmpty,
+              disk().debugDescription)
+        check("and the banner shows why, with the typing kept", document.saveError != nil && document.isDirty
+              && view.string == "# Acme!\n", "\(document.saveError ?? "none") \(view.string.debugDescription)")
+        view.insertText("?", replacementRange: NSRange(location: 7, length: 0))
+        spin(3.6)
+        check("no timer writes over it while the copy can't be made", disk() == "Rewritten elsewhere\n", disk().debugDescription)
+        document.writeConflictCopy = { try library.saveConflictCopy($0, for: meeting.id) }
+        document.saveNow()
+        let copy = copies().first.flatMap { try? String(contentsOf: folder.appending(path: $0), encoding: .utf8) }
+        check("Retry writes the copy first, then the notes", copy == "Rewritten elsewhere\n" && copies().count == 1
+              && disk() == "# Acme!?\n" && document.saveError == nil, "\(copies()) \(disk().debugDescription)")
+        document.close()
+        window.orderOut(nil)
+    }
+
+    // MARK: Trashing the open meeting, or its folder vanishing
+
+    private mutating func trashing() {
+        let root = CheckStore.root.appending(path: "trashing")
+        let trashFolder = CheckStore.root.appending(path: "Trash")
+        try? FileManager.default.createDirectory(at: trashFolder, withIntermediateDirectories: true)
+        // A stand-in Trash under the check store, so the trashed folder can be read.
+        let library = MeetingLibrary(root: root, trash: {
+            try FileManager.default.moveItem(at: $0, to: trashFolder.appending(path: $0.lastPathComponent))
+        })
+        let a = Meeting(info: MeetingInfo(id: "check-trash", title: "Design review", series: "Design review",
+                                          start: Date(), end: Date(), attendees: ["Priya Natarajan"]), notes: "Agenda\n")
+        let b = Meeting(info: MeetingInfo(id: "check-vanish", title: "Weekly sync", series: "Weekly sync",
+                                          start: Date().addingTimeInterval(-86_400), end: Date(), attendees: ["Jordan Lee"]),
+                        notes: "Status\n")
+        guard let folderA = try? library.save(a), let folderB = try? library.save(b) else { check("the check store is writable", false); return }
+        let model = AppModel(library: library)
+        model.reload()
+        model.selection = a.id
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: NotesCanvas().environment(model))
+        window.orderFrontRegardless()
+        func editor(showing text: String) -> NotesTextView? {
+            func all(_ v: NSView) -> [NotesTextView] { ((v as? NotesTextView).map { [$0] } ?? []) + v.subviews.flatMap(all) }
+            for _ in 0..<40 {
+                if let found = window.contentView.map(all)?.first(where: { $0.string == text }) { return found }
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            return nil
+        }
+        guard let view = editor(showing: "Agenda\n") else { check("the canvas shows an editor", false); return }
+        view.setSelectedRange(NSRange(location: 7, length: 0))
+        for c in "- Budget" { view.insertText(String(c), replacementRange: view.selectedRange()) }
+        try? model.moveToTrash(a.id)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let trashed = (try? String(contentsOf: trashFolder.appending(path: folderA.lastPathComponent).appending(path: MeetingFolder.notes),
+                                   encoding: .utf8)) ?? ""
+        func recoveredTexts() -> [String] {
+            let dir = root.appending(path: "recovered")
+            return ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+                .compactMap { try? String(contentsOf: dir.appending(path: $0), encoding: .utf8) }
+        }
+        check("trashing the open meeting mid-typing keeps the typing", trashed == "Agenda\n- Budget"
+              || recoveredTexts().contains("Agenda\n- Budget"), "trashed \(trashed.debugDescription), recovered \(recoveredTexts())")
+
+        // The folder vanishes under the editor (deleted by another app): the typing goes to recovered/.
+        model.selection = b.id
+        guard let other = editor(showing: "Status\n") else { check("the canvas shows the other meeting", false); return }
+        other.setSelectedRange(NSRange(location: 7, length: 0))
+        for c in "- Hiring" { other.insertText(String(c), replacementRange: other.selectedRange()) }
+        try? FileManager.default.removeItem(at: folderB)
+        RunLoop.main.run(until: Date().addingTimeInterval(1.6))
+        check("typing whose folder vanished is kept in recovered/", recoveredTexts().contains("Status\n- Hiring"),
+              "\(recoveredTexts())")
         window.orderOut(nil)
     }
 }

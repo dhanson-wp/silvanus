@@ -289,3 +289,25 @@ private func names(_ folder: URL) -> [String] {
     #expect(try String(contentsOf: first, encoding: .utf8) == "Theirs\n")
     #expect(lib.loadAll().meetings.count == 1)
 }
+
+@Test func recoveredNotesGoUnderTheStore() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let lib = library(root)
+    // Works for a meeting whose folder is gone, or was never known.
+    let url = try lib.saveRecoveredNotes("Typed before the folder went\n", for: "gone", at: start)
+    #expect(url == root.appending(path: "recovered/gone-20261106-143000.md"))
+    #expect(try String(contentsOf: url, encoding: .utf8) == "Typed before the folder went\n")
+    let again = try lib.saveRecoveredNotes("More\n", for: "gone", at: start)
+    #expect(again != url)
+    #expect(lib.loadAll().meetings.isEmpty)
+}
+
+@Test func folderExistsFollowsTheDisk() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    let lib = library(root)
+    #expect(lib.folderExists(for: "one"))
+    try FileManager.default.removeItem(at: folder)
+    #expect(!lib.folderExists(for: "one"))
+    #expect(!lib.folderExists(for: "missing"))
+}

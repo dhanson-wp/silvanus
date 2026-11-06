@@ -69,10 +69,16 @@ public struct NotesSync: Equatable, Sendable {
     public mutating func diskChanged(to disk: String?, editor: String, editorDirty: Bool) -> Action {
         guard let disk, disk != lastSaved else { return .none }
         let base = lastSaved
-        lastSaved = disk
-        guard editorDirty else { return disk == editor ? .none : .show(disk) }
+        guard editorDirty else {
+            lastSaved = disk
+            return disk == editor ? .none : .show(disk)
+        }
         let merge = TextMerge.threeWay(base: base, ours: editor, theirs: disk)
-        return merge.conflict ? .conflict(theirs: disk) : .merged(merge.merged)
+        // On a conflict `lastSaved` stays put: the other version isn't safe until its copy
+        // is written, and the save that follows records ours.
+        guard !merge.conflict else { return .conflict(theirs: disk) }
+        lastSaved = disk
+        return .merged(merge.merged)
     }
 }
 
@@ -81,6 +87,10 @@ public struct NotesSync: Equatable, Sendable {
 /// don't overlap both are applied, otherwise it's a conflict and `merged` is ours.
 /// Coarse on purpose: two edits far apart on one side count as one block, so the
 /// merge can call a conflict it could have resolved, but never drops a side's text.
+/// A line that would end up joined to the next one (a block whose last line has no
+/// newline, followed by the other side's lines) is a conflict too. Lines end at "\n"
+/// or "\r\n" and keep their own ending, so CRLF and mixed files merge and keep their
+/// style.
 public enum TextMerge {
     public static func threeWay(base: String, ours: String, theirs: String) -> (merged: String, conflict: Bool) {
         if ours == theirs { return (ours, false) }
@@ -96,16 +106,23 @@ public enum TextMerge {
         for edit in [a, c].sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
             merged.replaceSubrange(edit.range, with: edit.lines)
         }
+        // Every line but the last must still end its line, or two lines were glued.
+        guard merged.dropLast().allSatisfy(endsLine) else { return (ours, true) }
         return (merged.joined(), false)
     }
 
-    /// The lines of a text, each with its newline (the last may have none).
+    private static func endsLine(_ line: String) -> Bool {
+        line.last == "\n" || line.last == "\r\n"
+    }
+
+    /// The lines of a text, each with its own ending, "\n" or "\r\n" (the last may have
+    /// none). Swift reads "\r\n" as one Character, so both are checked.
     static func lines(_ text: String) -> [String] {
         var out: [String] = []
         var current = ""
         for c in text {
             current.append(c)
-            if c == "\n" { out.append(current); current = "" }
+            if c == "\n" || c == "\r\n" { out.append(current); current = "" }
         }
         if !current.isEmpty { out.append(current) }
         return out

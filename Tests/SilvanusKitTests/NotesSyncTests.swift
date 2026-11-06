@@ -69,6 +69,8 @@ struct NotesSyncTests {
         var sync = NotesSync(loaded: "Agenda\n- Scope\n")
         let action = sync.diskChanged(to: "Agenda\n- Scope and budget\n", editor: "Agenda\n- Scope and dates\n", editorDirty: true)
         #expect(action == .conflict(theirs: "Agenda\n- Scope and budget\n"))
+        // Not advanced: the other version isn't safe until its copy is written.
+        #expect(sync.lastSaved == "Agenda\n- Scope\n")
     }
 
     @Test("A disk change that already matches the editor only updates the saved text")
@@ -139,6 +141,25 @@ struct TextMergeTests {
         #expect(!same.conflict && same.merged == "Both\n")
         let theirsOnly = TextMerge.threeWay(base: "", ours: "", theirs: "Theirs\n")
         #expect(!theirsOnly.conflict && theirsOnly.merged == "Theirs\n")
+    }
+
+    @Test("A block ending without a newline never glues onto the other side's lines")
+    func noGlueAtTheEnd() {
+        let r = TextMerge.threeWay(base: "a\nb\n", ours: "a\nb", theirs: "a\nb\nc\n")
+        #expect(r.conflict)
+        #expect(r.merged == "a\nb")
+        let other = TextMerge.threeWay(base: "a\nb\n", ours: "a\nb\nc\n", theirs: "a\nb")
+        #expect(other.conflict)
+    }
+
+    @Test("CRLF lines merge and keep their line endings")
+    func crlfMerges() {
+        let base = "# Weekly sync\r\n- On track\r\n- Budget\r\n"
+        let r = TextMerge.threeWay(base: base, ours: base + "- Hiring\r\n",
+                                   theirs: "Phone note\r\n" + base)
+        #expect(!r.conflict)
+        #expect(r.merged == "Phone note\r\n# Weekly sync\r\n- On track\r\n- Budget\r\n- Hiring\r\n")
+        #expect(TextMerge.lines("a\r\nb\nc") == ["a\r\n", "b\n", "c"])
     }
 
     @Test("A last line without a newline merges")
