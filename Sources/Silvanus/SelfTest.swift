@@ -250,6 +250,23 @@ enum SelfTest {
         check("Show in Dock is saved and nothing else changes yet",
               AppDefaults.shared.object(forKey: AppDefaults.showInDockKey) as? Bool == false)
         model.showInDock = true
+        // Commands follow `settingsOpen`: Rename Meeting… is disabled behind Settings.
+        if model.selectedMeeting == nil { model.newMeeting() }
+        func renameEnabled() async -> Bool? {
+            try? await Task.sleep(for: .seconds(0.3))
+            NSApp.mainMenu?.update()
+            let menu = NSApp.mainMenu?.items.first { $0.title == "Meeting" }?.submenu
+            menu.map { $0.delegate?.menuNeedsUpdate?($0) }
+            return menuItem(key: "r", modifiers: [.control, .command], in: NSApp.mainMenu)?.isEnabled
+        }
+        let hasMeeting = model.selectedMeeting != nil
+        model.openSettings()
+        let whileOpen = await renameEnabled()
+        model.closeSettings()
+        let afterClose = await renameEnabled()
+        check("Rename Meeting… is disabled while Settings is open and enabled again after",
+              hasMeeting && whileOpen == false && afterClose == true,
+              "meeting \(hasMeeting), open \(String(describing: whileOpen)), closed \(String(describing: afterClose))")
         // Meeting commands never act behind Settings: New Meeting closes it first.
         model.openSettings()
         model.newMeeting()

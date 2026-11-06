@@ -10,16 +10,19 @@ import SwiftUI
 /// | focused | as off or on | 2 pt focus ring | as above |
 /// | disabled | everything at 40% | | |
 ///
-/// Use it as a real `Toggle`: `Toggle("Show in Dock", isOn: $on).toggleStyle(KitSwitchStyle())`
-/// and give the Toggle an `.accessibilityLabel`. The gallery forces a state with
+/// Use it as a real `Toggle`: `Toggle("Show in Dock", isOn: $on).toggleStyle(KitSwitchStyle(title: "Show in Dock"))`. The gallery forces a state with
 /// `forcedPartState`.
 struct KitSwitchStyle: ToggleStyle {
+    /// The switch's accessibility label (the setting's title).
+    var title: String
+
     func makeBody(configuration: Configuration) -> some View {
-        Content(configuration: configuration)
+        Content(configuration: configuration, title: title)
     }
 
     private struct Content: View {
         let configuration: Configuration
+        let title: String
         @Environment(\.forcedPartState) private var forced
         @Environment(\.isEnabled) private var isEnabled
         @State private var isFocused = false
@@ -53,8 +56,6 @@ struct KitSwitchStyle: ToggleStyle {
                 configuration.isOn.toggle()
             } label: {
                 switchBody(shape: shape, travel: travel)
-                    // The Toggle's label is the button's accessibility label; nothing shows.
-                    .background { configuration.label.frame(width: 0, height: 0).opacity(0) }
             }
             .buttonStyle(SwitchPressStyle(pressing: $pressing, focused: $isFocused))
             .opacity(state == .disabled ? 0.4 : 1)
@@ -63,29 +64,30 @@ struct KitSwitchStyle: ToggleStyle {
             .onHover { inside in
                 withAnimation(Motion.hover) { hovering = inside }
             }
+            .accessibilityLabel(title)
             .accessibilityAddTraits(.isToggle)
             .accessibilityValue(isOn ? "On" : "Off")
         }
 
         private func switchBody(shape: RoundedRectangle, travel: CGFloat) -> some View {
             shape
-                    .fill(track)
-                    .frame(width: Metric.switchWidth, height: Metric.switchHeight)
-                    .overlay {
-                        if ringed {
-                            shape.inset(by: Metric.focusRing / 2).stroke(Ink.focus, lineWidth: Metric.focusRing)
-                        } else if !isOn {
-                            shape.inset(by: Metric.hairline / 2).stroke(border, lineWidth: Metric.hairline)
-                        }
+                .fill(track)
+                .frame(width: Metric.switchWidth, height: Metric.switchHeight)
+                .overlay {
+                    if ringed {
+                        shape.inset(by: Metric.focusRing / 2).stroke(Ink.focus, lineWidth: Metric.focusRing)
+                    } else if !isOn {
+                        shape.inset(by: Metric.hairline / 2).stroke(border, lineWidth: Metric.hairline)
                     }
-                    .overlay(alignment: .leading) {
-                        Circle()
-                            .fill(isOn ? Ink.onPrimary : Ink.canvas)
-                            .frame(width: Metric.switchKnob, height: Metric.switchKnob)
-                            .padding(.leading, Metric.switchInset)
-                            .offset(x: isOn ? travel : 0) // grid: ok knob travel
-                    }
-                    .contentShape(shape)
+                }
+                .overlay(alignment: .leading) {
+                    Circle()
+                        .fill(isOn ? Ink.onPrimary : Ink.canvas)
+                        .frame(width: Metric.switchKnob, height: Metric.switchKnob)
+                        .padding(.leading, Metric.switchInset)
+                        .offset(x: isOn ? travel : 0) // grid: ok knob travel
+                }
+                .contentShape(shape)
         }
     }
 

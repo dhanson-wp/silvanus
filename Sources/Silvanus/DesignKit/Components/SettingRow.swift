@@ -19,6 +19,8 @@ struct SettingRow<Control: View>: View {
                     Text(description)
                         .kitType(.label)
                         .foregroundStyle(Ink.textSecondary)
+                        // Read once, as the control's hint, not again on its own.
+                        .accessibilityHidden(true)
                 }
             }
             .lineLimit(2)
@@ -38,7 +40,7 @@ extension SettingRow where Control == AnyView {
         SettingRow<AnyView>(title: title, description: description) {
             AnyView(
                 Toggle(title, isOn: isOn)
-                    .toggleStyle(KitSwitchStyle())
+                    .toggleStyle(KitSwitchStyle(title: title))
                     .disabled(!isEnabled)
                     .help(help ?? "")
                     .accessibilityLabel(title)
