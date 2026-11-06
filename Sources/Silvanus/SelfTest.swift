@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import SilvanusKit
 import SwiftUI
@@ -131,6 +132,8 @@ enum SelfTest {
             await checkNotesAcrossViews(model: model)
             await checkTranscript(model: model)
             await checkSummary(model: model)
+            checkAudio()
+            if ProcessInfo.processInfo.environment["APP_SELFTEST_AUDIO"] == "1" { await checkAfterCall(model: model) }
 
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
@@ -794,6 +797,168 @@ enum SelfTest {
         model.canvasMode = .notes
         for meeting in [withSummary, without, big] { try? model.library.moveToTrash(meeting.id) }
         model.reload()
+    }
+
+    /// Segment files, stitching, and tracks.json from synthetic buffers. Opens no device.
+    private static func checkAudio() {
+        let dir = Store.root.appending(path: "audio-selftest")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // 65 seconds at 48 kHz stereo, in 1-second buffers, the way a device might deliver it.
+        let device = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
+        let writer = SegmentWriter(directory: dir, name: "system", recordingStart: .now)
+        if let second = AVAudioPCMBuffer(pcmFormat: device, frameCapacity: 48_000) {
+            second.frameLength = 48_000
+            for _ in 0..<65 { writer.append(second) }
+        }
+        writer.finish()
+        let segments = writer.segmentURLs.compactMap { try? AVAudioFile(forReading: $0) }
+        check("a 65-second track rolls into three 30-second segment files",
+              writer.segmentURLs.map(\.lastPathComponent) == ["system-0001.caf", "system-0002.caf", "system-0003.caf"],
+              writer.segmentURLs.map(\.lastPathComponent).joined(separator: ", "))
+        check("segments are stored as 16 kHz mono float",
+              segments.count == 3 && segments.allSatisfy {
+                  $0.fileFormat.sampleRate == 16_000 && $0.fileFormat.channelCount == 1
+                      && $0.processingFormat.commonFormat == .pcmFormatFloat32
+              })
+        let total = segments.reduce(0) { $0 + $1.length }
+        check("converting keeps the track's length", abs(total - 65 * 16_000) < 1_600, "got \(total) frames")
+
+        // Three 1-second buffers already at 16 kHz make one segment; stitching adds 2 s in front.
+        let mic = SegmentWriter(directory: dir, name: "mic", recordingStart: .now)
+        if let tone = AVAudioPCMBuffer(pcmFormat: TrackFormat.format, frameCapacity: 16_000) {
+            tone.frameLength = 16_000
+            for _ in 0..<3 { mic.append(tone) }
+        }
+        mic.finish()
+        check("the mic track is written as segment files", mic.segmentURLs.count == 1)
+        let stitched = dir.appending(path: "mic.caf")
+        try? Stitcher.stitch(mic.segmentURLs, leadingSilence: 2, to: stitched)
+        let length = (try? AVAudioFile(forReading: stitched).length) ?? 0
+        check("stitching adds the leading silence", length == 5 * 16_000, "got \(length) frames")
+
+        let tracks = Tracks(mic: Tracks.Track(mic), system: Tracks.Track(startOffset: 1.5, seconds: 65))
+        try? tracks.save(in: dir)
+        check("tracks.json reads back as it was written", Tracks.load(from: dir) == tracks)
+        check("the mic track's length is recorded", abs((tracks.mic?.seconds ?? 0) - 3) < 0.01)
+    }
+
+    /// The after-call pass on two spoken tracks made with `say`: the call says two
+    /// sentences from 6 s, I answer at 0 s, and my mic picks up the call's first sentence
+    /// 2 s after the call track has it. Loads the speech model, so it runs only with
+    /// APP_SELFTEST_AUDIO=1.
+    private static func checkAfterCall(model: AppModel) async {
+        let started = Date()
+        let audio = Store.root.appending(path: "say")
+        try? FileManager.default.createDirectory(at: audio, withIntermediateDirectories: true)
+        let budget = "The budget review moves to Thursday afternoon at three."
+        let clips = [
+            ("mine", "Thanks everyone, I will send the revised plan to Jordan tomorrow morning."),
+            ("budget", budget),
+            ("launch", "Priya will share the launch checklist before the next meeting."),
+        ]
+        var spoken: [String: AVAudioPCMBuffer] = [:]
+        for (key, text) in clips {
+            let url = audio.appending(path: "\(key).caf")
+            let say = Process()
+            say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            say.arguments = ["-o", url.path, "--data-format=LEF32@16000", text]
+            try? say.run()
+            say.waitUntilExit()
+            spoken[key] = readMono(url)
+        }
+        guard spoken.count == clips.count else {
+            check("say makes the test speech", false, "got \(spoken.keys.sorted().joined(separator: ", "))")
+            return
+        }
+        let meeting = Meeting(info: MeetingInfo(id: "selftest-aftercall", title: "Acme kickoff",
+                                                start: Date(timeIntervalSince1970: 1_793_975_400),
+                                                speakers: ["me": "Sam Rivera"]), notes: "Agenda")
+        guard let folder = try? model.library.save(meeting) else { check("the test meeting is saved", false); return }
+        let dir = folder.appending(path: MeetingFolder.audio)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        // The call track starts 6 s in: the budget sentence at 6 s, the launch sentence at 12 s.
+        // The mic track starts at 0: my sentence at 0 s, the budget sentence leaking in at 8 s.
+        let system = SegmentWriter(directory: dir, name: "system", recordingStart: .now)
+        write(timeline([(0, spoken["budget"]!), (6, spoken["launch"]!)]), to: system)
+        let mic = SegmentWriter(directory: dir, name: "mic", recordingStart: .now)
+        write(timeline([(0, spoken["mine"]!), (8, spoken["budget"]!)]), to: mic)
+        try? Tracks(mic: Tracks.Track(startOffset: 0, seconds: Double(mic.framesWritten) / TrackFormat.sampleRate),
+                    system: Tracks.Track(startOffset: 6, seconds: Double(system.framesWritten) / TrackFormat.sampleRate))
+            .save(in: dir)
+
+        do {
+            let t = try await AfterCall.run(meetingID: meeting.id, library: model.library, transcriber: .shared,
+                                            me: AppDefaults.meName)
+            let mine = t.lines.filter { $0.side == .me }.map(\.text).joined(separator: " ")
+            let theirs = t.lines.filter { $0.side == .them }.map(\.text).joined(separator: " ")
+            let removed = t.removedEcho.map(\.text).joined(separator: " ")
+            print("AFTERCALL me: \(mine)")
+            print("AFTERCALL them: \(theirs)")
+            print("AFTERCALL removed echo: \(removed)")
+            check("the after-call pass hears my side", mine.lowercased().contains("revised plan"), mine)
+            check("…and their side", theirs.lowercased().contains("budget") && theirs.lowercased().contains("checklist"), theirs)
+            check("the call leaking into my mic is removed as echo",
+                  removed.lowercased().contains("budget") && !mine.lowercased().contains("budget"), removed)
+            check("their lines start on the recording's clock", (t.lines.first { $0.side == .them }?.start ?? 0) > 5.5)
+            let md = (try? String(contentsOf: folder.appending(path: MeetingFolder.transcript), encoding: .utf8)) ?? ""
+            check("transcript.md names the sides from the meeting",
+                  md.contains("**Sam Rivera:**") && md.contains("**Them:**"), md)
+            check("transcript.json reads back", model.library.readTranscript(id: meeting.id) == t)
+            let info = model.library.meeting(id: meeting.id)
+            check("meeting.json records the speech engine",
+                  info?.info.asr?.engine == "parakeet" && info?.info.asr?.model == Transcriber.model)
+            check("the notes are left alone", info?.notes == "Agenda")
+        } catch {
+            check("the after-call pass runs", false, error.localizedDescription)
+        }
+        print("AFTERCALL took \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+        try? model.library.moveToTrash(meeting.id)
+        try? FileManager.default.removeItem(at: audio)
+        model.reload()
+    }
+
+    /// A file's first channel at 16 kHz, or nil.
+    private static func readMono(_ url: URL) -> AVAudioPCMBuffer? {
+        guard let file = try? AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false),
+              file.processingFormat.sampleRate == TrackFormat.sampleRate,
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: buffer)) != nil else { return nil }
+        return buffer
+    }
+
+    /// Clips placed at times in seconds on one silent 16 kHz mono buffer, with a second of
+    /// silence after the last.
+    private static func timeline(_ clips: [(TimeInterval, AVAudioPCMBuffer)]) -> AVAudioPCMBuffer {
+        let rate = TrackFormat.sampleRate
+        let frames = clips.map { Int($0.0 * rate) + Int($0.1.frameLength) }.max().map { $0 + Int(rate) } ?? 0
+        let out = AVAudioPCMBuffer(pcmFormat: TrackFormat.format, frameCapacity: AVAudioFrameCount(frames))!
+        out.frameLength = AVAudioFrameCount(frames)
+        let dst = out.floatChannelData![0]
+        for i in 0..<frames { dst[i] = 0 }
+        for (at, clip) in clips {
+            guard let src = clip.floatChannelData?[0] else { continue }
+            let start = Int(at * rate)
+            for i in 0..<Int(clip.frameLength) where start + i < frames { dst[start + i] = src[i] }
+        }
+        return out
+    }
+
+    /// Feeds a buffer to a writer in 1-second pieces, as a device would, and closes it.
+    private static func write(_ buffer: AVAudioPCMBuffer, to writer: SegmentWriter) {
+        let step = Int(TrackFormat.sampleRate)
+        var at = 0
+        while at < Int(buffer.frameLength) {
+            let n = min(step, Int(buffer.frameLength) - at)
+            guard let piece = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: AVAudioFrameCount(n)) else { break }
+            piece.frameLength = AVAudioFrameCount(n)
+            memcpy(piece.floatChannelData![0], buffer.floatChannelData![0] + at, n * MemoryLayout<Float>.size)
+            writer.append(piece)
+            at += n
+        }
+        writer.finish()
     }
 
     private static func menuItem(title: String, in menu: NSMenu?) -> NSMenuItem? {

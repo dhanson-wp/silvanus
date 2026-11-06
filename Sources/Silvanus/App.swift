@@ -185,10 +185,12 @@ struct SettingsCommand: Commands {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // The Granola import, the editor's checks, and the benchmark run before any window opens, then quit.
+        // The Granola import, the editor's checks, the benchmark, and headless transcription
+        // run before any window opens, then quit.
         if let code = ImportCommand.runIfRequested() { exit(code) }
         if let code = EditorSpike.runHeadlessIfRequested() { exit(code) }
         if let code = TranscriptBench.runHeadlessIfRequested() { exit(code) }
+        if let code = TranscribeCommand.runIfRequested() { exit(code) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

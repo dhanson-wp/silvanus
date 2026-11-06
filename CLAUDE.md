@@ -23,6 +23,7 @@ is folders of plain files (Markdown and JSON), one folder per meeting.
 - Unit tests: `tools/test.sh` (adds the Command Line Tools flags Swift Testing needs).
 - A second checkout (a worktree) builds and tests side by side with `SILVANUS_DEV_DIR=~/Library/Developer/Silvanus-<name>` set for `build.sh`, `tools/test.sh`, `tools/snap.sh`, and `tools/selftest.sh`. `SILVANUS_SNAP_STORE`, `SILVANUS_SHOTS`, and `SILVANUS_SELFTEST_STORE` move their /tmp folders.
 - Self-test (the app's real functions on a /tmp folder): `tools/selftest.sh`. Exit 0 when every check passes. Add a check for every story with logic in `SelfTest.swift`.
+- Audio: no check opens the microphone or call audio, or asks for a permission. `APP_SELFTEST_AUDIO=1 tools/selftest.sh` adds the after-call pass on two tracks spoken with `say` (it loads the speech model, downloading it the first time). `APP_TRANSCRIBE_FILE=<audio file>` on the dev binary prints one file's words with times; `APP_TRANSCRIBE=<meeting id>` with `APP_STORE` runs the after-call pass on that meeting's `audio/` folder.
 - After every UI change, take snapshots and look at them: `tools/snap.sh`.
   It writes `/tmp/Silvanus-shots/<page>-light.png` and `-dark.png` for every sidebar page, `settings-<pane>-light.png` and `-dark.png` for every Settings pane, and the brand set (`about-*`, `menubar-*`, `menubar-recording-*`), then quits. `APP_SNAPSHOT_PAGES=all,settings tools/snap.sh` limits the pages.
   For a panel, sheet, or popover, add a capture to `Snapshot.swift` like the Settings loop.

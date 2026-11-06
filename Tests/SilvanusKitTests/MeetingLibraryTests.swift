@@ -343,3 +343,29 @@ private func names(_ folder: URL) -> [String] {
     #expect(library(root).readSummary(id: m.id) == "Agreed on scope.")
     #expect(library(root).readSummary(id: "no-such-meeting") == nil)
 }
+
+@Test func saveTranscriptWithMarkdownWritesBothAndLeavesNotes() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = try library(root).save(kickoff(id: "one"))
+    let t = Transcript(lines: [TranscriptLine(side: .me, words: [Word(text: "Hello", start: 0, end: 0.4)])],
+                       engine: "parakeet", processedAt: start)
+    let lib = library(root)
+    try lib.saveTranscript(t, markdown: "[0:00] **Sam Rivera:** Hello\n", for: "one")
+    #expect(lib.readTranscript(id: "one") == t)
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.transcript), encoding: .utf8)
+            == "[0:00] **Sam Rivera:** Hello\n")
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.notes), encoding: .utf8) == kickoff().notes)
+    // Without markdown, transcript.md is left as it was.
+    try lib.saveTranscript(t, for: "one")
+    #expect(try String(contentsOf: folder.appending(path: MeetingFolder.transcript), encoding: .utf8)
+            == "[0:00] **Sam Rivera:** Hello\n")
+}
+
+@Test func meetingByIDReadsFromDisk() throws {
+    let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+    let m = kickoff(id: "one")
+    try library(root).save(m)
+    // A fresh instance that never loaded finds it.
+    #expect(library(root).meeting(id: "one") == m)
+    #expect(library(root).meeting(id: "missing") == nil)
+}
