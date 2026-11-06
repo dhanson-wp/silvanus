@@ -69,5 +69,14 @@ cp "$r/Brand/placeholder/menubar-recording.svg" "$r/Brand/menubar-recording.svg"
 "$r/tools/brand.sh" >/dev/null 2>"$work/err" || { cat "$work/err"; echo "FAIL brand.sh with a recording glyph"; exit 1; }
 check "a menubar-recording.svg is still rendered" "! cmp -s $r/Resources/menubar.png $r/Resources/menubar-recording.png"
 
+# The committed iconset must be tracked (a gitignore rule once hid it).
+check "git tracks the ten iconset PNGs" "[[ \$(git -C $repo ls-files Brand/app-icon.iconset | wc -l) -eq 10 ]]"
+
+# Half a menu bar pair is refused, never upscaled.
+rm "$r/Brand/menubar@2x.png"
+if "$r/tools/brand.sh" >/dev/null 2>"$work/err"; then ok=0; else ok=1; fi
+check "menubar.png without @2x makes brand.sh fail" "[[ $ok -eq 1 ]]"
+check "the failure says which file is missing" "grep -q 'menubar@2x.png' $work/err"
+
 (( fail )) && { echo "FAIL"; exit 1; }
 echo "PASS"

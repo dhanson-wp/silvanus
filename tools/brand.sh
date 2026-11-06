@@ -56,6 +56,10 @@ fi
 # (the placeholder's recording glyph is never mixed in beside real artwork).
 glyph() {
   local state=$1
+  if [[ -f "$brand/$state.png" && ! -f "$brand/$state@2x.png" ]] || [[ ! -f "$brand/$state.png" && -f "$brand/$state@2x.png" ]]; then
+    echo "brand: Brand/$state.png and Brand/$state@2x.png must come as a pair (18 and 36 px); one is missing" >&2
+    return 1
+  fi
   if [[ -f "$brand/$state.png" && -f "$brand/$state@2x.png" ]]; then
     cp "$brand/$state.png" "$out/$state.png"
     cp "$brand/$state@2x.png" "$out/$state@2x.png"

@@ -6,6 +6,7 @@ DerivedData/
 # Generated from Brand/ by tools/brand.sh
 Resources/
 *.iconset/
+!Brand/app-icon.iconset/
 
 # Reference screenshots of other apps stay local
 design/reference/
