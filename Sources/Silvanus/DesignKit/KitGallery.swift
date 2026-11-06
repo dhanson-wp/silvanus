@@ -33,6 +33,7 @@ struct KitGallery: View {
             }
             SidebarGallery()
             HeadersGallery()
+            TranscriptGallery()
             SettingsGallery()
         }
         .padding(Space.xxl)

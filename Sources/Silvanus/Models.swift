@@ -90,6 +90,8 @@ final class AppModel {
     var canvasMode: CanvasMode = .notes {
         willSet { if newValue != canvasMode, canvasMode == .notes { leavingNotes?() } }
     }
+    /// Where the transcript last asked to play from. The snapshot and self-test read it.
+    @ObservationIgnored var lastSeek: TimeInterval?
     /// True while a meeting records. Nothing sets it until recording is wired in.
     var isRecording = false
     /// False until recording is wired in: Start Recording and Quick Note show disabled.
@@ -265,6 +267,10 @@ extension AppModel {
     /// Start Recording (⇧⌘R, the canvas header's Record button). Recording is wired in after
     /// the audio work lands; until then this does nothing.
     func startRecording() {}
+
+    /// A word or a timestamp in the Transcript view was clicked: play from `time`. Playback is
+    /// wired in after calls; until then the transcript only shows the time.
+    func seek(_ time: TimeInterval) { lastSeek = time }
 
     /// Quick Note (⌥⌘N, the canvas header's mic): a new meeting that records right away.
     /// Wired in with recording; until then this does nothing.
