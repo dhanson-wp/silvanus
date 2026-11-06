@@ -781,7 +781,7 @@ struct EditorChecks {
         let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: NotesCanvas().environment(model))
+        window.contentView = NSHostingView(rootView: CheckCanvas().environment(model))
         window.orderFrontRegardless()
         var found: NotesTextView?
         for _ in 0..<40 where found == nil {
@@ -872,7 +872,7 @@ struct EditorChecks {
         let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: NotesCanvas().environment(model))
+        window.contentView = NSHostingView(rootView: CheckCanvas().environment(model))
         window.orderFrontRegardless()
         func editor(showing text: String) -> NotesTextView? {
             func all(_ v: NSView) -> [NotesTextView] { ((v as? NotesTextView).map { [$0] } ?? []) + v.subviews.flatMap(all) }
@@ -933,7 +933,7 @@ struct EditorChecks {
         let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -8000, y: -8000), size: CGSize(width: 700, height: 500)),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: NotesCanvas().environment(model))
+        window.contentView = NSHostingView(rootView: CheckCanvas().environment(model))
         window.orderFrontRegardless()
         func all(_ v: NSView) -> [NotesTextView] { ((v as? NotesTextView).map { [$0] } ?? []) + v.subviews.flatMap(all) }
         var view: NotesTextView?
@@ -1029,5 +1029,16 @@ extension NotesTextView {
         let top = toWindow(CGPoint(x: x, y: lineTop))
         let base = toWindow(CGPoint(x: x, y: baseline))
         return (top.x, top.y, base.y, base.y - font.capHeight)
+    }
+}
+
+/// The checks' canvas: the window's My notes page (MeetingPage, with the meeting header over
+/// the notes) for the selected meeting, with its own open notes as ContentView keeps them.
+private struct CheckCanvas: View {
+    @Environment(AppModel.self) private var model
+    @State private var documents = OpenNotes()
+
+    var body: some View {
+        MeetingPage(meeting: model.selectedMeeting, documents: documents)
     }
 }

@@ -509,6 +509,18 @@ final class NotesTextView: NSTextView {
 
     // MARK: Task boxes
 
+    /// ⌘⌫ deletes to the start of the line while typing, as it does in every Mac text view,
+    /// and never reaches Meeting > Move to Trash, which shares the shortcut.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if window?.firstResponder === self, flags == .command,
+           event.charactersIgnoringModifiers == "\u{7F}" {
+            deleteToBeginningOfLine(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let index = characterIndexForInsertion(at: point)

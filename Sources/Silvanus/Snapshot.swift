@@ -126,7 +126,7 @@ enum Snapshot {
 
     /// The notes canvas with the first seeded meeting open: canvas-light.png and
     /// canvas-dark.png, nothing focused (markers faded). Prints where the first line sits
-    /// (design/KIT.md "Notes canvas text": x 221, cap top 64).
+    /// (design/KIT.md "Notes canvas text": x 221, under the meeting header).
     @MainActor private static func captureCanvas(model: AppModel, to dir: String) async {
         guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
         model.sidebar = .all

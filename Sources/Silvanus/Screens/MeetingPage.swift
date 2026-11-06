@@ -2,11 +2,13 @@ import SilvanusKit
 import SwiftUI
 
 /// The canvas for the open meeting, by the view pill's mode. Summary and My notes start with
-/// the meeting header (title and chips); the notes canvas and the Summary and Transcript
-/// pages fill in below it as they land. Until then each shows its empty state.
+/// the meeting header (title and chips). On My notes the header is the top of the notes'
+/// scroll content (NotesCanvas); Summary and Transcript show their empty states until they land.
 struct MeetingPage: View {
     @Environment(AppModel.self) private var model
     let meeting: Meeting?
+    /// The window's open notes (ContentView keeps them across view modes and Settings).
+    let documents: OpenNotes
 
     var body: some View {
         if let meeting {
@@ -14,8 +16,7 @@ struct MeetingPage: View {
             case .summary:
                 page(meeting) { emptyLine("No summary yet") }
             case .notes:
-                // The notes canvas (stream B) puts the header at the top of its own scroll view.
-                page(meeting) { NotesCanvas() }
+                NotesCanvas(meeting: meeting, documents: documents, header: AnyView(header(meeting)))
             case .transcript:
                 VStack(alignment: .leading, spacing: 0) {
                     emptyLine("No transcript yet")
@@ -34,16 +35,22 @@ struct MeetingPage: View {
 
     private func page(_ meeting: Meeting, @ViewBuilder body: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            MeetingHeader(title: meeting.displayTitle, date: meeting.info.start, attendees: meeting.info.attendees,
-                          folder: meeting.info.folder, folders: model.folders.map(\.name),
-                          rename: { model.rename(meeting.id, to: $0) },
-                          chooseFolder: { model.setFolder(meeting.id, to: $0) },
-                          request: model.headerRequest, handled: model.headerRequestHandled)
+            header(meeting)
             body()
             Spacer(minLength: 0)
         }
         // A new meeting gets a fresh header (no rename left half done on the last one).
         .id(meeting.id)
+    }
+
+    private func header(_ meeting: Meeting) -> some View {
+        MeetingHeader(title: meeting.displayTitle, date: meeting.info.start, attendees: meeting.info.attendees,
+                      folder: meeting.info.folder, folders: model.folders.map(\.name),
+                      rename: { model.rename(meeting.id, to: $0) },
+                      chooseFolder: { model.setFolder(meeting.id, to: $0) },
+                      request: model.headerRequest, handled: model.headerRequestHandled)
+            // The notes' scroll view hosts it outside this view's environment.
+            .environment(model)
     }
 
     /// An empty page's one line, in `label` and `textSecondary` at the text's leading edge.

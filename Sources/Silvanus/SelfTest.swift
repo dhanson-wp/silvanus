@@ -128,6 +128,7 @@ enum SelfTest {
             await checkWindowFrame(model: model)
             await checkHeaders(model: model)
             await checkSettings(model: model)
+            await checkNotesAcrossViews(model: model)
 
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
@@ -462,6 +463,125 @@ enum SelfTest {
                 .usingColorSpace(.sRGB) else { return nil }
         return String(format: "#%02X%02X%02X", Int(color.redComponent * 255), Int(color.greenComponent * 255),
                       Int(color.blueComponent * 255))
+    }
+
+    /// My notes in the real window: the meeting header sits over the editor in one scroll
+    /// view, and typing reaches the right meeting's notes.md when Settings opens, when the
+    /// view mode changes (menu and view pill), across a rename, and before Move to Trash.
+    /// ⌘⌫ while typing stays in the notes.
+    private static func checkNotesAcrossViews(model: AppModel) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else {
+            check("the main window is open", false)
+            return
+        }
+        model.closeSettings()
+        let earlier = main.contentView.flatMap(NotesTextView.find)
+        guard let meeting = model.newMeeting() else {
+            check("New Meeting saves a meeting for the notes checks", false)
+            return
+        }
+        let id = meeting.id
+        func editor() -> NotesTextView? { main.contentView.flatMap(NotesTextView.find) }
+        func disk() -> String { model.library.readNotes(for: id) ?? "(no notes.md)" }
+        /// Waits for My notes' editor, then types at the end of the note without waiting for a save.
+        func type(_ text: String) async -> Bool {
+            await poll { editor() != nil }
+            guard let view = editor() else { return false }
+            main.makeFirstResponder(view)
+            view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+            for c in text { view.insertText(String(c), replacementRange: view.selectedRange()) }
+            return true
+        }
+
+        // The new meeting's editor, not the one it replaces.
+        await poll { editor() != nil && editor() !== earlier }
+        let header = editor()?.superview as? HeaderedNotesView
+        check("My notes puts the meeting header above the notes in one scroll view",
+              header != nil && header?.enclosingScrollView?.documentView === header
+              && (header?.header.frame.maxY ?? 0) <= (header?.textView.frame.minY ?? 0) + (editor()?.textContainerInset.height ?? 0))
+        if let view = editor(), let line = view.firstLineMetrics() {
+            check("the notes text starts at x 221, under the header", line.x == Metric.contentX && line.lineTop >= Metric.headerHeight + MeetingHeader.height - 1,
+                  "x \(line.x), line top \(line.lineTop)")
+        }
+
+        // Settings: the typing is on disk the moment it opens.
+        let typed1 = await type("Budget")
+        model.openSettings()
+        check("opening Settings saves the typing to the open meeting", typed1 && disk() == "Budget", disk().debugDescription)
+        await poll { editor() == nil }
+        check("Settings replaces the notes editor", editor() == nil)
+        model.closeSettings()
+        await poll { editor()?.string == "Budget" }
+        check("closing Settings shows the same notes", editor()?.string == "Budget", editor()?.string.debugDescription ?? "no editor")
+
+        // View modes: ⌘1 (show) and the view pill (canvasMode).
+        let typed2 = await type(" one")
+        model.show(.summary)
+        check("switching to Summary saves the typing", typed2 && disk() == "Budget one", disk().debugDescription)
+        model.show(.notes)
+        let typed3 = await type(" two")
+        model.canvasMode = .transcript
+        check("the view pill's Transcript saves the typing", typed3 && disk() == "Budget one two", disk().debugDescription)
+        model.canvasMode = .notes
+
+        // A rename after a save, and one with typing still unsaved, never rewrites notes.md.
+        let typed4 = await type(" three")
+        await poll(timeout: 4) { disk() == "Budget one two three" }
+        let copy = model.meetings.first { $0.id == id }?.notes
+        check("a notes save updates the app's copy of the meeting", typed4 && copy == "Budget one two three", copy.debugDescription)
+        model.rename(id, to: "Acme review")
+        check("a rename after a notes save leaves notes.md with the typed text",
+              disk() == "Budget one two three" && model.meetings.first { $0.id == id }?.displayTitle == "Acme review",
+              disk().debugDescription)
+        let typed5 = await type(" four")
+        model.rename(id, to: "Acme planning")
+        check("a rename with typing unsaved doesn't write the older notes", disk() == "Budget one two three", disk().debugDescription)
+        await poll(timeout: 4) { disk() == "Budget one two three four" }
+        check("and the typing still saves after the rename", typed5 && disk() == "Budget one two three four", disk().debugDescription)
+        model.setFolder(id, to: "Clients")
+        check("a folder change leaves notes.md alone", disk() == "Budget one two three four", disk().debugDescription)
+
+        // ⌘⌫ while typing deletes in the notes and never trashes the meeting.
+        let trashItem = menuItem(title: "Move to Trash", in: NSApp.mainMenu)
+        check("Meeting has Move to Trash on ⌘⌫",
+              trashItem?.keyEquivalentModifierMask == [.command] && ["\u{8}", "\u{7F}"].contains(trashItem?.keyEquivalent ?? ""),
+              "\(trashItem?.keyEquivalent.debugDescription ?? "missing") \(trashItem?.keyEquivalentModifierMask.rawValue ?? 0)")
+        if await type(" five"), let view = editor(),
+           let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+                                        windowNumber: main.windowNumber, context: nil, characters: "\u{7F}",
+                                        charactersIgnoringModifiers: "\u{7F}", isARepeat: false, keyCode: 51) {
+            let handled = main.performKeyEquivalent(with: event)
+            check("⌘⌫ in the notes deletes to the line's start and keeps the meeting",
+                  handled && view.string.isEmpty && model.meetings.contains { $0.id == id },
+                  "handled \(handled), text \(view.string.debugDescription)")
+        } else {
+            check("⌘⌫ in the notes deletes to the line's start and keeps the meeting", false, "no editor")
+        }
+
+        // Move to Trash with typing unsaved: saved first, so nothing is left to recover.
+        let recovered = Store.root.appending(path: "recovered")
+        let recoveredBefore = (try? FileManager.default.contentsOfDirectory(atPath: recovered.path))?.count ?? 0
+        let typed6 = await type("Last line")
+        if let trashItem, let menu = trashItem.menu {
+            main.makeFirstResponder(nil)
+            NSApp.mainMenu?.update()
+            menu.delegate?.menuNeedsUpdate?(menu)
+            menu.performActionForItem(at: menu.index(of: trashItem))
+        }
+        await poll { !model.meetings.contains { $0.id == id } }
+        try? await Task.sleep(for: .seconds(0.3))
+        let recoveredAfter = (try? FileManager.default.contentsOfDirectory(atPath: recovered.path))?.count ?? 0
+        check("Move to Trash saves the typing first and trashes the open meeting",
+              typed6 && !model.meetings.contains { $0.id == id } && model.selection == nil && recoveredAfter == recoveredBefore,
+              "listed \(model.meetings.contains { $0.id == id }), recovered \(recoveredAfter - recoveredBefore)")
+    }
+
+    private static func menuItem(title: String, in menu: NSMenu?) -> NSMenuItem? {
+        for item in menu?.items ?? [] {
+            if item.title == title { return item }
+            if let found = menuItem(title: title, in: item.submenu) { return found }
+        }
+        return nil
     }
 
     /// Waits until `condition` holds, checking every 50 ms, for at most `timeout` seconds.

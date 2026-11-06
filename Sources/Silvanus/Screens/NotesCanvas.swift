@@ -2,32 +2,30 @@ import AppKit
 import SilvanusKit
 import SwiftUI
 
-/// The selected meeting's notes, in the canvas column under the 46 pt header band
-/// (PaneLayout's `canvas` slot; the header itself is the canvas header's). Text starts
-/// at x 221 and the first line's cap top at y 64, per design/KIT.md "Notes canvas text".
+/// My notes: the meeting header at the top of the notes' scroll content, then the editor,
+/// in the canvas column under the 46 pt canvas header. Text starts at x 221 (design/KIT.md
+/// "Notes canvas text"); the header's layout is MeetingHeader's own.
 struct NotesCanvas: View {
     @Environment(AppModel.self) private var model
-    @State private var documents = OpenNotes()
+    let meeting: Meeting
+    /// The window's open notes. They outlive this view, so leaving My notes (Summary,
+    /// Transcript, Settings) never drops typing still on its way to disk.
+    let documents: OpenNotes
+    let header: AnyView
 
     var body: some View {
-        if let id = model.selection, model.meetings.contains(where: { $0.id == id }) {
-            NotesEditor(document: documents.open(id, model: model))
-                // A new meeting gets a new editor; the old one hands over its typing as it goes.
-                .id(id)
-        } else {
-            Text("Pick a meeting or start one")
-                .kitType(.subheading)
-                .foregroundStyle(Ink.text)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        NotesEditor(document: documents.open(meeting.id, model: model), header: header)
+            // A new meeting gets a new editor; the old one hands over its typing as it goes.
+            .id(meeting.id)
     }
 }
 
-/// The notes documents the canvas has open: the selected meeting's, and, for a moment
+/// The notes documents the window has open: the selected meeting's, and, for a moment
 /// after picking another, the one it replaced. Old documents close when the selection
 /// changes (`AppModel.selectionChanged`, not the view body), on the next turn of the run loop, once their editor has handed over its
 /// last typing, so the close saves everything. It also saves the open notes before the
-/// app trashes that meeting.
+/// app trashes that meeting, and before the canvas leaves My notes (another view mode or
+/// Settings), while the editor is still on screen.
 @MainActor final class OpenNotes {
     private(set) var current: NotesDocument?
     private var replaced: [NotesDocument] = []
@@ -40,6 +38,7 @@ struct NotesCanvas: View {
                 document.saveOrRecover()
             }
         }
+        model.leavingNotes = { [weak self] in self?.current?.saveNow() }
         if let current, current.meetingID == id { return current }
         if let current { replaced.append(current) }
         let document = NotesDocument(meetingID: id, library: model.library)
@@ -61,12 +60,15 @@ struct NotesCanvas: View {
     }
 }
 
-/// The editor for one document, with the save error banner over its bottom edge.
+/// The editor for one document, under its page header, with the save error banner over
+/// its bottom edge.
 struct NotesEditor: View {
     @Bindable var document: NotesDocument
+    var header: AnyView? = nil
 
     var body: some View {
-        MarkdownEditor(text: $document.text, link: document.link)
+        MarkdownEditor(text: $document.text, link: document.link,
+                       header: header, headerHeight: header == nil ? 0 : MeetingHeader.height)
             .accessibilityLabel("My notes")
             .overlay(alignment: .bottom) {
                 if let error = document.saveError {

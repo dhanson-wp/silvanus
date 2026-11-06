@@ -110,6 +110,9 @@ struct SidebarView: View {
         .buttonStyle(SidebarRowStyle(isSelected: selected, isFocused: ring(.meetings, selected: selected)))
         // The list takes focus as one; Tab doesn't stop on every row.
         .focusable(false)
+        .contextMenu {
+            Button("Move to Trash") { model.trash(meeting.id) }
+        }
     }
 
     // MARK: - Folders

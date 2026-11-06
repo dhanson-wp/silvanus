@@ -17,9 +17,16 @@ struct MarkdownEditor: NSViewRepresentable {
     var pushDelay: TimeInterval = 0.25
     /// Called once with the text view, for the spike's snapshots and checks.
     var onReady: ((NotesTextView) -> Void)? = nil
+    /// A page header that scrolls with the notes, above the first line (the meeting
+    /// header on My notes), and its height. The text's first line box starts right under it.
+    var header: AnyView? = nil
+    var headerHeight: CGFloat = 0
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scroll, view) = NotesTextView.scrollable()
+        if let header {
+            scroll.documentView = HeaderedNotesView(header: header, height: headerHeight, textView: view)
+        }
         let coordinator = context.coordinator
         view.delegate = coordinator
         coordinator.view = view
@@ -33,6 +40,9 @@ struct MarkdownEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
+        if let header, let page = scroll.documentView as? HeaderedNotesView {
+            page.header.rootView = header
+        }
         link?.attach(view: context.coordinator.view, coordinator: context.coordinator)
         context.coordinator.take(text)
     }
@@ -145,4 +155,60 @@ struct MarkdownEditor: NSViewRepresentable {
 
     /// Shows `text` (from disk) right away, keeping the caret on the same words.
     func show(_ text: String) { coordinator?.take(text) }
+}
+
+/// The notes scroll view's document when the page has a header: the header (SwiftUI) on
+/// top and the text view under it, so they scroll as one page. The text view sizes its own
+/// height as the note grows; this view follows it, and its width follows the scroll view.
+final class HeaderedNotesView: NSView {
+    let header: NSHostingView<AnyView>
+    let textView: NotesTextView
+    /// Where the text view starts: its top inset ends where the header does, so the first
+    /// line box starts at the header's bottom.
+    private var textTop: CGFloat { max(0, headerHeight - textView.textContainerInset.height) }
+    private let headerHeight: CGFloat
+
+    override var isFlipped: Bool { true }
+
+    init(header: AnyView, height: CGFloat, textView: NotesTextView) {
+        self.header = NSHostingView(rootView: header)
+        self.textView = textView
+        headerHeight = height
+        super.init(frame: NSRect(x: 0, y: 0, width: textView.frame.width, height: height))
+        autoresizingMask = [.width]
+        textView.autoresizingMask = []
+        textView.postsFrameChangedNotifications = true
+        addSubview(textView)
+        // Over the text view's top inset, so the header's controls take their clicks.
+        addSubview(self.header)
+        // A selector observer goes away with this view on its own.
+        NotificationCenter.default.addObserver(self, selector: #selector(textFrameChanged),
+                                               name: NSView.frameDidChangeNotification, object: textView)
+        placeParts()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    @objc private func textFrameChanged(_ note: Notification) {
+        fitHeight()
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        placeParts()
+    }
+
+    /// The header across the top, the text view under it at the full width.
+    private func placeParts() {
+        header.frame = NSRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
+        let wanted = NSRect(x: 0, y: textTop, width: bounds.width, height: textView.frame.height)
+        if textView.frame != wanted { textView.frame = wanted }
+        fitHeight()
+    }
+
+    /// Tall enough for the header and the whole note.
+    private func fitHeight() {
+        let height = textTop + textView.frame.height
+        if frame.height != height { setFrameSize(NSSize(width: frame.width, height: height)) }
+    }
 }

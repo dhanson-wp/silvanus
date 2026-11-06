@@ -88,7 +88,7 @@ struct SidebarCommand: Commands {
 }
 
 /// File > New Meeting (⌘N), Start Recording (⇧⌘R), and Quick Note (⌥⌘N); Meeting > Rename
-/// Meeting… (⌃⌘R), Show Attendees (⌃⌘A), Move to Folder, Search, and Filter;
+/// Meeting… (⌃⌘R), Show Attendees (⌃⌘A), Move to Folder, Move to Trash (⌘⌫), Search, and Filter;
 /// View > Summary, My notes, and Transcript (⌘1, ⌘2, ⌘3), which switch the canvas like the
 /// view pill. Meeting items are disabled with no meeting open; recording items until
 /// recording is wired in; Search and Filter until they land.
@@ -125,6 +125,18 @@ struct MeetingCommands: Commands {
                 }
             }
             .disabled(noMeeting)
+            Divider()
+            // ⌘⌫ while typing (the notes, a title being renamed) deletes to the line's start, as
+            // in any Mac text field. The notes editor keeps it (NotesTextView); this catches the rest.
+            Button("Move to Trash") {
+                if NSApp.currentEvent?.type == .keyDown, let field = NSApp.keyWindow?.firstResponder as? NSTextView {
+                    field.deleteToBeginningOfLine(nil)
+                } else if let id = model.selection {
+                    model.trash(id)
+                }
+            }
+                .keyboardShortcut(.delete, modifiers: [.command])
+                .disabled(noMeeting)
             Divider()
             // Placeholders until search and filtering land. No shortcuts yet: ⌘F and ⌥⌘F
             // belong to Edit > Find and Find and Replace in the notes canvas.

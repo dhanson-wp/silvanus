@@ -85,8 +85,11 @@ final class AppModel {
     @ObservationIgnored private(set) var regroupCount = 0
     /// False when the sidebar is hidden (View > Hide Sidebar, ⌃⌘S, or the header button).
     var sidebarVisible = true
-    /// What the canvas shows for the open meeting (the view pill, ⌘1, ⌘2, ⌘3).
-    var canvasMode: CanvasMode = .notes
+    /// What the canvas shows for the open meeting (the view pill, ⌘1, ⌘2, ⌘3). Leaving My
+    /// notes saves the typing first, while the editor is still on screen.
+    var canvasMode: CanvasMode = .notes {
+        willSet { if newValue != canvasMode, canvasMode == .notes { leavingNotes?() } }
+    }
     /// True while a meeting records. Nothing sets it until recording is wired in.
     var isRecording = false
     /// False until recording is wired in: Start Recording and Quick Note show disabled.
@@ -97,8 +100,14 @@ final class AppModel {
     var headerRequest: HeaderRequest?
     /// How many requests the header has carried out. The self-test reads it.
     @ObservationIgnored private(set) var handledHeaderRequests: [HeaderRequest] = []
-    /// True while Settings takes the window (⌘, or the app menu's Settings…).
-    var settingsOpen = false
+    /// True while Settings takes the window (⌘, or the app menu's Settings…). Opening it saves
+    /// the notes' typing first, while the editor is still on screen.
+    var settingsOpen = false {
+        willSet { if newValue, !settingsOpen { leavingNotes?() } }
+    }
+    /// Saves the open notes now (the notes canvas sets it). Called before My notes leaves
+    /// the canvas.
+    @ObservationIgnored var leavingNotes: (() -> Void)?
     /// Settings reopens on the last pane. Test and snapshot runs use their own defaults.
     var settingsPane: SettingsPane = SettingsPane(rawValue: AppDefaults.shared.string(forKey: AppDefaults.settingsPaneKey) ?? "") ?? .general {
         didSet { AppDefaults.shared.set(settingsPane.rawValue, forKey: AppDefaults.settingsPaneKey) }
@@ -145,6 +154,16 @@ extension AppModel {
     /// The back button and Escape: back to the meeting.
     func closeSettings() {
         settingsOpen = false
+    }
+
+    /// Meeting > Move to Trash (⌘⌫) and the sidebar row's menu. A failure shows the
+    /// system's reason, and the meeting stays.
+    func trash(_ id: String) {
+        do {
+            try moveToTrash(id)
+        } catch {
+            NSApp.presentError(error)
+        }
     }
 
     /// Moves a meeting to the Trash, after its open notes are saved, and reloads.
@@ -198,6 +217,7 @@ extension AppModel {
     @discardableResult
     func newMeeting(now: Date = Date()) -> Meeting? {
         let meeting = Meeting(info: MeetingInfo(title: Meeting.untitled, start: now, folder: folder))
+        // The full save is safe here: a new id gets a new folder, so there's nothing to overwrite.
         guard (try? library.save(meeting)) != nil else { return nil }
         settingsOpen = false
         let index = meetings.firstIndex { $0.info.start <= meeting.info.start } ?? meetings.endIndex
@@ -250,13 +270,14 @@ extension AppModel {
     /// Wired in with recording; until then this does nothing.
     func quickNote() {}
 
-    /// Saves a change to one meeting, then puts the saved copy back in `meetings` so the
-    /// sidebar refreshes. A failed save changes nothing.
+    /// Saves a change to one meeting's details (`meeting.json` only, never the notes or other
+    /// files from this copy), then puts it back in `meetings` so the sidebar refreshes. A
+    /// failed save changes nothing.
     private func update(_ id: String, _ change: (inout Meeting) -> Void) {
         guard let index = meetings.firstIndex(where: { $0.id == id }) else { return }
         var meeting = meetings[index]
         change(&meeting)
-        guard meeting != meetings[index], (try? library.save(meeting)) != nil else { return }
+        guard meeting.info != meetings[index].info, (try? library.saveInfo(meeting)) != nil else { return }
         meetings[index] = meeting
     }
 }

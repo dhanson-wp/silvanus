@@ -7,6 +7,9 @@ import SwiftUI
 /// column and the chosen pane the canvas (Screens/SettingsScreen).
 struct ContentView: View {
     @Environment(AppModel.self) private var model
+    /// The open notes live as long as the window, so switching view modes or opening
+    /// Settings never drops a document with typing on its way to disk.
+    @State private var documents = OpenNotes()
 
     var body: some View {
         @Bindable var model = model
@@ -41,7 +44,7 @@ struct ContentView: View {
             if model.settingsOpen {
                 SettingsScreen()
             } else {
-                MeetingPage(meeting: meeting)
+                MeetingPage(meeting: meeting, documents: documents)
             }
         }
         .task {
