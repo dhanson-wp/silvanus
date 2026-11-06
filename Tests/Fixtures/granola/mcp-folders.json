@@ -1,0 +1,4 @@
+{
+ "Clients": {"folder_id": "folder-0001", "meeting_ids": ["aaaaaaaa-1111-4222-8333-444444444441"]},
+ "Prospects": {"folder_id": "folder-0002", "meeting_ids": ["aaaaaaaa-1111-4222-8333-444444444442", "11111111-2222-4333-8444-555555555554"]}
+}

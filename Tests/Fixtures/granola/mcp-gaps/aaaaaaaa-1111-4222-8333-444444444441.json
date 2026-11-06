@@ -1,0 +1,11 @@
+{
+ "uuid": "aaaaaaaa-1111-4222-8333-444444444441",
+ "title": "Acme renewal call",
+ "meeting_at": "2026-03-04T10:30:00.000-06:00",
+ "attendees": ["Sam Rivera", "Jordan Lee"],
+ "private_notes": "Renewal terms\n",
+ "summary": "Acme will renew for a year.",
+ "transcript": "[0:05] Microphone: Thanks for making time today.\n\n[0:13] Jordan Lee: Glad to. We want to renew.\n[1:02:10] Jordan Lee: One more thing about pricing\n[1:02:20] Me: Understood, I will send a quote.",
+ "transcript_status": "complete",
+ "source": "mcp"
+}
