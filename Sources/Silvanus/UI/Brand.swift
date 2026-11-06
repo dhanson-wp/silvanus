@@ -43,7 +43,7 @@ enum Brand {
 
     /// The brand palette from the bundled `brand-colors.json`: theme tokens (`background`,
     /// `text`, `accent`, ...) by name for the light and dark themes. Empty when the file is
-    /// missing. For the design kit to consume; no view reads it yet.
+    /// missing. The design kit reads it (`DesignKit/Tokens.swift`); views never do.
     static var palette: BrandPalette {
         BrandPalette(file: Bundle.main.url(forResource: "brand-colors", withExtension: "json"))
     }
@@ -87,10 +87,20 @@ struct BrandPalette {
 
     /// The token's color in the light or dark theme; nil when the token or its color is unknown.
     func color(_ token: String, dark isDark: Bool = false) -> Color? {
-        guard let name = (isDark ? dark : light)[token], let hex = colors[name] else { return nil }
-        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
-        return Color(hex: value)
+        hex(token, dark: isDark).map { Color(hex: $0) }
+    }
+
+    /// The token's color as 0xRRGGBB in the light or dark theme; nil when unknown.
+    func hex(_ token: String, dark isDark: Bool = false) -> UInt32? {
+        (isDark ? dark : light)[token].flatMap(hex(named:))
+    }
+
+    /// A named color (`midnight`, `paper`) as 0xRRGGBB; nil when unknown or not six hex digits.
+    func hex(named name: String) -> UInt32? {
+        guard let text = colors[name] else { return nil }
+        let digits = text.hasPrefix("#") ? String(text.dropFirst()) : text
+        guard digits.count == 6 else { return nil }
+        return UInt32(digits, radix: 16)
     }
 }
 

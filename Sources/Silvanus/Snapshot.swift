@@ -11,6 +11,7 @@ import SwiftUI
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "settings" to include Settings.
 /// The brand set (about, menu bar glyphs) is written with the pages; "brand" in APP_SNAPSHOT_PAGES limits to it.
 /// Add APP_ACCENT=<id> to see the pages in another accent.
+/// With APP_KIT_GALLERY=1 it writes only the kit gallery (renderGallery), then quits.
 enum Snapshot {
     static func runIfRequested(model: AppModel, openSettings: OpenSettingsAction) {
         let env = ProcessInfo.processInfo.environment
@@ -21,6 +22,17 @@ enum Snapshot {
         guard Store.isScratch else {
             print("SNAPSHOT refused: set APP_STORE to a folder under /tmp")
             NSApp.terminate(nil)
+            return
+        }
+        // The kit gallery replaces the pages (APP_KIT_GALLERY=1): capture it alone.
+        if KitGallery.enabled {
+            Task {
+                try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                try? await Task.sleep(for: .seconds(1))
+                renderGallery(to: dir)
+                print("SNAPSHOT done \(dir)")
+                NSApp.terminate(nil)
+            }
             return
         }
         let only = env["APP_SNAPSHOT_PAGES"].map { Set($0.split(separator: ",").map(String.init)) }
@@ -102,6 +114,29 @@ enum Snapshot {
                 }
                 write(rep, to: "\(dir)/\(name)-\(mode).png")
             }
+        }
+    }
+
+    /// The kit gallery at its full size, drawn straight from the view like the brand set, so
+    /// nothing is cut off by the window:
+    ///   kit-gallery-<set>-light.png, kit-gallery-<set>-dark.png (set: silvanus or reference)
+    @MainActor private static func renderGallery(to dir: String) {
+        for mode in ["light", "dark"] {
+            let appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)!
+            NSApp.appearance = appearance
+            let host = NSHostingView(rootView: KitGallery())
+            host.appearance = appearance
+            host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            var rep: NSBitmapImageRep?
+            appearance.performAsCurrentDrawingAppearance {
+                rep = bitmap(pixelsWide: Int(host.bounds.width * 2), pixelsHigh: Int(host.bounds.height * 2), size: host.bounds.size) { _ in
+                    if let context = NSGraphicsContext.current {
+                        host.displayIgnoringOpacity(host.bounds, in: context)
+                    }
+                }
+            }
+            write(rep, to: "\(dir)/kit-gallery-\(ColorSet.active.rawValue)-\(mode).png")
         }
     }
 

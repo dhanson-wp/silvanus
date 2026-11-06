@@ -8,6 +8,8 @@ import SwiftUI
 //   APP_SNAPSHOT=<dir> Silvanus   save a PNG of every sidebar page and Settings tab in light and dark mode, then quit
 //   Silvanus --selftest           run the self-test on a /tmp folder and quit with 0 or 1 (tools/selftest.sh)
 //   APP_ACCENT=<id> Silvanus      run with another accent from Theme.all (UI/Theme.swift)
+//   APP_KIT_GALLERY=1 Silvanus    show the design kit's gallery instead of the pages (DesignKit/KitGallery.swift);
+//                                 APP_COLORS=reference draws the kit in the reference colors
 //   APP_GRID=1 Silvanus           draw the 8 pt grid and the layout probes over the window
 //   APP_EDITOR_SPIKE=1 Silvanus   open the native editor spike (Editor/EditorSpikeWindow.swift);
 //                                 APP_EDITOR_CHECK=1 and APP_EDITOR_BENCH=1 run its checks and benchmark headless
@@ -20,7 +22,9 @@ struct SilvanusApp: App {
 
     var body: some Scene {
         Window("Silvanus", id: "main") {
-            ContentView()
+            Group {
+                if KitGallery.enabled { KitGalleryPage() } else { ContentView() }
+            }
                 .environment(model)
                 .themed()
                 .overlay { if GridOverlay.enabled { GridOverlay() } }

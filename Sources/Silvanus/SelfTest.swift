@@ -55,6 +55,18 @@ enum SelfTest {
             check("Brand.palette resolves every token in both themes",
                   !palette.tokens.isEmpty && unresolved.isEmpty, unresolved.joined(separator: ", "))
 
+            // Design kit: every text-on-surface pair in design/KIT.md "Meaning" reads at 4.5:1
+            // in the Silvanus set, light and dark, whatever APP_COLORS says.
+            let weak = InkToken.textPairs.flatMap { pair in
+                [false, true].compactMap { dark -> String? in
+                    let ratio = Contrast.ratio(pair.text.rgb(.silvanus, dark: dark), pair.on.rgb(.silvanus, dark: dark))
+                    return ratio < 4.5 ? "\(pair.text) on \(pair.on) \(dark ? "dark" : "light") \(String(format: "%.2f", ratio))" : nil
+                }
+            }
+            check("every Ink text pair reads at 4.5:1 in both themes", weak.isEmpty, weak.joined(separator: ", "))
+            check("the kit's Silvanus colors come from the brand palette",
+                  InkToken.missingFromBrand.isEmpty, InkToken.missingFromBrand.joined(separator: ", "))
+
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
         }
