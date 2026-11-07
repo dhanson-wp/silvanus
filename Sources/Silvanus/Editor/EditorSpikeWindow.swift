@@ -375,8 +375,42 @@ struct EditorChecks {
         reset("# Title\nplain line", caret: 3)
         check("markers are shown on the caret's line", color(at: 0) == style.markerActive, "\(String(describing: color(at: 0)))")
         view.setSelectedRange(NSRange(location: 12, length: 0))
-        check("markers fade when the caret leaves", color(at: 0) == style.markerFaded, "\(String(describing: color(at: 0)))")
-        check("fading keeps every character", view.string == "# Title\nplain line")
+        check("markers fade when the caret leaves", color(at: 0) == style.markerHidden, "\(String(describing: color(at: 0)))")
+        check("hidden markers take no room", (font(at: 0)?.pointSize ?? 1) < 1, "\(String(describing: font(at: 0)))")
+        check("hiding keeps every character", view.string == "# Title\nplain line")
+        view.setSelectedRange(NSRange(location: 3, length: 0))
+        check("markers come back in the heading's font", font(at: 0)?.pointSize == style.headingFont(1).pointSize)
+
+        // Bullets draw as dots and quotes as bars, on every line; numbers stay.
+        reset("- Item\n> Quote\n1. First\nplain", caret: 27)
+        check("a bullet's dash is drawn as a dot", attr(.markdownBullet, at: 0) != nil && color(at: 0) == style.markerHidden
+              && (font(at: 0)?.pointSize ?? 0) == style.bodySize)
+        check("a quote's > is drawn as a bar", attr(.markdownQuoteBar, at: 7) != nil && color(at: 7) == style.markerHidden)
+        check("list numbers show off the caret's line", color(at: 15) == style.markerActive)
+        if let tlm = view.textLayoutManager {
+            tlm.ensureLayout(for: tlm.documentRange)
+            var custom = true
+            tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: []) { fragment in
+                custom = custom && fragment is MarkdownLayoutFragment
+                return true
+            }
+            check("paragraphs lay out as Markdown fragments", custom)
+        }
+
+        // Spacing: paragraphs 8 apart, headings set off above unless an empty line is there.
+        reset("One\nTwo\n## Agenda\n\n## Next", caret: 0)
+        let para = attr(.paragraphStyle, at: 0) as? NSParagraphStyle
+        let h2 = attr(.paragraphStyle, at: 8) as? NSParagraphStyle
+        let h2AfterEmpty = attr(.paragraphStyle, at: 19) as? NSParagraphStyle
+        check("a paragraph has 8 below it", para?.paragraphSpacing == style.paragraphSpacing)
+        check("an H2 has room above and below", h2?.paragraphSpacingBefore == style.headingSpaceBefore[1]
+              && h2?.paragraphSpacing == style.headingSpaceAfter[1])
+        check("an H2 after an empty line adds nothing above", h2AfterEmpty?.paragraphSpacingBefore == 0)
+        view.setSelectedRange(NSRange(location: 18, length: 0))
+        grouped { view.insertText("x", replacementRange: view.selectedRange()) }
+        spin()
+        check("filling the empty line gives the next heading its space back",
+              (attr(.paragraphStyle, at: 20) as? NSParagraphStyle)?.paragraphSpacingBefore == style.headingSpaceBefore[1])
 
         // (b) Review Focus 4: an input method's marked text survives restyling.
         reset("# Title", caret: 7)
@@ -504,7 +538,7 @@ struct EditorChecks {
         check("the active range is the caret's line after the restyle", view.styler.active == threeLine,
               "\(view.styler.active) vs \(threeLine)")
         check("only the caret's line has bright markers", color(at: 20) == style.markerActive
-              && color(at: 0) == style.markerFaded && color(at: 7) == style.markerFaded && color(at: 13) == style.markerFaded,
+              && color(at: 0) == style.markerHidden && color(at: 7) == style.markerHidden && color(at: 13) == style.markerHidden,
               "\([0, 7, 13, 20].map { color(at: $0) == style.markerActive })")
         undo.undo()
         check("a change from disk undoes as one step", view.string == "# One\n# Two\n# Three", view.string.debugDescription)
@@ -532,7 +566,9 @@ struct EditorChecks {
         check("select all restyles no paragraph", view.styler.styledParagraphs == styledBefore,
               "\(view.styler.styledParagraphs - styledBefore) paragraphs")
         let lastMarker = (EditorSpike.fixture as NSString).range(of: "- [x]").location
-        check("select all brightens every marker", view.styler.markerRecolors > recolorsBefore && color(at: lastMarker) == style.markerActive)
+        check("select all across lines keeps markers hidden, so the page doesn't reflow",
+              view.styler.markerRecolors > recolorsBefore && color(at: lastMarker) == style.markerHidden,
+              "\(String(describing: color(at: lastMarker)))")
 
         // Round trip, byte for byte, on the fixture and on 5,000 lines.
         reset(EditorSpike.fixture)
@@ -1008,7 +1044,9 @@ struct EditorChecks {
         let off = zip(stamps, baselines).map { abs($0.baseline - $1) }
         check("timestamps align with their lines' first baseline within 1 pt", !off.isEmpty && off.allSatisfy { $0 <= 1 }, "\(off)")
         let pitch = stamps.count > 1 ? stamps[1].baseline - stamps[0].baseline : 0
-        check("timestamps keep the 24 pt line pitch", abs(pitch - 24) <= 1, "\(pitch) (typographic heights \(heights))")
+        // Plain lines are paragraphs: a 24 pt line and the 8 below it.
+        let wantPitch = 24 + view.styler.style.paragraphSpacing
+        check("timestamps keep the paragraph pitch", abs(pitch - wantPitch) <= 1, "\(pitch) (typographic heights \(heights))")
         window.orderOut(nil)
     }
 

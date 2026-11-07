@@ -10,12 +10,18 @@ struct EditorStyle {
     let headingRoles: [KitType] = [.title, .heading, .subheading]
     /// List items sit 28 apart: a 24 pt line and 4 between items.
     let listItemSpacing: CGFloat = 4
+    /// Below a plain paragraph that has words, so lines written one after another read as
+    /// paragraphs. An empty line adds none: it's already a 24 pt gap.
+    let paragraphSpacing: CGFloat = 8
     /// Space above a heading that isn't the first line, for H1, H2, and H3 (deeper headings
-    /// take H3's), and below every heading. From KIT.md "Notes canvas text": a list's last
-    /// line to the next H2 is 32 baseline to baseline, a paragraph (then an empty line) to an
-    /// H3 58.5, and a heading to its first item 28 to 30. H1 has no measure and keeps 8.
-    let headingSpaceBefore: [CGFloat] = [8, 5.5, 13.5]
-    let headingSpaceAfter: CGFloat = 3
+    /// take H3's), and below each. A heading right after an empty line takes none above:
+    /// the empty line is the gap. KIT.md "Notes canvas text".
+    let headingSpaceBefore: [CGFloat] = [24, 20, 16]
+    let headingSpaceAfter: [CGFloat] = [8, 8, 4]
+    /// The dot drawn for a bullet's dash (KIT.md "Bullets"), and the bar drawn for a
+    /// quote's ">".
+    let bulletDiameter: CGFloat = 6
+    let quoteBarWidth: CGFloat = 2
     /// KIT.md "Bullets": a top-level bullet's marker centers this far in from the text start,
     /// and its text (and wrapped lines) start `bulletTextIndent` in, so the first letter's
     /// ink lands at x 246 (the glyph's side bearing adds about a point).
@@ -31,14 +37,22 @@ struct EditorStyle {
     let topInset: CGFloat = 11
 
     let text = Ink.appKit(.text)
-    /// Markers on the caret's line.
+    /// Markers on the caret's line, and list numbers on every line.
     let markerActive = Ink.appKit(.textSecondary)
-    /// Markers on every other line: faded, never hidden.
-    let markerFaded = Ink.appKit(.textSecondary, alpha: 0.5)
+    /// Markers on every other line are hidden: clear, in a font too small to take room,
+    /// so the line reads as rendered text. The characters stay in the note.
+    let markerHidden = NSColor.clear
+    let hiddenFont = NSFont.systemFont(ofSize: 0.01)
+    let bullet = Ink.appKit(.text)
+    let quoteBar = Ink.appKit(.textSecondary, alpha: 0.5)
     let quote = Ink.appKit(.textSecondary)
     let done = Ink.appKit(.textSecondary)
-    /// Task boxes are controls; gold is fill only, so they use accent text.
+    /// Task boxes are controls: an open box is outlined in accent text (gold is fill only),
+    /// a done one filled like a primary control, with its check in `onPrimary`.
     let taskBox = Ink.appKit(.accentText)
+    let taskDone = Ink.appKit(.primaryControl)
+    let taskCheck = Ink.appKit(.onPrimary)
+    let taskBoxSize: CGFloat = 14
     let codeBackground = Ink.appKit(.divider, alpha: 0.6)
     let caret = Ink.appKit(.text)
 
@@ -91,16 +105,24 @@ struct EditorStyle {
 }
 
 extension NSAttributedString.Key {
-    /// Marks Markdown syntax the styler fades and brightens (value: `true`). Selection
-    /// changes recolor only these ranges.
+    /// Marks Markdown syntax the styler hides and shows (value: the NSFont it shows in).
+    /// Selection changes touch only these ranges.
     static let markdownMarker = NSAttributedString.Key("SilvanusMarkdownMarker")
+    /// A bullet's dash, drawn as a dot by `MarkdownLayoutFragment` (value: `true`).
+    static let markdownBullet = NSAttributedString.Key("SilvanusMarkdownBullet")
+    /// A quote's ">", drawn as a bar down the quote by `MarkdownLayoutFragment` (value: `true`).
+    static let markdownQuoteBar = NSAttributedString.Key("SilvanusMarkdownQuoteBar")
+    /// A task's "[ ]" or "[x]", drawn as a checkbox by `MarkdownLayoutFragment` (value: done, a Bool).
+    static let markdownTask = NSAttributedString.Key("SilvanusMarkdownTask")
     /// Marks the text inside a code span (value: `true`): spell check skips it.
     static let markdownCode = NSAttributedString.Key("SilvanusMarkdownCode")
 }
 
 /// Styles the Markdown in place. It only sets attributes: the characters stay exactly
-/// what was typed. Each edit restyles the paragraphs it touched, never the whole note;
-/// moving the caret only recolors markers.
+/// what was typed. Markers show only on the caret's line; elsewhere they're hidden, a
+/// bullet's dash is drawn as a dot, and a quote's ">" as a bar. Each edit restyles the
+/// paragraphs it touched (and the next one), never the whole note; moving the caret only
+/// shows and hides markers.
 final class MarkdownStyler: NSObject {
     let style = EditorStyle()
     weak var textView: NSTextView?
@@ -119,7 +141,8 @@ final class MarkdownStyler: NSObject {
     /// Restyling then would replace the marked text's attributes under the input method.
     private var isComposing: Bool { textView?.hasMarkedText() ?? false }
 
-    /// The paragraphs the selection touches.
+    /// The lines whose markers show: each caret's line, and a selection's line when it stays
+    /// on one. A selection across lines shows none, so the page doesn't reflow under it.
     func selectionParagraphs() -> NSRange? {
         guard let textView, let storage = textView.textStorage else { return nil }
         let ns = storage.mutableString
@@ -127,20 +150,22 @@ final class MarkdownStyler: NSObject {
         for value in textView.selectedRanges {
             let r = value.rangeValue
             guard r.location <= ns.length else { continue }
-            let p = ns.paragraphRange(for: NSRange(location: r.location, length: min(r.length, ns.length - r.location)))
+            let p = ns.paragraphRange(for: NSRange(location: r.location, length: 0))
+            guard NSMaxRange(r) <= NSMaxRange(p) || r.location == ns.length else { continue }
             union = union.map { NSUnionRange($0, p) } ?? p
         }
         return union
     }
 
-    /// Brightens the selection's markers and fades the ones it left. Only marker colors
-    /// change, so selecting the whole page costs one pass over the marker ranges.
+    /// Shows the selection's markers and hides the ones it left. Only marker ranges
+    /// change, so selecting the whole page costs one pass over them.
     func selectionChanged() {
-        guard pending == nil, !isComposing, let storage = textView?.textStorage,
-              let now = selectionParagraphs(), now != active else { return }
+        guard pending == nil, !isComposing, let storage = textView?.textStorage else { return }
+        let now = selectionParagraphs() ?? NSRange(location: NSNotFound, length: 0)
+        guard now != active else { return }
         storage.beginEditing()
         if let old = clamped(active, storage.length) { recolorMarkers(in: old, storage, bright: false) }
-        recolorMarkers(in: now, storage, bright: true)
+        if let shown = clamped(now, storage.length) { recolorMarkers(in: shown, storage, bright: true) }
         storage.endEditing()
         active = now
     }
@@ -152,9 +177,10 @@ final class MarkdownStyler: NSObject {
 
     private func recolorMarkers(in range: NSRange, _ storage: NSTextStorage, bright: Bool) {
         markerRecolors += 1
-        let color = bright ? style.markerActive : style.markerFaded
         storage.enumerateAttribute(.markdownMarker, in: range) { value, sub, _ in
-            if value != nil { storage.addAttribute(.foregroundColor, value: color, range: sub) }
+            guard let shown = value as? NSFont else { return }
+            storage.addAttributes(bright ? [.foregroundColor: style.markerActive, .font: shown]
+                                         : [.foregroundColor: style.markerHidden, .font: style.hiddenFont], range: sub)
         }
     }
 
@@ -190,9 +216,17 @@ final class MarkdownStyler: NSObject {
         if let level = block.kind.headingLevel {
             let role = style.headingRole(level), font = style.headingFont(level)
             base[.font] = font
+            // After an empty line (or at the top) the gap is already there.
+            let afterEmpty = start == 0 || (start == 1 ? ns.character(at: 0) == 10
+                                            : ns.character(at: start - 1) == 10 && ns.character(at: start - 2) == 10)
+            let tier = min(level, 3) - 1
             base[.paragraphStyle] = style.paragraph(role, font: font,
-                                                    spaceBefore: start == 0 ? 0 : style.headingSpaceBefore[min(level, 3) - 1],
-                                                    spaceAfter: style.headingSpaceAfter)
+                                                    spaceBefore: afterEmpty ? 0 : style.headingSpaceBefore[tier],
+                                                    spaceAfter: style.headingSpaceAfter[tier])
+        } else if block.kind == .paragraph {
+            if !line.isEmpty {
+                base[.paragraphStyle] = style.paragraph(style.bodyRole, font: style.body, spaceAfter: style.paragraphSpacing)
+            }
         } else if block.kind != .paragraph {
             // Wrapped lines hang under the text, after the marker.
             let prefix = line.utf16.prefix(block.marker.upperBound)
@@ -202,6 +236,9 @@ final class MarkdownStyler: NSObject {
                 headIndent = style.bulletTextIndent
                 firstLine = bullet.lead
                 bulletKern = (start + block.marker.upperBound - 1, bullet.kern)
+            } else if block.kind == .bullet, let nested = nestedBulletPlacement(line, block) {
+                headIndent = nested.textStart
+                bulletKern = (start + block.marker.upperBound - 1, nested.kern)
             }
             base[.paragraphStyle] = style.paragraph(style.bodyRole, font: style.body, headIndent: headIndent,
                                                     firstLineHeadIndent: firstLine,
@@ -239,15 +276,48 @@ final class MarkdownStyler: NSObject {
             default: break
             }
         }
-        let marker = isActive ? style.markerActive : style.markerFaded
+        let blockMarker = nsRange((start + block.marker.lowerBound)..<(start + block.marker.upperBound))
         for run in runs where run.role == .marker {
-            storage.addAttributes([.foregroundColor: marker, .markdownMarker: true], range: nsRange(run.range))
+            let r = nsRange(run.range)
+            if r == blockMarker {
+                switch block.kind {
+                case .bullet:
+                    // Always drawn as a dot; the dash keeps its room, unseen.
+                    storage.addAttributes([.foregroundColor: style.markerHidden, .markdownBullet: true],
+                                          range: NSRange(location: r.location, length: 1))
+                    continue
+                case .quote:
+                    storage.addAttributes([.foregroundColor: style.markerHidden, .markdownQuoteBar: true],
+                                          range: NSRange(location: r.location, length: 1))
+                    continue
+                case .numbered:
+                    // The number is the rendered list: it shows on every line.
+                    storage.addAttribute(.foregroundColor, value: style.markerActive, range: r)
+                    continue
+                case .task(let done):
+                    // The box is always drawn as a checkbox and keeps its room, as does the space
+                    // after it; a "- " in front hides like any marker.
+                    if let box = block.box {
+                        storage.addAttributes([.foregroundColor: style.markerHidden, .markdownTask: done],
+                                              range: NSRange(location: start + box.lowerBound, length: box.count))
+                        let lead = NSRange(location: r.location, length: start + box.lowerBound - r.location)
+                        if lead.length > 0 { hideMarker(lead) }
+                    }
+                    continue
+                default: break
+                }
+            }
+            hideMarker(r)
         }
-        if let box = block.box {
-            // The task box is a control, so it stays visible on every line.
-            let r = NSRange(location: start + box.lowerBound, length: box.count)
-            storage.addAttribute(.foregroundColor, value: style.taskBox, range: r)
-            storage.removeAttribute(.markdownMarker, range: r)
+        /// Shows the marker on the caret's line, hides it elsewhere. Each part remembers the
+        /// font it shows in.
+        func hideMarker(_ r: NSRange) {
+            storage.enumerateAttribute(.font, in: r) { value, sub, _ in
+                let shown = (value as? NSFont) ?? style.body
+                storage.addAttributes(isActive ? [.foregroundColor: style.markerActive, .markdownMarker: shown]
+                                               : [.foregroundColor: style.markerHidden, .font: style.hiddenFont,
+                                                  .markdownMarker: shown], range: sub)
+            }
         }
         // A span that just became code drops the spelling marks it had as plain words.
         for r in codeRanges { (textView as? NotesTextView)?.clearSpelling(in: r) }
@@ -268,6 +338,19 @@ extension MarkdownStyler {
         let lead = max(0, style.bulletCenter - dash / 2)
         return (lead, max(0, style.bulletTextIndent - lead - whole))
     }
+
+    /// A bullet indented with tabs: the dash sits on its tab stop, and the space after it
+    /// widens so the text is as far from the dot as a top-level bullet's. Nil for space indents.
+    func nestedBulletPlacement(_ line: Substring, _ block: MarkdownStyle.Block) -> (textStart: CGFloat, kern: CGFloat)? {
+        guard block.marker.count == 2, line.utf16.prefix(block.indent.upperBound).allSatisfy({ $0 == 9 }) else { return nil }
+        let marker = String(line.utf16.prefix(block.marker.upperBound).dropFirst(block.marker.lowerBound)) ?? ""
+        let attributes: [NSAttributedString.Key: Any] = [.font: style.body]
+        let dash = NSAttributedString(string: String(marker.prefix(1)), attributes: attributes).size().width
+        let whole = NSAttributedString(string: marker, attributes: attributes).size().width
+        let stop = CGFloat(block.indent.count) * style.tabInterval
+        let textStart = ceil(stop + dash / 2 + style.bulletTextIndent - style.bulletCenter)
+        return (textStart, max(0, textStart - stop - whole))
+    }
 }
 
 extension MarkdownStyler: @MainActor NSTextStorageDelegate {
@@ -280,7 +363,11 @@ extension MarkdownStyler: @MainActor NSTextStorageDelegate {
         guard editedMask.contains(.editedCharacters) else { return }
         let ns = storage.mutableString
         let first = ns.paragraphRange(for: NSRange(location: min(editedRange.location, ns.length), length: 0))
-        let last = ns.paragraphRange(for: NSRange(location: min(NSMaxRange(editedRange), ns.length), length: 0))
+        var last = ns.paragraphRange(for: NSRange(location: min(NSMaxRange(editedRange), ns.length), length: 0))
+        // The next line too: a heading's space above depends on whether this line is empty.
+        if NSMaxRange(last) < ns.length {
+            last = NSUnionRange(last, ns.paragraphRange(for: NSRange(location: NSMaxRange(last), length: 0)))
+        }
         let touched = NSUnionRange(first, last)
         pending = pending.map { NSUnionRange($0, touched) } ?? touched
         (textView as? NotesTextView)?.onCharactersChanged?()
@@ -323,6 +410,102 @@ extension MarkdownStyler: @MainActor NSTextStorageDelegate {
         storage.endEditing()
         active = caret ?? NSRange(location: NSNotFound, length: 0)
         lastRestyle = CFAbsoluteTimeGetCurrent() - t0
+    }
+}
+
+extension MarkdownStyler: NSTextLayoutManagerDelegate {
+    /// Every paragraph lays out as a MarkdownLayoutFragment, which draws bullets and quote bars.
+    func textLayoutManager(_ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation,
+                           in textElement: NSTextElement) -> NSTextLayoutFragment {
+        let fragment = MarkdownLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        fragment.style = style
+        fragment.appearanceSource = textView
+        return fragment
+    }
+}
+
+/// A paragraph's layout that also draws what the Markdown stands for: a dot over a bullet's
+/// (hidden) dash, and a bar down a quote over its (hidden) ">". The characters stay as typed.
+nonisolated final class MarkdownLayoutFragment: NSTextLayoutFragment {
+    // Set and read on the main thread only: TextKit lays out and draws the editor there.
+    nonisolated(unsafe) var style: EditorStyle?
+    /// The view whose appearance (light or dark) the colors resolve in.
+    nonisolated(unsafe) weak var appearanceSource: NSView?
+
+    override func draw(at point: CGPoint, in context: CGContext) {
+        super.draw(at: point, in: context)
+        // Drawing runs on the main thread, where TextKit lays out the editor.
+        nonisolated(unsafe) let fragment = self, cg = context
+        MainActor.assumeIsolated { fragment.drawMarkdown(at: point, in: cg) }
+    }
+
+    @MainActor private func drawMarkdown(at point: CGPoint, in context: CGContext) {
+        guard let style else { return }
+        guard let paragraph = textElement as? NSTextParagraph else { return }
+        let text = paragraph.attributedString
+        let whole = NSRange(location: 0, length: text.length)
+        var bullets: [Int] = [], quotes: [Int] = [], tasks: [(NSRange, done: Bool)] = []
+        text.enumerateAttribute(.markdownBullet, in: whole) { value, r, _ in if value != nil { bullets.append(r.location) } }
+        text.enumerateAttribute(.markdownQuoteBar, in: whole) { value, r, _ in if value != nil { quotes.append(r.location) } }
+        text.enumerateAttribute(.markdownTask, in: whole) { value, r, _ in if let done = value as? Bool { tasks.append((r, done)) } }
+        guard !bullets.isEmpty || !quotes.isEmpty || !tasks.isEmpty, let first = textLineFragments.first else { return }
+        let lines = textLineFragments
+        let appearance = appearanceSource?.effectiveAppearance ?? NSAppearance.currentDrawing()
+        /// The marker character's left edge and width on the first line, in the context.
+        func span(_ index: Int, length: Int = 1) -> (x: CGFloat, width: CGFloat) {
+            let x = first.locationForCharacter(at: index).x
+            let end = index + length
+            let next = end <= NSMaxRange(first.characterRange) ? first.locationForCharacter(at: end).x : x
+            return (point.x + first.typographicBounds.minX + x, max(0, next - x))
+        }
+        let baseline = point.y + first.typographicBounds.minY + first.glyphOrigin.y
+        appearance.performAsCurrentDrawingAppearance {
+            context.saveGState()
+            for index in bullets {
+                let (x, width) = span(index)
+                let d = style.bulletDiameter
+                let center = CGPoint(x: x + width / 2, y: baseline - style.body.xHeight / 2)
+                context.setFillColor(style.bullet.cgColor)
+                context.fillEllipse(in: CGRect(x: center.x - d / 2, y: center.y - d / 2, width: d, height: d))
+            }
+            for index in quotes {
+                let (x, width) = span(index)
+                let top = point.y + first.typographicBounds.minY
+                let bottom = point.y + (lines.last?.typographicBounds.maxY ?? first.typographicBounds.maxY)
+                let w = style.quoteBarWidth
+                context.setFillColor(style.quoteBar.cgColor)
+                let bar = CGRect(x: x + width / 2 - w / 2, y: top, width: w, height: bottom - top)
+                context.addPath(CGPath(roundedRect: bar, cornerWidth: w / 2, cornerHeight: w / 2, transform: nil))
+                context.fillPath()
+            }
+            for (range, done) in tasks {
+                let (x, width) = span(range.location, length: range.length)
+                let size = style.taskBoxSize
+                let box = CGRect(x: x + (width - size) / 2, y: baseline - style.body.capHeight / 2 - size / 2,
+                                 width: size, height: size)
+                let corner = Metric.buttonCorner / 2
+                if done {
+                    context.setFillColor(style.taskDone.cgColor)
+                    context.addPath(CGPath(roundedRect: box, cornerWidth: corner, cornerHeight: corner, transform: nil))
+                    context.fillPath()
+                    context.setStrokeColor(style.taskCheck.cgColor)
+                    context.setLineWidth(1.75)
+                    context.setLineCap(.round)
+                    context.setLineJoin(.round)
+                    context.move(to: CGPoint(x: box.minX + size * 0.27, y: box.minY + size * 0.52))
+                    context.addLine(to: CGPoint(x: box.minX + size * 0.43, y: box.minY + size * 0.68))
+                    context.addLine(to: CGPoint(x: box.minX + size * 0.74, y: box.minY + size * 0.34))
+                    context.strokePath()
+                } else {
+                    context.setStrokeColor(style.taskBox.cgColor)
+                    context.setLineWidth(1.25)
+                    let inset = box.insetBy(dx: 0.625, dy: 0.625)
+                    context.addPath(CGPath(roundedRect: inset, cornerWidth: corner, cornerHeight: corner, transform: nil))
+                    context.strokePath()
+                }
+            }
+            context.restoreGState()
+        }
     }
 }
 
@@ -401,6 +584,7 @@ final class NotesTextView: NSTextView {
     private func configure() {
         styler.textView = self
         textStorage?.delegate = styler
+        textLayoutManager?.delegate = styler
         isRichText = false
         importsGraphics = false
         allowsUndo = true

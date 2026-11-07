@@ -488,8 +488,8 @@ enum Snapshot {
     }
 
     /// The editor spike (APP_EDITOR_SPIKE=1): editor-heading-<mode>.png with the
-    /// caret on the H1 (its markers shown, the others faded), editor-plain-<mode>.png
-    /// with the caret on a plain line (every marker faded), and editor-find-<mode>.png
+    /// caret on the H1 (its markers shown, the others hidden), editor-plain-<mode>.png
+    /// with the caret on a plain line (every marker hidden), and editor-find-<mode>.png
     /// with the find bar open. Prints whether TextKit 2 stayed on, then quits.
     static func runEditorSpikeIfRequested() {
         let env = ProcessInfo.processInfo.environment
