@@ -1,8 +1,8 @@
 # Brand
 
-Everything that carries the brand comes from this folder. Until the real files
-arrive it holds a neutral placeholder in `placeholder/`: a plain rounded square
-with a gray "s", and a circle outline for the menu bar. Nothing here is designed.
+Everything that carries the brand comes from this folder. `placeholder/` holds a
+neutral fallback (a plain rounded square with a gray "s", and a circle outline for
+the menu bar) for any file that's missing.
 
 ## Current brand
 
@@ -23,8 +23,10 @@ its placeholder.
 
 `tools/brand.sh` renders `Resources/AppIcon.icns`, the menu bar images (18 and 36 px), and `Resources/brand-colors.json` from these files. `./build.sh` runs it when anything in `Brand/` changed and copies the results into the app. Everything in `Resources/` is generated and gitignored; only this folder is committed. Code never names a brand file: it uses `Brand.appIcon`, `Brand.menuBarGlyph`, `Brand.menuBarRecordingGlyph`, and `Brand.accent` (`Sources/Silvanus/UI/Brand.swift`).
 
-## Handoff note for Codex
+## After a change
 
-Put the files in `Brand/`, run `tools/brand.sh` then `./build.sh`, and check the brand snapshots. Don't change views.
+Put the files in `Brand/`, run `tools/brand.sh` then `./build.sh`, and check the brand snapshots that `tools/snap.sh` writes to `/tmp/Silvanus-shots`: `about-light.png`, `about-dark.png`, and the menu bar images (`menubar-*` and `menubar-recording-*`, light and dark). Don't change views.
 
-The brand snapshots are `about-light.png`, `about-dark.png`, and the menu bar images (`menubar-*` and `menubar-recording-*`, light and dark) that `tools/snap.sh` writes to `/tmp/Silvanus-shots`.
+## README images
+
+`readme/` holds the images the top-level README shows: the banner, and two screenshots taken by `tools/snap.sh` from the made-up seed meetings. The app never reads them.

@@ -233,3 +233,39 @@ FluidAudio (https://github.com/FluidInference/FluidAudio) is a dependency and is
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+## Code bundled inside FluidAudio
+
+FluidAudio carries two third-party components in its own source, so they're compiled into the built app with it.
+
+### fastcluster
+
+fastcluster (https://github.com/fastcluster/fastcluster) is licensed under the BSD 2-Clause License.
+
+Copyright:
+  * Until package version 1.1.23: © 2011 Daniel Müllner <https://danifold.net>
+  * All changes from version 1.1.24 on: © Google Inc. <https://www.google.com>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+### VBx
+
+VBx (https://github.com/BUTSpeechFIT/VBx) is licensed under the Apache License 2.0, the same text as printed above for FluidAudio.
+
+## Parakeet TDT 0.6B v2 (speech model)
+
+Silvanus doesn't ship the speech model. On first use, FluidAudio downloads the Core ML conversion published by FluidInference (https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml) and keeps it on your Mac. The original model is Parakeet TDT 0.6B v2 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2). Both are licensed under the Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/).
+
+## Capture Director
+
+`tools/render_svg.swift` is adapted from `tools/render_icon.swift` in Capture Director (https://github.com/dhanson-wp/capture-director), by the same author, which is MIT licensed.
+
+## Brand artwork
+
+The scribe icon, the menu bar glyph, and the README banner in `Brand/` are original to Silvanus. The icon is generated raster artwork. The banner's text is set in Charter.
