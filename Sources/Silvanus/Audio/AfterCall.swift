@@ -1,3 +1,4 @@
+import AVFoundation
 import FluidAudio
 import Foundation
 import SilvanusKit
@@ -49,7 +50,12 @@ enum AfterCall {
             done += 0.6 / sides
             progress(done)
         }
-        var transcript = TranscriptBuilder.build(me: mine, them: theirs, engine: Transcriber.engineName)
+        // With both sides recorded, their levels tell my voice from the call leaking into the mic.
+        var levels: TrackLevels?
+        if let mic = stitched.mic, let call = stitched.system {
+            levels = await Self.levels(mic: mic, call: call)
+        }
+        var transcript = TranscriptBuilder.build(me: mine, them: theirs, engine: Transcriber.engineName, levels: levels)
         // Whole seconds, as the JSON keeps them, so what this returns is what's on disk.
         transcript.processedAt = Date(timeIntervalSince1970: transcript.processedAt.timeIntervalSince1970.rounded(.down))
 
@@ -62,6 +68,33 @@ enum AfterCall {
         try library.saveInfo(meeting)
         progress(1)
         return transcript
+    }
+
+    /// How loud each stitched track is, frame by frame, read off the main thread.
+    /// Nil when either file won't open; the transcript is then built without it.
+    @concurrent
+    nonisolated static func levels(mic: URL, call: URL) async -> TrackLevels? {
+        func read(_ url: URL) -> [Float]? {
+            let frame = AVAudioFrameCount(TrackLevels.frame * TrackFormat.sampleRate)
+            guard let file = try? AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false),
+                  let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frame * 500)
+            else { return nil }
+            var out: [Float] = []
+            out.reserveCapacity(Int(file.length) / Int(frame) + 1)
+            while file.framePosition < file.length {
+                guard (try? file.read(into: buffer)) != nil, buffer.frameLength > 0,
+                      let samples = buffer.floatChannelData?[0] else { break }
+                var at = 0
+                let count = Int(buffer.frameLength)
+                while at + Int(frame) <= count {
+                    out.append(TrackLevels.decibels(UnsafeBufferPointer(start: samples + at, count: Int(frame))))
+                    at += Int(frame)
+                }
+            }
+            return out
+        }
+        guard let micLevels = read(mic), let callLevels = read(call) else { return nil }
+        return TrackLevels(mic: micLevels, call: callLevels)
     }
 
     /// Joins each track's segments into one file per side, off the main thread, with

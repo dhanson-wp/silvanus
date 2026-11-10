@@ -111,15 +111,23 @@ public enum TranscriptBuilder {
         return Double(matching) >= share * Double(micPairs.count)
     }
 
-    /// Both sides, with echo removed, in time order.
-    public static func build(me: [Word], them: [Word], engine: String) -> Transcript {
+    /// Both sides, with echo removed, in time order. With `levels` (how loud each
+    /// track is over time), bleed is first removed word by word (`EchoCleanup`);
+    /// whole mic lines that still repeat the call are dropped after that.
+    public static func build(me: [Word], them: [Word], engine: String, levels: TrackLevels? = nil) -> Transcript {
         let themLines = lines(them, side: .them)
-        let meLines = lines(me, side: .me)
-        var kept: [TranscriptLine] = []
+        var mine = me
         var removed: [TranscriptLine] = []
-        for line in meLines {
+        if let levels {
+            let cleaned = EchoCleanup.clean(me, call: them, levels: levels)
+            mine = cleaned.kept
+            removed = lines(cleaned.removed, side: .me)
+        }
+        var kept: [TranscriptLine] = []
+        for line in lines(mine, side: .me) {
             if isEcho(line, them: themLines) { removed.append(line) } else { kept.append(line) }
         }
+        removed.sort { $0.start < $1.start }
         // At equal start times my line comes first.
         let ordered = (kept + themLines).sorted {
             $0.start != $1.start ? $0.start < $1.start : ($0.side == .me && $1.side == .them)
