@@ -83,7 +83,7 @@ struct PaneLayout<WindowHeader: View, Sidebar: View, Header: View, Canvas: View>
 }
 
 /// The canvas's ground: square on the trailing side, `corner` on the leading top and bottom.
-private struct CanvasShape: Shape {
+nonisolated private struct CanvasShape: Shape {
     var corner: CGFloat
 
     var animatableData: CGFloat {
@@ -100,7 +100,7 @@ private struct CanvasShape: Shape {
 /// The canvas's leading border, the divider at x 208: down the leading edge and around both
 /// corners, with nothing along the top, bottom, or trailing side. Stroked 1 pt wide, its
 /// outer edge follows `CanvasShape` exactly.
-private struct CanvasEdge: Shape {
+nonisolated private struct CanvasEdge: Shape {
     var corner: CGFloat
     /// The stroke's width, so the path can sit half of it inside the edge.
     let lineWidth: CGFloat

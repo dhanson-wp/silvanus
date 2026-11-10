@@ -99,13 +99,15 @@ struct PermissionsView: View {
                 Text(title)
                     .kitType(.settingTitle)
                     .foregroundStyle(Ink.text)
+                // barNote, not label: label clamps to one line, and both of these wrap.
                 Text(reason)
-                    .kitType(.label)
+                    .kitType(.barNote)
                     .foregroundStyle(Ink.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(status)
-                    .kitType(.label)
+                    .kitType(.barNote)
                     .foregroundStyle(done ? Ink.text : Ink.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("\(title): \(status)")
             }
             Spacer(minLength: Space.md)
