@@ -88,11 +88,15 @@ struct CalendarSource {
         return own
     }
 
-    /// A participant's email address, from its mailto: link.
+    /// A participant's email address, from its mailto: link or, failing that, its name.
     private static func address(_ person: EKParticipant) -> String? {
-        guard person.url.scheme?.lowercased() == "mailto" else { return nil }
-        let value = person.url.absoluteString.dropFirst("mailto:".count).removingPercentEncoding ?? ""
-        return value.isEmpty ? nil : value
+        if person.url.scheme?.lowercased() == "mailto" {
+            let value = person.url.absoluteString.dropFirst("mailto:".count).removingPercentEncoding ?? ""
+            if value.contains("@") { return value }
+        }
+        // Google calendars often have no mailto: link and put the address in the name.
+        let name = person.name?.trimmingCharacters(in: .whitespaces) ?? ""
+        return name.contains("@") && !name.contains(" ") ? name : nil
     }
 
     /// Each attendee other than the user, by name, or by address when the calendar has no name.
