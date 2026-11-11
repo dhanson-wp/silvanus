@@ -326,7 +326,7 @@ Acceptance:
 - [snap] Settings › Calendar shows Connect Calendar, Connected, or Open System Settings….
 - [manual] Calendar access is read-only and asked for once, from Connect Calendar, never at launch.
 Status: done
-Note: the manual check with the real calendar is still to do. Starting a recording in a meeting that's already open keeps that meeting's title.
+Note: Connect Calendar was checked with a real Google calendar on 2026-11-11 (the events showed on Home). A real recording taking an event's title is still to check. Starting a recording in a meeting that's already open keeps that meeting's title.
 
 ### S-040 See upcoming calls
 As the user, I see my next calls for today and tomorrow, and start notes for one with a click.
