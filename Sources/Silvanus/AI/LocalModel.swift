@@ -134,10 +134,17 @@ actor LocalModel {
         return LocalModelText.cleaned(String(decoding: bytes, as: UTF8.self))
     }
 
-    /// The request in the model's own chat format; Gemma's when llama.cpp doesn't know the file's.
+    /// The request in the model's own chat format: Gemma 4's and Gemma 3's are written
+    /// here (llama.cpp doesn't know Gemma 4's template), any other by llama.cpp from the
+    /// file's template, and Gemma 3's when that fails.
     private static func prompt(model: OpaquePointer, system: String, user: String) -> String {
         let fallback = LocalModelText.gemmaPrompt(system: system, user: user)
         guard let template = llama_model_chat_template(model, nil) else { return fallback }
+        switch LocalModelText.format(template: String(cString: template)) {
+        case .gemma4: return LocalModelText.gemma4Prompt(system: system, user: user)
+        case .gemma3: return fallback
+        case .other: break
+        }
         let turns = (system.isEmpty ? [] : [("system", system)]) + [("user", user)]
         let strings = turns.map { (strdup($0.0), strdup($0.1)) }
         defer { strings.forEach { free($0.0); free($0.1) } }
