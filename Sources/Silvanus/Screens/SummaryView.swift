@@ -63,10 +63,12 @@ struct SummaryView: View {
 
     /// The line under the header when there's nothing to show yet.
     private var emptyLine: String {
-        switch model.todoStatus[meeting.id] {
-        case .writing: AppModel.writingTodos
-        case let .failed(reason): AppModel.todoFailure(reason)
-        case nil: "No summary yet"
+        switch (model.summaryStatus[meeting.id], model.todoStatus[meeting.id]) {
+        case (_, .writing): AppModel.writingTodos
+        case (.writing, _): AppModel.writingSummary
+        case let (.failed(reason), _): AppModel.summaryFailure(reason)
+        case let (_, .failed(reason)): AppModel.todoFailure(reason)
+        case (nil, nil): "No summary yet"
         }
     }
 

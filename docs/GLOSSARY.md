@@ -70,6 +70,11 @@ Every word Silvanus puts on screen. One name per idea.
 | Writing to-dos… | The Summary view while the first list is being written | Generating, Thinking |
 | No to-dos from this call. | The to-do list's one line when the model found nothing to do | No action items, Nothing to do |
 | Couldn't write to-dos: (reason) | The Summary view when the list couldn't be written and there's nothing else to show | To-do error, Generation failed |
+| Write Summary | Meeting menu (⌃⌘U): the local model summarizes the open meeting's transcript into Overview, Decisions, and Open questions, above any summary that was already there | Generate summary, Summarize, AI notes |
+| Writing the summary… | The Summary view while the first summary is being written | Generating, Summarizing |
+| Couldn't write the summary: (reason) | The Summary view when the summary couldn't be written and there's nothing else to show | Summary error |
+| Home | The sidebar's first row and View > Home (⇧⌘H): closes the open meeting and shows Coming up | Dashboard, Today, Start |
+| Settings (sidebar) | The sidebar's last row: opens Settings, like ⌘, | Preferences, Gear |
 | No summary yet | The Summary view before a meeting has one | Nothing here |
 | No transcript yet | The Transcript view before a meeting has one | No captions |
 | Pick a meeting or start one | The canvas with no meeting open | Nothing selected |

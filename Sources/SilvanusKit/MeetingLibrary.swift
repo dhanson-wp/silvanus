@@ -80,7 +80,7 @@ public final class MeetingLibrary {
     }
 
     /// The meeting's `summary.md` as it is on disk now, or nil when the meeting is unknown or
-    /// the file is missing or can't be read. Read only: nothing in the app writes it after import.
+    /// the file is missing or can't be read.
     public func readSummary(id: String) -> String? {
         guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.summary) else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
@@ -105,6 +105,20 @@ public final class MeetingLibrary {
     /// The list as the model last wrote it, or empty when it never has.
     public func readWrittenTodo(id: String) -> String {
         guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.todoWritten) else { return "" }
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+
+    /// Writes only `summary.md`, atomically, and records `written` as what the model wrote
+    /// (`.summary-written.md`), so the next answer replaces it and nothing else.
+    public func saveSummary(_ summary: String, written: String, for id: String) throws {
+        guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { throw NotFound(id: id) }
+        try write(summary, to: MeetingFolder.summary, in: folder)
+        try write(written, to: MeetingFolder.summaryWritten, in: folder)
+    }
+
+    /// The summary as the model last wrote it, or empty when it never has.
+    public func readWrittenSummary(id: String) -> String {
+        guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.summaryWritten) else { return "" }
         return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 

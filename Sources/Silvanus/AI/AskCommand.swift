@@ -66,6 +66,13 @@ enum AskCommand {
                 }
                 print("TODOS done in \(Int(Date().timeIntervalSince(started))) s")
                 print(saved ?? "no transcript")
+                if saved != nil, ProcessInfo.processInfo.environment["APP_SUMMARY"] != nil {
+                    let summary = try await SummaryWriter.write(id: id, library: MeetingLibrary(root: Store.root), me: AppDefaults.meName) {
+                        try await LocalModel.ask(system: $0, user: $1)
+                    }
+                    print("SUMMARY done at \(Int(Date().timeIntervalSince(started))) s")
+                    print(summary ?? "no transcript")
+                }
                 code = saved == nil ? 1 : 0
             } catch {
                 print("TODOS FAIL \(error.localizedDescription)")

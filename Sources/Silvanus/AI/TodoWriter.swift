@@ -22,3 +22,20 @@ enum TodoWriter {
         return merged
     }
 }
+
+/// Writes a meeting's summary: asks a model to summarize the transcript and saves it to
+/// `summary.md`, above anything that was there before (`Summaries.merge`).
+enum SummaryWriter {
+    /// Returns the summary file as saved, or nil when the meeting has no transcript to read.
+    @discardableResult
+    static func write(id: String, library: MeetingLibrary, me: String, ask: TodoWriter.Ask) async throws -> String? {
+        guard let meeting = library.meeting(id: id), !meeting.transcriptMarkdown.isEmpty else { return nil }
+        let answer = try await ask(Summaries.system, Summaries.request(transcript: meeting.transcriptMarkdown, notes: meeting.notes, me: me))
+        let generated = Summaries.parse(answer)
+        guard !generated.isEmpty else { throw LocalModelError.failed("writing the summary") }
+        let merged = Summaries.merge(existing: library.readSummary(id: id) ?? "", written: library.readWrittenSummary(id: id),
+                                     generated: generated)
+        try library.saveSummary(merged, written: generated, for: id)
+        return merged
+    }
+}

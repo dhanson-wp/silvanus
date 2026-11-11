@@ -600,6 +600,7 @@ final class Recorder {
         guard let model else { return }
         model.reload()
         model.writeTodos(for: id, asked: false)
+        model.writeSummary(for: id, asked: false)
         if recovered {
             notice = RecorderNotice(message: "Finished transcribing an interrupted recording")
         }

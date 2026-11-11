@@ -217,6 +217,12 @@ struct MeetingCommands: Commands {
                 }
             }
             .disabled(noMeeting)
+            Button("Write Summary") {
+                if let meeting { model.writeSummary(for: meeting.id, asked: true); model.show(.summary) }
+            }
+                .keyboardShortcut("u", modifiers: [.control, .command])
+                .disabled(!model.canWriteSummary(meeting?.id))
+                .help("Summarize this meeting's transcript, on this Mac")
             Button("New To-do") {
                 if let meeting { model.newTodo(in: meeting.id) }
             }
@@ -253,6 +259,8 @@ struct MeetingCommands: Commands {
                     .keyboardShortcut(KeyEquivalent(mode.shortcut))
                     .disabled(meeting == nil)
             }
+            Button("Home", action: model.showHome)
+                .keyboardShortcut("h", modifiers: [.shift, .command])
             Button("To-dos", action: model.showTodos)
                 .keyboardShortcut("t", modifiers: [.shift, .command])
             Divider()

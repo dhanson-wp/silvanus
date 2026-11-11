@@ -20,6 +20,7 @@ enum KitIcon: String, CaseIterable {
     /// (drawn pointing right, turned down when the section is open).
     case allMeetings, disclosure
     case todos, todoOpen, todoDone, todoNew
+    case home
 
     var symbol: String {
         switch self {
@@ -52,6 +53,7 @@ enum KitIcon: String, CaseIterable {
         case .todoOpen: "square"
         case .todoDone: "checkmark.square.fill"
         case .todoNew: "plus"
+        case .home: "house"
         }
     }
 
@@ -68,7 +70,7 @@ enum KitIcon: String, CaseIterable {
         case .barStop: 7
         case .folderRow, .quickNoteMic, .back, .settingsGeneral, .settingsAppearance,
              .settingsAudio, .settingsMicrophone, .settingsAbout, .settingsSummaries, .allMeetings,
-             .todos, .todoOpen, .todoDone: 14
+             .todos, .todoOpen, .todoDone, .home: 14
         case .todoNew: 12
         }
     }

@@ -32,12 +32,17 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             SidebarAccentRule()
             if !model.referenceStage {
+                Button(action: model.showHome) {
+                    SidebarFolderRow(title: "Home", icon: .home)
+                }
+                .buttonStyle(SidebarRowStyle(isSelected: model.isHome))
+                .help("What's coming up (⇧⌘H)")
+                .padding(.top, Space.xs)
                 Button(action: model.showTodos) {
                     SidebarFolderRow(title: "To-dos", icon: .todos, count: model.openTodoCount == 0 ? nil : model.openTodoCount)
                 }
                 .buttonStyle(SidebarRowStyle(isSelected: model.showingTodos))
-                .help("Every meeting's to-dos in one place")
-                .padding(.top, Space.xs)
+                .help("Every meeting's to-dos in one place (⇧⌘T)")
             }
             // Moves the model's clock at each midnight, so "Today" turns into "Yesterday" on
             // time. The model regroups; the view only reads its cached days.
@@ -45,8 +50,20 @@ struct SidebarView: View {
                 meetingList(groups)
                     .onChange(of: context.date, initial: true) { _, date in model.now = date }
             }
+            // The list gives up its height first, so the rows under it never push the window taller.
+            .frame(minHeight: 0, maxHeight: .infinity)
+            .layoutPriority(-1)
             if !model.folders.isEmpty, !model.referenceStage {
                 foldersSection
+            }
+            if !model.referenceStage {
+                SidebarDivider()
+                Button { model.openSettings() } label: {
+                    SidebarFolderRow(title: "Settings", icon: .settingsGeneral)
+                }
+                .buttonStyle(SidebarRowStyle(isSelected: false))
+                .help("Open Settings (⌘,)")
+                .padding(.vertical, Space.xs)
             }
         }
         .onChange(of: focus) { _, new in

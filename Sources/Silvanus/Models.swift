@@ -228,6 +228,47 @@ final class AppModel {
         return work
     }
 
+    // MARK: - Summary
+
+    static let writingSummary = "Writing the summary…"
+    static func summaryFailure(_ reason: String) -> String { "Couldn't write the summary: \(reason)" }
+
+    /// Meetings whose summary is being written, or couldn't be.
+    private(set) var summaryStatus: [String: TodoStatus] = [:]
+
+    /// True when Meeting > Write Summary can run: the meeting has a transcript and isn't being written.
+    func canWriteSummary(_ id: String?) -> Bool {
+        guard let id, let meeting = meetings.first(where: { $0.id == id }) else { return false }
+        return !meeting.transcriptMarkdown.isEmpty && summaryStatus[id] != .writing
+    }
+
+    /// Writes the meeting's summary from its transcript with the local model, above
+    /// anything already in `summary.md` (`Summaries.merge`). `asked` as for `writeTodos`.
+    @discardableResult
+    func writeSummary(for id: String, asked: Bool) -> Task<Void, Never>? {
+        guard summaryStatus[id] != .writing else { return todoWork }
+        if !asked, !todoModelIsInjected, LocalModel.file() == nil { return nil }
+        summaryStatus[id] = .writing
+        let earlier = todoWork
+        let work = Task { [weak self] in
+            await earlier?.value
+            guard let self else { return }
+            do {
+                if let saved = try await SummaryWriter.write(id: id, library: library, me: AppDefaults.meName, ask: askModel),
+                   let index = meetings.firstIndex(where: { $0.id == id }) {
+                    meetings[index].summary = saved
+                }
+                summaryStatus[id] = nil
+            } catch {
+                print("SUMMARY \(id): \(error.localizedDescription)")
+                summaryStatus[id] = .failed(error.localizedDescription)
+            }
+            todoRevision += 1
+        }
+        todoWork = work
+        return work
+    }
+
     /// True when the self-test's model stands in for the file, so a run without one still writes.
     @ObservationIgnored var todoModelIsInjected = false
 
@@ -243,6 +284,16 @@ final class AppModel {
     /// Open to-dos, mine and every meeting's: the count on the sidebar's To-dos row.
     var openTodoCount: Int {
         TodoBoard.openCount(meetings) + TodoBoard.items(in: ownTodo, meetingID: TodoBoard.own).count { !$0.done }
+    }
+
+    /// True while the canvas shows the home page: no meeting open, and not To-dos.
+    var isHome: Bool { selection == nil && !showingTodos }
+
+    /// Home (the sidebar's Home row, ⇧⌘H): closes the open meeting and shows what's coming up.
+    func showHome() {
+        settingsOpen = false
+        showingTodos = false
+        selection = nil
     }
 
     func showTodos() {

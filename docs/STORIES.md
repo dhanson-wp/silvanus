@@ -520,8 +520,27 @@ Acceptance:
 Status: done
 Note: no due dates, sorting, reordering, or moving a to-do between lists yet. A done to-do on the page is dimmed, not struck through.
 
+### S-044 Get a summary after a call
+As the user, when a call's transcript is ready, I get a short summary of it.
+Screens: meeting-summary
+Depends: S-005, S-042
+Acceptance:
+- [unit] The summary is written to the meeting's `summary.md`: Overview, then Decisions and Open questions when there were any.
+- [unit] A summary that was already there (an imported one) is kept under the new one; writing again replaces only the model's part.
+- [self] Meeting › Write Summary (⌃⌘U) writes it for the open meeting; it's off without a transcript.
+- [self] The summary is written by the local model on this Mac, after the to-dos.
+- [manual] On a real call, the summary says what happened and nothing that didn't.
+Status: done
+Note: the manual check on a real call is still to do. The summary can't be edited in the app.
+
+### S-045 Get to Home and Settings from the sidebar
+As the user, I click Home at the top of the sidebar or Settings at the bottom.
+Acceptance:
+- [snap] The sidebar starts with Home and To-dos, and ends with Settings.
+- [self] Home closes the open meeting and shows the home page; View › Home (⇧⌘H) does the same.
+Status: done
+
 ## Later
-- Summaries written by the same local model as the to-dos.
 - Connectors, so to-dos and summaries can come from a model you choose: the Ollama app, Claude, or ChatGPT. The local model stays the default.
 - Multilingual transcription (WhisperKit).
 - "I'm recording for my notes" snippet copied when recording starts.

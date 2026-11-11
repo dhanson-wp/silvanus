@@ -941,10 +941,33 @@ enum SelfTest {
         check("Settings comes back to the To-dos page", model.showingTodos)
         model.showingTodos = false
 
+        // Write Summary (the local model's stand-in): a first summary, then one over an imported summary.
+        model.askModel = { system, _ in
+            system == Summaries.system ? "Here you go:\n## Overview\nNothing new this week.\n" : "NONE"
+        }
+        check("Write Summary is offered for a meeting with a transcript", model.canWriteSummary(quiet.id))
+        await model.writeSummary(for: quiet.id, asked: true)?.value
+        check("the model's summary is written to summary.md", model.library.readSummary(id: quiet.id) == "## Overview\nNothing new this week.\n",
+              model.library.readSummary(id: quiet.id) ?? "none")
+        await model.writeSummary(for: meeting.id, asked: true)?.value
+        check("a summary that was already there is kept under the new one",
+              model.library.readSummary(id: meeting.id) == "## Overview\nNothing new this week.\n\n" + summary,
+              model.library.readSummary(id: meeting.id) ?? "none")
+        await model.writeSummary(for: meeting.id, asked: true)?.value
+        check("writing the summary again replaces only the model's part",
+              model.library.readSummary(id: meeting.id) == "## Overview\nNothing new this week.\n\n" + summary)
+        model.askModel = { _, _ in "I can't do that." }
+        await model.writeSummary(for: quiet.id, asked: true)?.value
+        check("an answer with no summary is reported and changes nothing",
+              model.summaryStatus[quiet.id] != nil && model.library.readSummary(id: quiet.id) == "## Overview\nNothing new this week.\n")
+        model.showHome()
+        check("Home closes the open meeting and To-dos", model.isHome && model.selection == nil && !model.showingTodos)
+        model.selection = meeting.id
+
         let bare = Meeting(info: MeetingInfo(id: "selftest-no-transcript", title: "Notes only", start: Date(timeIntervalSince1970: 1_793_968_200)))
         _ = try? model.library.save(bare)
         model.reload()
-        check("Write To-dos is off without a transcript", !model.canWriteTodos(bare.id))
+        check("Write To-dos and Write Summary are off without a transcript", !model.canWriteTodos(bare.id) && !model.canWriteSummary(bare.id))
         model.canvasMode = .notes
     }
 
