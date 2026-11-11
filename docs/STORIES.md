@@ -574,7 +574,7 @@ Note: where the chat sits (a fourth view in the pill, a side panel, or a bar at 
 - "I'm recording for my notes" snippet copied when recording starts.
 
 ## Dropped
-- Cloud AI summaries, chat, and templates: to-dos and summaries use a local model, and agents do the rest through MCP.
+- Cloud AI summaries, chat, and templates: to-dos, summaries, and chat use a local model, and agents do the rest through MCP.
 - Sharing, links, teammates, workspaces, and sync: Silvanus is for one person.
 - Accounts and sign-in: nothing leaves the Mac.
 - Mobile app.
