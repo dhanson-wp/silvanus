@@ -4,7 +4,7 @@ The meeting screen layout comes from `design/KIT.md`. It follows the notes canva
 
 The transcription engine (Parakeet through FluidAudio) and the bleed cleanup are proven first, in a command-line prototype. Stories that depend on that result say `Depends: engine spike`.
 
-Snapshot pages: `meeting-notes`, `meeting-transcript`, `meeting-summary`, `recording-bar`, `menubar-menu`, `call-prompt`, `name-speakers`, `sidebar-filters`, `search`, `settings-recording`, `settings-transcription`, `settings-summaries`, `settings-calendar`, `home`, `todos`, `settings-agents`, `settings-storage`, `import-granola`, `onboarding-permissions`, `empty-library`.
+Snapshot pages: `meeting-notes`, `meeting-transcript`, `meeting-summary`, `recording-bar`, `menubar-menu`, `call-prompt`, `name-speakers`, `sidebar-filters`, `search`, `settings-recording`, `settings-transcription`, `settings-summaries`, `settings-calendar`, `home`, `todos`, `meeting-chat`, `settings-agents`, `settings-storage`, `import-granola`, `onboarding-permissions`, `empty-library`.
 
 ## M1 Record and read
 One call, recorded and transcribed on this Mac, readable the same day, and still there after a restart.
@@ -553,8 +553,23 @@ Acceptance:
 - [self] Home closes the open meeting and shows the home page; View › Home (⇧⌘H) does the same.
 Status: done
 
+### S-046 Chat with a meeting
+As the user, after a call I ask a question about that meeting ("What did we decide about pricing?") and get an answer from its transcript and my notes.
+Screens: meeting-chat
+Depends: S-005, S-042
+Acceptance:
+- [unit] The question goes to the local model with the meeting's transcript and my notes, and with the questions and answers so far, so a follow-up makes sense.
+- [unit] The answer uses only that meeting. When the transcript doesn't say, the answer says so and doesn't guess.
+- [snap] The chat opens beside or under the meeting without hiding it: my question, then the answer, with a field to ask the next one.
+- [self] Nothing leaves this Mac, and it works offline. With no model yet, asking opens Settings › Summaries.
+- [self] The chat is kept with the meeting (`chat.md`) and can be cleared; it never changes my notes, the summary, or the to-dos.
+- [manual] On a real call, three questions I know the answers to come back right.
+Status: todo
+Note: where the chat sits (a fourth view in the pill, a side panel, or a bar at the bottom) is a design decision to make first.
+
 ## Later
-- Connectors, so to-dos and summaries can come from a model you choose: the Ollama app, Claude, or ChatGPT. The local model stays the default.
+- Chat during a call, answering from my notes and what's been transcribed so far, marked with how far in that is ("as of 12 minutes in"). Needs the live draft (S-004) first, and runs the model while the Mac is busy with the call.
+- Connectors, so to-dos, summaries, and chat can come from a model you choose: the Ollama app, Claude, or ChatGPT. The local model stays the default.
 - Multilingual transcription (WhisperKit).
 - "I'm recording for my notes" snippet copied when recording starts.
 
