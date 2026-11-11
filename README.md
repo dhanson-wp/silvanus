@@ -70,7 +70,7 @@ SIGN_IDENTITY="Your Certificate Name"
 3. **Let the speech model download.** The first transcript downloads Parakeet TDT 0.6B v2 (about 450 MB) from Hugging Face. This is the only time Silvanus uses the network. The model is kept in `~/Library/Application Support/FluidAudio/Models`.
 4. **Stop, and read.** After you stop, the transcript appears in a few minutes.
 
-Wearing headphones gives the cleanest transcript. On speakers, your microphone also hears the other side; Silvanus removes those echoed words, but it won't catch every one.
+Wearing headphones gives the cleanest transcript. Your microphone still hears a little of the other side, faintly through headphones and loudly on speakers; Silvanus silences that before it transcribes your side, but on speakers it won't catch everything.
 
 ## Shortcuts
 

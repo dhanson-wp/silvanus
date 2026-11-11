@@ -105,4 +105,52 @@ private func levels(seconds: Double, callTalks: [ClosedRange<Double>], iTalk: [C
         #expect(t.removedEcho.flatMap(\.words).count == bleed.count)
         #expect(t.removedEcho.map(\.start) == t.removedEcho.map(\.start).sorted())
     }
+
+    @Test("While only the call talks, the mic's frames are marked to silence")
+    func bleedFramesAreMarked() {
+        let l = levels(seconds: 60, callTalks: [10...40], iTalk: [45...50])
+        let mute = EchoCleanup.bleedFrames(l)
+        #expect(mute.count == l.mic.count)
+        #expect(mute[Int(20 / TrackLevels.frame)])
+        #expect(mute[Int(39 / TrackLevels.frame)])
+        // Before the call talks, and while I talk with the call silent, nothing is silenced.
+        #expect(!mute[Int(5 / TrackLevels.frame)])
+        #expect(!mute[Int(47 / TrackLevels.frame)])
+    }
+
+    @Test("Talking over the call is kept, with a little room before and after")
+    func talkingOverTheCallIsNotSilenced() {
+        let l = levels(seconds: 60, callTalks: [10...40], iTalk: [20...24])
+        let mute = EchoCleanup.bleedFrames(l)
+        let first = Int(20 / TrackLevels.frame), last = Int(24 / TrackLevels.frame)
+        #expect(!mute[first...last].contains(true))
+        #expect(!mute[first - 2])
+        #expect(!mute[last + 6])
+        #expect(mute[first - 20])
+        #expect(mute[last + 30])
+    }
+
+    @Test("A click under the call is silenced with it")
+    func aShortClickIsSilenced() {
+        var l = levels(seconds: 60, callTalks: [10...40], iTalk: [])
+        let at = Int(20 / TrackLevels.frame)
+        l.mic[at] = -20
+        #expect(EchoCleanup.bleedFrames(l)[at])
+    }
+
+    @Test("With too little call audio to measure the leak, nothing is silenced")
+    func nothingSilencedWithoutALeak() {
+        let l = levels(seconds: 60, callTalks: [10...13], iTalk: [])
+        #expect(!EchoCleanup.bleedFrames(l).contains(true))
+    }
+
+    @Test("Words heard in the silenced audio are kept aside with the removed echo")
+    func silencedWordsAreKeptAside() {
+        let call = testWords("the launch moves to friday", from: 20)
+        let heard = testWords("the launch moves to friday", from: 20.2)
+        let mine = testWords("sounds good to me", from: 45)
+        let t = TranscriptBuilder.build(me: mine, them: call, engine: "test", bleed: heard)
+        #expect(t.lines.filter { $0.side == .me }.map(\.text) == ["sounds good to me"])
+        #expect(t.removedEcho.map(\.text) == ["the launch moves to friday"])
+    }
 }

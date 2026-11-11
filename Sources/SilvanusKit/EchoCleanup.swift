@@ -18,9 +18,11 @@ public struct TrackLevels: Equatable, Sendable {
     }
 }
 
-/// Removes the call's audio from the mic side before lines are built. A headset or
-/// speakers leak the call into the microphone, and the speech model writes those
-/// words down as if I'd said them. Two passes, each working on single words:
+/// Removes the call's audio from the mic side. A headset or speakers leak the call
+/// into the microphone, and the speech model writes those words down as if I'd said
+/// them, however faint they are. First the audio: `bleedFrames` marks the stretches
+/// of the mic track that hold only the leak, and the speech model never hears them
+/// as my side. Then two passes over what it did hear, each working on single words:
 ///
 /// 1. `gate`: the leak is always quieter in the mic than in the call by about the
 ///    same amount (`leak`, measured from this recording). A mic word spoken while
@@ -28,8 +30,9 @@ public struct TrackLevels: Equatable, Sendable {
 /// 2. `dedupe`: what's left of the bleed still says what the call says. A mic word
 ///    the call also says within 2 seconds, in a run of such words, is bleed.
 ///
-/// Nothing is thrown away: `TranscriptBuilder.build` keeps what both remove in
-/// `Transcript.removedEcho`.
+/// Nothing is thrown away: `TranscriptBuilder.build` keeps what all three remove in
+/// `Transcript.removedEcho`. Levels are measured on the speech band (`HighPass`), or
+/// rumble in the mic drowns the leak.
 public enum EchoCleanup {
     /// The call counts as talking above this level.
     static let callFloor: Float = -45
@@ -37,6 +40,54 @@ public enum EchoCleanup {
     static let margin: Float = 8
     /// Call audio needed to measure the leak: 5 seconds of frames.
     static let leakFrames = 250
+
+    /// How far above the leak the mic has to be for its audio to count as my voice.
+    static let voiceMargin: Float = 10
+    /// A louder stretch shorter than this under the call is a click, not a word: 120 ms
+    /// of smoothed frames, which one loud frame alone spreads to 100 ms.
+    static let shortestVoice = 6
+    /// Room kept around my voice: 60 ms before, 160 ms after.
+    static let leadFrames = 3, tailFrames = 8
+
+    /// Each frame's level averaged with its neighbors (`radius` each side), by power.
+    static func smoothed(_ frames: [Float], radius: Int = 2) -> [Float] {
+        let power = frames.map { pow(10, $0 / 10) }
+        return frames.indices.map { index in
+            let range = max(0, index - radius)...min(frames.count - 1, index + radius)
+            return 10 * log10(power[range].reduce(0, +) / Float(range.count))
+        }
+    }
+
+    /// The mic frames to silence before the speech model hears my side: true where
+    /// the call is talking and the mic is no louder than the leak plus a margin.
+    /// My voice keeps a little room before and after it; a click under the call
+    /// goes with the leak. With no measurable leak, nothing is silenced.
+    public static func bleedFrames(_ levels: TrackLevels) -> [Bool] {
+        let count = min(levels.mic.count, levels.call.count)
+        var mute = [Bool](repeating: false, count: levels.mic.count)
+        let mic = smoothed(Array(levels.mic[..<count])), call = smoothed(Array(levels.call[..<count]))
+        guard let leak = leak(TrackLevels(mic: mic, call: call)) else { return mute }
+        var bleed = [Bool](repeating: false, count: count)
+        for index in 0..<count {
+            let near = call[max(0, index - 5)...min(count - 1, index + 5)].max() ?? -120
+            bleed[index] = near > callFloor && mic[index] - near < leak + voiceMargin
+        }
+        // Stretches of voice between bleed: a short one is bleed too; the rest keep their room.
+        var keep = [Bool](repeating: false, count: count)
+        var index = 0
+        while index < count {
+            guard !bleed[index] else { index += 1; continue }
+            var end = index
+            while end < count, !bleed[end] { end += 1 }
+            let click = end - index < shortestVoice && index > 0 && end < count
+            if !click {
+                for frame in max(0, index - leadFrames)..<min(count, end + tailFrames) { keep[frame] = true }
+            }
+            index = end
+        }
+        for frame in 0..<count { mute[frame] = !keep[frame] }
+        return mute
+    }
 
     /// How much quieter the call is in the mic track than in its own track, in
     /// decibels (negative): the median of mic minus call over the frames where the

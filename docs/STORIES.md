@@ -95,7 +95,7 @@ UX:
 - Words: "Transcribing…", "Try Again", "Transcript ready"
 - Access: VoiceOver announces once when transcription finishes
 Status: done
-Note: the bar shows a spinner, not time left, while transcribing. Scored on a 31-minute test call against a reference transcript: 85 s to transcribe; call side about 10% off; mic side 21% off (bar 25%), down from 43% before bleed was removed word by word, by level and then by matching the call (`EchoCleanup`). One call is thin evidence: score more calls, and one on speakers.
+Note: the bar shows a spinner, not time left, while transcribing. Scored on a 31-minute test call against a reference transcript: 85 s to transcribe; call side about 10% off; mic side 21% off (bar 25%), down from 43% before bleed was removed word by word, by level and then by matching the call (`EchoCleanup`). A second call (65 minutes, headphones, the first 37 scored): mic side 12% off, then 7% once the leak was silenced in the audio before the speech model hears it (`EchoCleanup.bleedFrames`). Still thin evidence: score more calls, and one on speakers.
 
 ### S-006 Read the transcript and jump to a moment
 As the user, I open Transcript, read the turns, and click a line to hear it.

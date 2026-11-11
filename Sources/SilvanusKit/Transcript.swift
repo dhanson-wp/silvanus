@@ -113,15 +113,18 @@ public enum TranscriptBuilder {
 
     /// Both sides, with echo removed, in time order. With `levels` (how loud each
     /// track is over time), bleed is first removed word by word (`EchoCleanup`);
-    /// whole mic lines that still repeat the call are dropped after that.
-    public static func build(me: [Word], them: [Word], engine: String, levels: TrackLevels? = nil) -> Transcript {
+    /// whole mic lines that still repeat the call are dropped after that. `bleed` is
+    /// what the speech model heard in the mic audio that was silenced as the call's
+    /// leak (`EchoCleanup.bleedFrames`): kept with the removed echo, never shown.
+    public static func build(me: [Word], them: [Word], engine: String, levels: TrackLevels? = nil,
+                             bleed: [Word] = []) -> Transcript {
         let themLines = lines(them, side: .them)
         var mine = me
-        var removed: [TranscriptLine] = []
+        var removed: [TranscriptLine] = lines(bleed, side: .me)
         if let levels {
             let cleaned = EchoCleanup.clean(me, call: them, levels: levels)
             mine = cleaned.kept
-            removed = lines(cleaned.removed, side: .me)
+            removed += lines(cleaned.removed, side: .me)
         }
         var kept: [TranscriptLine] = []
         for line in lines(mine, side: .me) {
