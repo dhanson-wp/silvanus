@@ -299,13 +299,13 @@ nonisolated enum ModelDownloader {
 
 /// Silvanus's downloaded models, and any download under way. It lives in the app's state,
 /// not in a view, so a download keeps going when Settings or the window closes; one cut
-/// off by a quit leaves its partial file, and Resume picks it up.
+/// off by a quit leaves its partial file, and Continue picks it up.
 @Observable
 final class SummaryModels {
     /// Where one catalog model stands.
     enum State: Equatable {
         case notDownloaded
-        /// Part of it is on disk and nothing is downloading: Resume continues it.
+        /// Part of it is on disk and nothing is downloading: Continue fetches the rest.
         case partial(Int64)
         case downloading(Int64)
         case checking
@@ -383,7 +383,7 @@ final class SummaryModels {
     /// True while any model downloads or is being checked.
     var isBusy: Bool { !tasks.isEmpty }
 
-    /// Starts the download, or picks up a partial one. Also what Resume and Retry do.
+    /// Starts the download, or picks up a partial one. Also what Continue and Retry do.
     @discardableResult
     func download(_ model: CatalogModel) -> Task<Void, Never>? {
         guard staged == nil else { return nil }
@@ -411,7 +411,7 @@ final class SummaryModels {
         return work
     }
 
-    /// Stops the download. What arrived stays, so Resume continues from there.
+    /// Stops the download. What arrived stays, so Continue goes on from there.
     func cancel(_ model: CatalogModel) {
         tasks[model.id]?.cancel()
     }

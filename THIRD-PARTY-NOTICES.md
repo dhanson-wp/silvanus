@@ -284,9 +284,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## Gemma (local model)
+## Gemma 4 (local model)
 
-Silvanus doesn't ship a model for to-dos and summaries. It reads a GGUF model file that's already on your Mac: one you choose, or one another app downloaded. Gemma is published by Google under its own terms (https://ai.google.dev/gemma/terms).
+Silvanus doesn't ship a model for to-dos and summaries. When you ask it to, it downloads one of two Gemma 4 models and keeps it on your Mac in `~/Library/Application Support/Silvanus/models`. Gemma 4 is made by Google and licensed under the Apache License 2.0 (https://ai.google.dev/gemma/docs/gemma_4_license). The files are GGUF conversions published by Unsloth:
+
+- Gemma 4, 12B: `gemma-4-12b-it-UD-Q4_K_XL.gguf` from https://huggingface.co/unsloth/gemma-4-12b-it-GGUF
+- Gemma 4, small: `gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf` from https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF
+
+You can also choose a GGUF model file of your own, which comes under its own license.
 
 ## Parakeet TDT 0.6B v2 (speech model)
 

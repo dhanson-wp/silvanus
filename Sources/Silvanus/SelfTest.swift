@@ -492,7 +492,7 @@ enum SelfTest {
               && ((try? files.contentsOfDirectory(atPath: models.folder.path)) ?? []).isEmpty)
         check("Home's card stays away after a model was in place", !model.showsModelSetup)
 
-        // A failure says why and Retry picks up; Cancel leaves a partial one to Resume.
+        // A failure says why and Retry picks up; Cancel leaves a partial one to Continue.
         models.transport = .fixture(data, piece: 500, stopAfter: 1_500)
         await models.download(big)?.value
         check("a failed download says why in plain words",
@@ -507,7 +507,7 @@ enum SelfTest {
         await poll { size(models.folder.appending(path: little.partialName)) >= 400 }
         models.cancel(little)
         await pausing?.value
-        check("Cancel leaves a partial download to resume",
+        check("Cancel leaves a partial download to continue",
               { if case let .partial(done) = models.state(of: little) { done >= 400 && done < Int64(data.count) } else { false } }(),
               "\(models.state(of: little))")
         try? files.removeItem(at: models.folder)

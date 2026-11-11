@@ -143,7 +143,8 @@ actor LocalModel {
         let fallback = LocalModelText.gemmaPrompt(system: system, user: user)
         guard let template = llama_model_chat_template(model, nil) else { return fallback }
         switch LocalModelText.format(template: String(cString: template)) {
-        case .gemma4: return LocalModelText.gemma4Prompt(system: system, user: user)
+        case let .gemma4(closesThinking):
+            return LocalModelText.gemma4Prompt(system: system, user: user, closesThinking: closesThinking)
         case .gemma3: return fallback
         case .other: break
         }

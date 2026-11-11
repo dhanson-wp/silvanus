@@ -86,7 +86,7 @@ struct SummariesPane: View {
 
 /// One model's download control, for Settings > Summaries and Home's model card:
 /// Download; while it downloads, a bar, "2.1 of 7.4 GB", and Cancel; "Checking…" while
-/// the file is checked; Downloaded and Remove once it's there; Resume for one that
+/// the file is checked; Downloaded and Remove once it's there; Continue for one that
 /// stopped partway; Retry after a failure.
 struct ModelDownloadControl: View {
     @Environment(AppModel.self) private var model
@@ -105,9 +105,10 @@ struct ModelDownloadControl: View {
             case let .partial(done):
                 status(ModelWords.progress(done, of: item))
                 if canRemove { remove }
-                Button("Resume") { model.summaryModels.download(item) }
+                Button("Continue") { model.summaryModels.download(item) }
                     .buttonStyle(KitButtonStyle())
-                    .accessibilityLabel("Resume downloading \(item.name)")
+                    .help("Download the rest")
+                    .accessibilityLabel("Continue downloading \(item.name)")
             case let .downloading(done):
                 KitProgressBar(value: Double(done) / Double(max(item.bytes, 1)), label: "Downloading \(item.name)")
                 status(ModelWords.progress(done, of: item))

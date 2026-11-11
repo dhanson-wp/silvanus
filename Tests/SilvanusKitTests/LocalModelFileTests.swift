@@ -86,16 +86,26 @@ private final class Home {
 
     @Test("A Gemma 4 request uses its own turn markers, with thinking off")
     func gemma4Prompt() {
-        #expect(LocalModelText.gemma4Prompt(system: "", user: " Hi \n")
+        #expect(LocalModelText.gemma4Prompt(system: "", user: " Hi \n", closesThinking: true)
             == "<|turn>user\nHi<turn|>\n<|turn>model\n<|channel>thought\n<channel|>")
-        #expect(LocalModelText.gemma4Prompt(system: "Be brief.\n", user: "Hi")
+        #expect(LocalModelText.gemma4Prompt(system: "Be brief.\n", user: "Hi", closesThinking: true)
             == "<|turn>system\nBe brief.<turn|>\n<|turn>user\nHi<turn|>\n<|turn>model\n<|channel>thought\n<channel|>")
-        #expect(!LocalModelText.gemma4Prompt(system: "Be brief.", user: "Hi").contains("<bos>"))
+        #expect(!LocalModelText.gemma4Prompt(system: "Be brief.", user: "Hi", closesThinking: true).contains("<bos>"))
+    }
+
+    @Test("A Gemma 4 file whose template has no empty thought channel gets none")
+    func gemma4PromptWithoutThoughtChannel() {
+        #expect(LocalModelText.gemma4Prompt(system: "Be brief.", user: "Hi", closesThinking: false)
+            == "<|turn>system\nBe brief.<turn|>\n<|turn>user\nHi<turn|>\n<|turn>model\n")
     }
 
     @Test("The format follows the model file's own template")
     func formatFromTemplate() {
-        #expect(LocalModelText.format(template: "{{ bos_token }}<|turn>system ...<turn|>") == .gemma4)
+        // The 12B's template closes an empty thought channel when thinking is off; the small one's doesn't.
+        let large = #"{{- '<|turn>model\n' -}}{%- if not enable_thinking -%}{{- '<|channel>thought\n<channel|>' -}}{%- endif -%}"#
+        let small = #"{{- '<|channel>thought\n' + thinking_text + '\n<channel|>' -}} ... {{- '<|turn>model\n' -}}"#
+        #expect(LocalModelText.format(template: large) == .gemma4(closesThinking: true))
+        #expect(LocalModelText.format(template: small) == .gemma4(closesThinking: false))
         #expect(LocalModelText.format(template: "{{ '<start_of_turn>' + role }}") == .gemma3)
         #expect(LocalModelText.format(template: "<|im_start|>user") == .other)
         #expect(LocalModelText.format(template: nil) == .other)

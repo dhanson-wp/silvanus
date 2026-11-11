@@ -62,30 +62,36 @@ public enum LocalModelFile {
 public enum LocalModelText {
     /// How a model file wants a request written.
     public enum Format: Equatable, Sendable {
-        /// Gemma 4: `<|turn>` and `<turn|>`, with a system turn.
-        case gemma4
+        /// Gemma 4: `<|turn>` and `<turn|>`, with a system turn. `closesThinking` is true
+        /// for files whose template ends a request with an empty thought channel when
+        /// thinking is off (the 12B does; the small E2B model doesn't).
+        case gemma4(closesThinking: Bool)
         /// Gemma 3 and earlier: `<start_of_turn>` and `<end_of_turn>`.
         case gemma3
         /// Anything else: llama.cpp formats it from the file's own template.
         case other
     }
 
+    /// The empty thought channel, as a Gemma 4 template spells it in its own source.
+    static let emptyThoughtInTemplate = #"<|channel>thought\n<channel|>"#
+
     /// The format a model file's own chat template asks for. llama.cpp doesn't know
     /// Gemma 4's template, so it's recognized here by its turn marker.
     public static func format(template: String?) -> Format {
         guard let template else { return .other }
-        if template.contains("<|turn>") { return .gemma4 }
+        if template.contains("<|turn>") { return .gemma4(closesThinking: template.contains(emptyThoughtInTemplate)) }
         if template.contains("<start_of_turn>") { return .gemma3 }
         return .other
     }
 
-    /// Gemma 4's turn format with thinking off: the empty thought channel at the end
-    /// tells the model to answer right away. No start-of-text marker: the tokenizer adds it.
-    public static func gemma4Prompt(system: String, user: String) -> String {
+    /// Gemma 4's turn format with thinking off, as the file's own template writes it:
+    /// with `closesThinking`, an empty thought channel at the end tells the model to
+    /// answer right away. No start-of-text marker: the tokenizer adds it.
+    public static func gemma4Prompt(system: String, user: String, closesThinking: Bool) -> String {
         let system = system.trimmingCharacters(in: .whitespacesAndNewlines)
         let user = user.trimmingCharacters(in: .whitespacesAndNewlines)
         let lead = system.isEmpty ? "" : "<|turn>system\n\(system)<turn|>\n"
-        return "\(lead)<|turn>user\n\(user)<turn|>\n<|turn>model\n<|channel>thought\n<channel|>"
+        return "\(lead)<|turn>user\n\(user)<turn|>\n<|turn>model\n" + (closesThinking ? "<|channel>thought\n<channel|>" : "")
     }
 
     /// Gemma 3's turn format; also the fallback for a file whose template llama.cpp can't use.
