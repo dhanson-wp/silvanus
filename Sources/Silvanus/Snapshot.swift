@@ -13,7 +13,7 @@ import SwiftUI
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
-/// notes canvas, "summary" for the Summary view, "transcript" for the Transcript view, "recording" for
+/// notes canvas, "summary" for the Summary view, "todos" for the To-dos page, "transcript" for the Transcript view, "recording" for
 /// the recording states, the recording controls, the Meeting detected prompt, and the permissions sheet, "settings" for Settings.
 /// "reference-main" (only when asked for by name) writes the reference-main page for the pixel
 /// compare (captureReferenceMain, tools/compare.sh).
@@ -68,6 +68,9 @@ enum Snapshot {
             }
             if only == nil || only?.contains("summary") == true {
                 await captureSummary(model: model, to: dir)
+            }
+            if only == nil || only?.contains("todos") == true {
+                await captureTodos(model: model, to: dir)
             }
             if only == nil || only?.contains("transcript") == true {
                 await captureTranscript(model: model, to: dir)
@@ -198,6 +201,22 @@ enum Snapshot {
         let other = model.meetings.last?.notes ?? ""
         print("SNAPSHOT canvas after picking another meeting: \(open.count) editor, showing it: \(open.map(\.string) == [other])")
         model.selection = nil
+    }
+
+    /// The To-dos page (the sidebar's To-dos row) at 910 × 600:
+    ///   todos-<mode>.png   the seed meetings' to-dos, grouped by meeting, one of them done
+    @MainActor private static func captureTodos(model: AppModel, to dir: String) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        model.sidebar = .all
+        model.sidebarVisible = true
+        main.setContentSize(Metric.windowDefault)
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            model.showTodos()
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/todos-\(mode).png", window: main)
+        }
+        model.showingTodos = false
     }
 
     /// The Summary view (⌘1) at 910 × 600:

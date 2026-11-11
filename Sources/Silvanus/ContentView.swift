@@ -35,7 +35,7 @@ struct ContentView: View {
                 Color.clear
             } else {
                 CanvasHeader(mode: $model.canvasMode,
-                             hasMeeting: meeting != nil,
+                             hasMeeting: meeting != nil && !model.showingTodos,
                              // The Stop look and the wave belong to the meeting being recorded.
                              isRecording: model.isRecording,
                              meter: model.recorder.meetingID == meeting?.id ? model.recorder.meter : nil,
@@ -46,6 +46,9 @@ struct ContentView: View {
         } canvas: {
             if model.settingsOpen {
                 SettingsScreen()
+            } else if model.showingTodos {
+                TodosPage()
+                    .overlay(alignment: .bottom) { banner }
             } else {
                 MeetingPage(meeting: meeting, documents: documents)
                     .overlay(alignment: .bottom) { banner }

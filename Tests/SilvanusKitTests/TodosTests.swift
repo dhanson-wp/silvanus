@@ -84,3 +84,46 @@ import Testing
         #expect(page.todo(in: "To-dos gone") == nil)
     }
 }
+
+@Suite("To-do board") struct TodoBoardTests {
+    private func meeting(_ id: String, _ todo: String) -> Meeting {
+        Meeting(info: MeetingInfo(id: id, title: id.capitalized, start: Date(timeIntervalSince1970: 1_793_975_400)), todo: todo)
+    }
+
+    @Test("Only checkbox lines are to-dos, and each remembers its line")
+    func items() {
+        let items = TodoBoard.items(in: "- [ ] Sam: send the plan\nA plain line\n- [x] Priya: book the room\n", meetingID: "kickoff")
+        #expect(items.map(\.text) == ["Sam: send the plan", "Priya: book the room"])
+        #expect(items.map(\.done) == [false, true])
+        #expect(items.map(\.line) == [0, 2])
+        #expect(TodoBoard.items(in: Todos.none + "\n", meetingID: "kickoff").isEmpty)
+    }
+
+    @Test("The board lists meetings with something still to do, done ones included in their group")
+    func groups() {
+        let board = TodoBoard.groups([
+            meeting("kickoff", "- [ ] Sam: send the plan\n- [x] Priya: book the room\n"),
+            meeting("sync", "- [x] Jordan: share the deck\n"),
+            meeting("review", Todos.none + "\n"),
+            meeting("notes", ""),
+        ])
+        #expect(board.map(\.meetingID) == ["kickoff"])
+        #expect(board.first?.items.count == 2)
+        #expect(board.first?.open == 1)
+    }
+
+    @Test("The count is the open to-dos across every meeting")
+    func openCount() {
+        #expect(TodoBoard.openCount([meeting("a", "- [ ] One\n- [ ] Two\n- [x] Three\n"), meeting("b", "- [ ] Four\n")]) == 3)
+    }
+
+    @Test("Ticking changes only that line's box, and unticking puts it back")
+    func toggled() {
+        let todo = "- [ ] Sam: send the plan\n- [ ] Priya: book the room\n"
+        let ticked = TodoBoard.toggled(todo, line: 1)
+        #expect(ticked == "- [ ] Sam: send the plan\n- [x] Priya: book the room\n")
+        #expect(TodoBoard.toggled(ticked ?? "", line: 1) == todo)
+        #expect(TodoBoard.toggled(todo, line: 2) == nil)
+        #expect(TodoBoard.toggled("Plain\n", line: 0) == nil)
+    }
+}

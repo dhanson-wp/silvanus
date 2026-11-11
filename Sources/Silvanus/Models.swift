@@ -66,6 +66,7 @@ final class AppModel {
     var selection: String? {
         didSet {
             if selection != oldValue {
+                if selection != nil { showingTodos = false }
                 headerRequest = nil
                 selectionChanged?(selection)
             }
@@ -229,6 +230,33 @@ final class AppModel {
 
     /// True when the self-test's model stands in for the file, so a run without one still writes.
     @ObservationIgnored var todoModelIsInjected = false
+
+    /// True while the canvas shows the To-dos page (the sidebar's To-dos row, ⇧⌘T) in place
+    /// of the open meeting. Opening a meeting leaves it.
+    var showingTodos = false {
+        willSet { if newValue, !showingTodos { leavingNotes?() } }
+    }
+
+    /// Open to-dos across every meeting: the count on the sidebar's To-dos row.
+    var openTodoCount: Int { TodoBoard.openCount(meetings) }
+
+    func showTodos() {
+        settingsOpen = false
+        showingTodos = true
+    }
+
+    /// Ticks or unticks a to-do from the To-dos page, in its meeting's `todo.md`.
+    func toggleTodo(_ item: TodoBoard.Item) {
+        guard let todo = library.readTodo(id: item.meetingID),
+              let toggled = TodoBoard.toggled(todo, line: item.line) else { return }
+        do {
+            try library.saveTodo(toggled, for: item.meetingID)
+            todoSaved(toggled, for: item.meetingID)
+            todoRevision += 1
+        } catch {
+            print("TODOS couldn't save \(item.meetingID): \(error.localizedDescription)")
+        }
+    }
 
     /// The Summary page saved the to-do list: keep the loaded copy current.
     func todoSaved(_ text: String, for id: String) {
@@ -401,6 +429,7 @@ extension AppModel {
     /// Opens a meeting: a click on its row, or Return on the selected one. The canvas shows
     /// the selected meeting; once it has a text view it takes keyboard focus here too.
     func open(_ id: String) {
+        showingTodos = false
         selection = id
     }
 

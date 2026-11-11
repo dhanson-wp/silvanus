@@ -248,6 +248,8 @@ struct MeetingCommands: Commands {
                     .keyboardShortcut(KeyEquivalent(mode.shortcut))
                     .disabled(meeting == nil)
             }
+            Button("To-dos", action: model.showTodos)
+                .keyboardShortcut("t", modifiers: [.shift, .command])
             Divider()
         }
     }

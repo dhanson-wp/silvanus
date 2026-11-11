@@ -31,6 +31,14 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             SidebarAccentRule()
+            if !model.referenceStage {
+                Button(action: model.showTodos) {
+                    SidebarFolderRow(title: "To-dos", icon: .todos, count: model.openTodoCount == 0 ? nil : model.openTodoCount)
+                }
+                .buttonStyle(SidebarRowStyle(isSelected: model.showingTodos))
+                .help("Every meeting's to-dos in one place")
+                .padding(.top, Space.xs)
+            }
             // Moves the model's clock at each midnight, so "Today" turns into "Yesterday" on
             // time. The model regroups; the view only reads its cached days.
             TimelineView(MidnightSchedule()) { context in
@@ -98,7 +106,7 @@ struct SidebarView: View {
     }
 
     private func meetingRow(_ meeting: Meeting) -> some View {
-        let selected = meeting.id == model.selection
+        let selected = meeting.id == model.selection && !model.showingTodos
         return Button {
             focusByClick(.meetings)
             model.open(meeting.id)

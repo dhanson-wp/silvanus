@@ -109,7 +109,8 @@ enum SeedData {
                     id: "seed-weekly-sync", title: "Weekly sync", series: "Weekly sync",
                     start: base.addingTimeInterval(-day), end: base.addingTimeInterval(-day + 1_800),
                     attendees: ["Sam Rivera", "Jordan Lee"], folder: "Team"),
-                notes: "Status\n- On track\n"),
+                notes: "Status\n- On track\n",
+                todo: "- [x] Jordan Lee: share the hiring deck\n- [ ] Sam Rivera: confirm the offsite dates by Thursday\n- [ ] Jordan Lee: book the review room\n"),
             Meeting(
                 info: MeetingInfo(
                     id: "seed-design-review", title: "Design review", series: "Design review",

@@ -872,6 +872,30 @@ enum SelfTest {
         check("a missing model is reported, and the list is left alone",
               model.todoStatus[quiet.id] == .failed(LocalModelError.noModel.localizedDescription)
               && model.library.readTodo(id: quiet.id) == Todos.none + "\n")
+        // The To-dos page: every meeting's open to-dos, ticked in place.
+        let board = TodoBoard.groups(model.meetings).first { $0.meetingID == meeting.id }
+        check("the To-dos page groups a meeting's to-dos under it", board?.items.map(\.done) == [true, false, false],
+              "\(board?.items.map(\.text) ?? [])")
+        let openBefore = model.openTodoCount
+        model.showTodos()
+        check("To-dos takes the canvas and keeps the meeting selected", model.showingTodos && model.selection == meeting.id)
+        if let item = board?.items.last {
+            model.toggleTodo(item)
+            check("ticking on the To-dos page writes the meeting's todo.md",
+                  model.library.readTodo(id: meeting.id) == ticked + "- [x] Jordan Lee: share the deck\n",
+                  model.library.readTodo(id: meeting.id) ?? "none")
+            check("the sidebar's count goes down by one", model.openTodoCount == openBefore - 1, "\(openBefore) -> \(model.openTodoCount)")
+            model.toggleTodo(item)
+            check("unticking puts it back", model.library.readTodo(id: meeting.id) == merged && model.openTodoCount == openBefore)
+        }
+        model.open(meeting.id)
+        check("opening a meeting leaves the To-dos page", !model.showingTodos)
+        model.showTodos()
+        model.openSettings()
+        model.closeSettings()
+        check("Settings comes back to the To-dos page", model.showingTodos)
+        model.showingTodos = false
+
         let bare = Meeting(info: MeetingInfo(id: "selftest-no-transcript", title: "Notes only", start: Date(timeIntervalSince1970: 1_793_968_200)))
         _ = try? model.library.save(bare)
         model.reload()

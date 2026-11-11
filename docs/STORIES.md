@@ -4,7 +4,7 @@ The meeting screen layout comes from `design/KIT.md`. It follows the notes canva
 
 The transcription engine (Parakeet through FluidAudio) and the bleed cleanup are proven first, in a command-line prototype. Stories that depend on that result say `Depends: engine spike`.
 
-Snapshot pages: `meeting-notes`, `meeting-transcript`, `meeting-summary`, `recording-bar`, `menubar-menu`, `call-prompt`, `name-speakers`, `sidebar-filters`, `search`, `settings-recording`, `settings-transcription`, `settings-summaries`, `settings-agents`, `settings-storage`, `import-granola`, `onboarding-permissions`, `empty-library`.
+Snapshot pages: `meeting-notes`, `meeting-transcript`, `meeting-summary`, `recording-bar`, `menubar-menu`, `call-prompt`, `name-speakers`, `sidebar-filters`, `search`, `settings-recording`, `settings-transcription`, `settings-summaries`, `todos`, `settings-agents`, `settings-storage`, `import-granola`, `onboarding-permissions`, `empty-library`.
 
 ## M1 Record and read
 One call, recorded and transcribed on this Mac, readable the same day, and still there after a restart.
@@ -504,6 +504,18 @@ Acceptance:
 - [self] Meeting › Write To-dos (⌃⌘T) writes the list again for the open meeting; it's off without a transcript.
 Status: done
 Note: the manual check on a real call is still to do. A list can't be started by hand on a meeting that has none yet.
+
+### S-043 See every to-do in one place
+As the user, I open To-dos in the sidebar and see what's still open across all my meetings, like a light task manager.
+Screens: todos
+Depends: S-041
+Acceptance:
+- [unit] The page lists each meeting that has an open to-do, newest first, with all that meeting's to-dos; a meeting drops off once every one is done.
+- [snap] The sidebar's To-dos row sits above the meetings with the count of open to-dos; the page shows each meeting's title and date over its to-dos, done ones struck through.
+- [self] Ticking or unticking a to-do on the page writes that meeting's `todo.md`, and the count follows.
+- [self] Clicking a meeting's title opens its Summary; opening any meeting leaves the page. View › To-dos (⇧⌘T) opens it.
+Status: done
+Note: no due dates, sorting, or to-dos of your own outside a meeting yet.
 
 ## Later
 - Summaries written by the same local model as the to-dos.

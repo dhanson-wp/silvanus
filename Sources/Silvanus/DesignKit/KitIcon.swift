@@ -19,6 +19,7 @@ enum KitIcon: String, CaseIterable {
     /// The sidebar: the "All meetings" row and the Folders section's collapse chevron
     /// (drawn pointing right, turned down when the section is open).
     case allMeetings, disclosure
+    case todos, todoOpen, todoDone
 
     var symbol: String {
         switch self {
@@ -47,6 +48,9 @@ enum KitIcon: String, CaseIterable {
         case .settingsAbout: "info.circle"
         case .allMeetings: "tray"
         case .disclosure: "chevron.right"
+        case .todos: "checklist"
+        case .todoOpen: "square"
+        case .todoDone: "checkmark.square.fill"
         }
     }
 
@@ -62,7 +66,8 @@ enum KitIcon: String, CaseIterable {
         case .play, .barPause, .barResume: 9
         case .barStop: 7
         case .folderRow, .quickNoteMic, .back, .settingsGeneral, .settingsAppearance,
-             .settingsAudio, .settingsMicrophone, .settingsAbout, .settingsSummaries, .allMeetings: 14
+             .settingsAudio, .settingsMicrophone, .settingsAbout, .settingsSummaries, .allMeetings,
+             .todos, .todoOpen, .todoDone: 14
         }
     }
 

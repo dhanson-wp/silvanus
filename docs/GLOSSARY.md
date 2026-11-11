@@ -62,6 +62,7 @@ Every word Silvanus puts on screen. One name per idea.
 | Attendees | The people in a meeting, listed from the date chip; "No attendees" when there are none | Participants, Guests |
 | Add to folder | The folder chip on a meeting that isn't in a folder; its menu (and Meeting > Move to Folder) has the folders, None, and New Folder… | Move to Project, Tag |
 | To-dos | The heading over a meeting's to-do list on Summary: checkboxes the local model wrote from the transcript, which can be ticked, edited, and added to | Action items, Tasks, Next steps |
+| To-dos (sidebar) | The sidebar row above the meetings, with the count of open to-dos, and the page it opens (also View > To-dos, ⇧⌘T): every meeting's open to-dos, grouped by meeting; "No to-dos" with "To-dos from your calls show up here." when there are none | Tasks, Inbox, Action items |
 | Write To-dos | Meeting menu (⌃⌘T): list the to-dos from the open meeting's transcript again, keeping what was ticked, edited, or added | Generate, Regenerate, Extract action items |
 | Writing to-dos… | The Summary view while the first list is being written | Generating, Thinking |
 | No to-dos from this call. | The to-do list's one line when the model found nothing to do | No action items, Nothing to do |

@@ -113,3 +113,69 @@ public struct TodoPage: Equatable, Sendable {
     public var lockedPrefix: Int { prefix.utf16.count }
     public var lockedSuffix: Int { suffix.utf16.count }
 }
+
+/// Every meeting's to-dos in one place: the To-dos page in the sidebar.
+public enum TodoBoard {
+    /// One checkbox line of a meeting's `todo.md`.
+    public struct Item: Equatable, Identifiable, Sendable {
+        public var meetingID: String
+        /// The line's place in `todo.md`, counting every line from 0.
+        public var line: Int
+        public var text: String
+        public var done: Bool
+
+        public var id: String { "\(meetingID)#\(line)" }
+    }
+
+    /// A meeting that still has something to do, with all its to-dos.
+    public struct Group: Equatable, Identifiable, Sendable {
+        public var meetingID: String
+        public var title: String
+        public var start: Date
+        public var items: [Item]
+
+        public var id: String { meetingID }
+        public var open: Int { items.count { !$0.done } }
+    }
+
+    /// The checkbox lines in a `todo.md`. Other lines (the "no to-dos" line, plain text) aren't to-dos.
+    public static func items(in todo: String, meetingID: String) -> [Item] {
+        todo.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, line in
+            guard let parsed = parse(line) else { return nil }
+            return Item(meetingID: meetingID, line: index, text: parsed.text, done: parsed.done)
+        }
+    }
+
+    /// The meetings with at least one open to-do, in the order given (newest first in the
+    /// app). A meeting whose to-dos are all done drops off the page.
+    public static func groups(_ meetings: [Meeting]) -> [Group] {
+        meetings.compactMap { meeting in
+            let items = items(in: meeting.todo, meetingID: meeting.id)
+            guard items.contains(where: { !$0.done }) else { return nil }
+            return Group(meetingID: meeting.id, title: meeting.displayTitle, start: meeting.info.start, items: items)
+        }
+    }
+
+    /// How many to-dos are still open across the meetings.
+    public static func openCount(_ meetings: [Meeting]) -> Int {
+        meetings.reduce(0) { $0 + items(in: $1.todo, meetingID: $1.id).count { !$0.done } }
+    }
+
+    /// `todo` with the checkbox on `line` ticked or unticked; nil when that line isn't a to-do.
+    public static func toggled(_ todo: String, line: Int) -> String? {
+        var lines = todo.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.indices.contains(line), let parsed = parse(Substring(lines[line])),
+              let box = lines[line].range(of: parsed.done ? (lines[line].contains("[X]") ? "[X]" : "[x]") : "[ ]") else { return nil }
+        lines[line].replaceSubrange(box, with: parsed.done ? "[ ]" : "[x]")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func parse(_ line: Substring) -> (text: String, done: Bool)? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        for (mark, done) in [("- [ ] ", false), ("- [x] ", true), ("- [X] ", true), ("* [ ] ", false), ("* [x] ", true)] where trimmed.hasPrefix(mark) {
+            let text = String(trimmed.dropFirst(mark.count)).trimmingCharacters(in: .whitespaces)
+            return text.isEmpty ? nil : (text, done)
+        }
+        return nil
+    }
+}
