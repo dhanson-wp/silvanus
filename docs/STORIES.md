@@ -560,12 +560,13 @@ Depends: S-005, S-042
 Acceptance:
 - [unit] The question goes to the local model with the meeting's transcript and my notes, and with the questions and answers so far, so a follow-up makes sense.
 - [unit] The answer uses only that meeting. When the transcript doesn't say, the answer says so and doesn't guess.
-- [snap] The chat opens beside or under the meeting without hiding it: my question, then the answer, with a field to ask the next one.
+- [snap] The chat opens in a side panel to the right of the meeting, so the notes, transcript, or summary stay readable while I ask: my question, then the answer, with a field to ask the next one.
+- [snap] The panel opens and closes from a button on the meeting page and from the menu, and the meeting takes the full width again when it's closed.
 - [self] Nothing leaves this Mac, and it works offline. With no model yet, asking opens Settings › Summaries.
 - [self] The chat is kept with the meeting (`chat.md`) and can be cleared; it never changes my notes, the summary, or the to-dos.
 - [manual] On a real call, three questions I know the answers to come back right.
 Status: todo
-Note: where the chat sits (a fourth view in the pill, a side panel, or a bar at the bottom) is a design decision to make first.
+Note: the chat sits in a side panel (decided 2026-11-11), not a fourth view in the pill or a bar at the bottom.
 
 ## Later
 - Chat during a call, answering from my notes and what's been transcribed so far, marked with how far in that is ("as of 12 minutes in"). Needs the live draft (S-004) first, and runs the model while the Mac is busy with the call.
