@@ -1,6 +1,7 @@
 import Foundation
 import SilvanusKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The sidebar pages. Snapshot mode walks through every case.
 enum SidebarItem: String, CaseIterable, Identifiable {
@@ -145,6 +146,32 @@ final class AppModel {
             appearance.apply()
         }
     }
+    /// Settings > Summaries > Model: the chosen file's path. Nil uses a model another app downloaded.
+    var summaryModelPath: String? = AppDefaults.shared.string(forKey: AppDefaults.modelFileKey) {
+        didSet { AppDefaults.shared.set(summaryModelPath, forKey: AppDefaults.modelFileKey) }
+    }
+    /// The model file that writes to-dos and summaries, or nil when there's none.
+    /// Snapshots show a made-up one, so they don't depend on what's on this Mac.
+    var summaryModel: LocalModelFile.Found? {
+        if Snapshot.requested {
+            return LocalModelFile.Found(url: URL(fileURLWithPath: "/gemma-4-12b-it.gguf"), source: .shared("Biscotti"))
+        }
+        return LocalModelFile.find(chosen: summaryModelPath, home: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    /// Settings > Summaries > Choose…: pick a GGUF model file.
+    func chooseSummaryModel() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a Model File"
+        panel.prompt = "Choose"
+        panel.allowedContentTypes = [UTType(filenameExtension: "gguf") ?? .data]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let current = summaryModel?.url { panel.directoryURL = current.deletingLastPathComponent() }
+        guard panel.runModal() == .OK, let url = panel.url, LocalModelFile.isModel(url) else { return }
+        summaryModelPath = url.path
+    }
+
     /// Settings > General > Show in Dock. Saved only; no behavior yet.
     var showInDock: Bool = AppDefaults.showInDock {
         didSet { AppDefaults.showInDock = showInDock }

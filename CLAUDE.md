@@ -11,6 +11,7 @@ is folders of plain files (Markdown and JSON), one folder per meeting.
 - `Sources/Silvanus/AppDefaults.swift` the one place the app reads and writes defaults.
 - `Sources/SilvanusKit/` rules and data logic with no SwiftUI. Tests in `Tests/SilvanusKitTests/`.
 - `Package.swift` a Swift package. FluidAudio (speech recognition) is pinned exactly and linked to the app target only.
+- `Sources/Silvanus/AI/` the local model that writes to-dos and summaries: `LocalModel` runs a GGUF file with llama.cpp (a prebuilt framework, a binary target pinned by checksum in `Package.swift`; `build.sh` copies it into the bundle). The file is Settings' choice or one another app downloaded (`LocalModelFile` in SilvanusKit). Never a cloud model.
 - `build.sh` builds and signs the dev bundle `~/Library/Developer/Silvanus/Silvanus.app`.
 - `Brand/` the brand files (app icon, menu bar glyph, colors) with a neutral placeholder. `tools/brand.sh` renders them into the gitignored `Resources/`; `build.sh` runs it and copies the results into the bundle. Code reads them only through `Brand` (`UI/Brand.swift`). `tools/test-brand.sh` checks the script. See `Brand/README.md`.
 - `docs/STORIES.md` the user stories, `docs/GLOSSARY.md` every word on screen, `docs/FIXLOG.md` bugs worth remembering and the rule each one left.
@@ -24,6 +25,7 @@ is folders of plain files (Markdown and JSON), one folder per meeting.
 - A second checkout (a worktree) builds and tests side by side with `SILVANUS_DEV_DIR=~/Library/Developer/Silvanus-<name>` set for `build.sh`, `tools/test.sh`, `tools/snap.sh`, and `tools/selftest.sh`. `SILVANUS_SNAP_STORE`, `SILVANUS_SHOTS`, and `SILVANUS_SELFTEST_STORE` move their /tmp folders.
 - Self-test (the app's real functions on a /tmp folder): `tools/selftest.sh`. Exit 0 when every check passes. Add a check for every story with logic in `SelfTest.swift`.
 - Audio: no check opens the microphone or call audio, or asks for a permission. `APP_SELFTEST_AUDIO=1 tools/selftest.sh` adds the after-call pass on two tracks spoken with `say` (it loads the speech model, downloading it the first time). `APP_TRANSCRIBE_FILE=<audio file>` on the dev binary prints one file's words with times; `APP_TRANSCRIBE=<meeting id>` with `APP_STORE` runs the after-call pass on that meeting's `audio/` folder.
+- Local model: `APP_ASK=<question>` on the dev binary loads the model file and prints its answer and timings; `APP_ASK_FILE=<text file>` adds that file's text, and `APP_MODEL_FILE=<gguf>` picks the file. No check loads the model on its own: it's 7 GB.
 - After every UI change, take snapshots and look at them: `tools/snap.sh`.
   It writes `/tmp/Silvanus-shots/<page>-light.png` and `-dark.png` for every sidebar page, `settings-<pane>-light.png` and `-dark.png` for every Settings pane, and the brand set (`about-*`, `menubar-*`, `menubar-recording-*`), then quits. `APP_SNAPSHOT_PAGES=all,settings tools/snap.sh` limits the pages.
   For a panel, sheet, or popover, add a capture to `Snapshot.swift` like the Settings loop.

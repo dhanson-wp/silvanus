@@ -14,9 +14,16 @@ let package = Package(
         .target(name: "SilvanusKit"),
         .executableTarget(
             name: "Silvanus",
-            dependencies: ["SilvanusKit", .product(name: "FluidAudio", package: "FluidAudio")],
+            dependencies: ["SilvanusKit", .product(name: "FluidAudio", package: "FluidAudio"), "llama"],
             // App code runs on the main thread unless you say otherwise.
             swiftSettings: [.defaultIsolation(MainActor.self)]
+        ),
+        // llama.cpp, prebuilt by its own project: runs the local model that writes
+        // to-dos and summaries. build.sh copies the framework into the app.
+        .binaryTarget(
+            name: "llama",
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/b12282/llama-b12282-xcframework.zip",
+            checksum: "3789362d50cb70b057009bf7bfab2dbd52a5e552d8c0b9a84ca37009c4657fa0"
         ),
         .testTarget(name: "SilvanusKitTests", dependencies: ["SilvanusKit"]),
     ]

@@ -61,7 +61,15 @@ fi
 for file in AppIcon.icns menubar.png menubar@2x.png menubar-recording.png menubar-recording@2x.png brand-colors.json; do
   [[ -f "$here/Resources/$file" ]] && cp -X "$here/Resources/$file" "$app/Contents/Resources/"
 done
+# llama.cpp's framework, next to the binary after the build: into the bundle, where the
+# binary looks for it.
+if [[ -d "$scratch/$config/llama.framework" ]]; then
+  mkdir -p "$app/Contents/Frameworks"
+  ditto "$scratch/$config/llama.framework" "$app/Contents/Frameworks/llama.framework"
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$app/Contents/MacOS/$name" 2>/dev/null || true
+fi
 xattr -cr "$app"
+[[ -d "$app/Contents/Frameworks/llama.framework" ]] && codesign --force --sign "$identity" "$app/Contents/Frameworks/llama.framework" 2>&1 | grep -v "replacing existing signature" || true
 codesign --force --sign "$identity" "$app" 2>&1 | grep -v "replacing existing signature" || true
 echo "built $app (signed: ${identity})"
 

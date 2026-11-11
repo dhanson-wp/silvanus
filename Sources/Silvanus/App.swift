@@ -284,6 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let code = EditorSpike.runHeadlessIfRequested() { exit(code) }
         if let code = TranscriptBench.runHeadlessIfRequested() { exit(code) }
         if let code = TranscribeCommand.runIfRequested() { exit(code) }
+        if let code = AskCommand.runIfRequested() { exit(code) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

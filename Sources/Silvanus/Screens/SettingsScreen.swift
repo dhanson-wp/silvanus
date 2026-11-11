@@ -1,8 +1,9 @@
+import SilvanusKit
 import SwiftUI
 
 /// The Settings panes, in the order the list shows them. Snapshot mode walks through every case.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, appearance, about, transcription
+    case general, appearance, about, transcription, summaries
 
     var id: String { rawValue }
 
@@ -11,6 +12,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: "General"
         case .appearance: "Appearance"
         case .transcription: "Transcription"
+        case .summaries: "Summaries"
         case .about: "About"
         }
     }
@@ -20,6 +22,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: .settingsGeneral
         case .appearance: .settingsAppearance
         case .transcription: .settingsAudio
+        case .summaries: .settingsSummaries
         case .about: .settingsAbout
         }
     }
@@ -27,7 +30,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// The list's groups (KIT.md "Settings"): app panes, then the ones about speech.
     static let groups: [SettingsListGroup<SettingsPane>] = [
         SettingsListGroup(title: "App", items: [SettingsPane.general, .appearance, .about].map { item($0) }),
-        SettingsListGroup(title: "AI", items: [SettingsPane.transcription].map { item($0) }),
+        SettingsListGroup(title: "AI", items: [SettingsPane.transcription, .summaries].map { item($0) }),
     ]
 
     private static func item(_ pane: SettingsPane) -> SettingsListItem<SettingsPane> {
@@ -37,6 +40,18 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// Stop when the call ends: what it does, and a footnote on what it needs.
     static let stopWhenCallEndsDescription = "When the call app stops using audio, stop recording after a short countdown."
     static let stopWhenCallEndsFootnote = "Needs the Mac's per-app audio list; without it, waits for the call app to quit."
+
+    /// Summaries > Model: what it's for, and where the file in use came from.
+    static let summaryModelDescription = "Writes to-dos and summaries. Nothing leaves your Mac."
+    static let noSummaryModel = "No model"
+
+    static func summaryModelFootnote(_ source: LocalModelFile.Source?) -> String {
+        switch source {
+        case .chosen: "The file you chose."
+        case let .shared(app): "Found in \(app), so it isn't downloaded twice."
+        case nil: "Choose a GGUF model file, or download Gemma in Biscotti."
+        }
+    }
 
     /// The speech model, shown read-only until there is more than one.
     static let modelName = "Parakeet TDT v2, on this Mac"
@@ -123,6 +138,26 @@ struct SettingsScreen: View {
                         .kitType(.rowTitle)
                         .foregroundStyle(Ink.textSecondary)
                         .textSelection(.enabled)
+                }
+            case .summaries:
+                SettingRow(title: "Model", description: SettingsPane.summaryModelDescription,
+                           footnote: SettingsPane.summaryModelFootnote(model.summaryModel?.source)) {
+                    HStack(spacing: Space.sm) {
+                        Text(model.summaryModel?.name ?? SettingsPane.noSummaryModel)
+                            .kitType(.rowTitle)
+                            .foregroundStyle(Ink.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                        if model.summaryModel?.source == .chosen {
+                            Button("Use Default") { model.summaryModelPath = nil }
+                                .buttonStyle(KitButtonStyle())
+                                .help("Go back to the model another app downloaded")
+                        }
+                        Button("Choose…") { model.chooseSummaryModel() }
+                            .buttonStyle(KitButtonStyle())
+                            .accessibilityLabel("Choose a model file")
+                    }
                 }
             case .about:
                 BrandAboutContent()

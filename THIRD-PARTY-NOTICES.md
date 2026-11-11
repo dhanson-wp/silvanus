@@ -258,6 +258,36 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 VBx (https://github.com/BUTSpeechFIT/VBx) is licensed under the Apache License 2.0, the same text as printed above for FluidAudio.
 
+## llama.cpp
+
+llama.cpp (https://github.com/ggml-org/llama.cpp) runs the local model that writes to-dos and summaries. Its prebuilt framework is a dependency and is bundled in the built app. It is licensed under the MIT License.
+
+MIT License
+
+Copyright (c) 2023-2026 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Gemma (local model)
+
+Silvanus doesn't ship a model for to-dos and summaries. It reads a GGUF model file that's already on your Mac: one you choose, or one another app downloaded. Gemma is published by Google under its own terms (https://ai.google.dev/gemma/terms).
+
 ## Parakeet TDT 0.6B v2 (speech model)
 
 Silvanus doesn't ship the speech model. On first use, FluidAudio downloads the Core ML conversion published by FluidInference (https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml) and keeps it on your Mac. The original model is Parakeet TDT 0.6B v2 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2). Both are licensed under the Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/).

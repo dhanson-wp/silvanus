@@ -61,6 +61,8 @@ extension AppDefaults {
     static let stopWhenCallEndsKey = "general.stopWhenCallEnds"
     static let settingsPaneKey = "settings.pane"
     static let meNameKey = "meName"
+    /// The model file chosen in Settings > Summaries; unset uses one another app downloaded.
+    nonisolated static let modelFileKey = "summaries.modelFile"
 
     /// The name the transcript shows for the mic side. "Me" until a name is set.
     static var meName: String {

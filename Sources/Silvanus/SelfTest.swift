@@ -302,6 +302,19 @@ enum SelfTest {
         model.show(.notes)
         model.closeSettings()
         model.settingsPane = .general
+
+        // Summaries > Model: a chosen file is saved and used; Use Default forgets it.
+        let chosen = FileManager.default.temporaryDirectory.appendingPathComponent("silvanus-selftest-\(UUID().uuidString).gguf")
+        FileManager.default.createFile(atPath: chosen.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: chosen) }
+        model.summaryModelPath = chosen.path
+        let found = LocalModelFile.find(chosen: AppDefaults.shared.string(forKey: AppDefaults.modelFileKey),
+                                        home: FileManager.default.homeDirectoryForCurrentUser)
+        check("a chosen model file is saved and used", found?.url.path == chosen.path && found?.source == .chosen)
+        model.summaryModelPath = nil
+        check("Use Default forgets the chosen model file", AppDefaults.shared.string(forKey: AppDefaults.modelFileKey) == nil)
+        check("Settings has a Summaries pane under AI",
+              SettingsPane.groups.last?.items.map(\.id) == [.transcription, .summaries])
     }
 
     /// The headers (task 4): New Meeting, renaming and filing a meeting, the view menu's

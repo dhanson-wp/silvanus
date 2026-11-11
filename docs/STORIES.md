@@ -4,7 +4,7 @@ The meeting screen layout comes from `design/KIT.md`. It follows the notes canva
 
 The transcription engine (Parakeet through FluidAudio) and the bleed cleanup are proven first, in a command-line prototype. Stories that depend on that result say `Depends: engine spike`.
 
-Snapshot pages: `meeting-notes`, `meeting-transcript`, `meeting-summary`, `recording-bar`, `menubar-menu`, `call-prompt`, `name-speakers`, `sidebar-filters`, `search`, `settings-recording`, `settings-transcription`, `settings-agents`, `settings-storage`, `import-granola`, `onboarding-permissions`, `empty-library`.
+Snapshot pages: `meeting-notes`, `meeting-transcript`, `meeting-summary`, `recording-bar`, `menubar-menu`, `call-prompt`, `name-speakers`, `sidebar-filters`, `search`, `settings-recording`, `settings-transcription`, `settings-summaries`, `settings-agents`, `settings-storage`, `import-granola`, `onboarding-permissions`, `empty-library`.
 
 ## M1 Record and read
 One call, recorded and transcribed on this Mac, readable the same day, and still there after a restart.
@@ -481,10 +481,20 @@ Status: todo
 ## M8 To-dos and summaries
 What I owe after a call, written on this Mac by a local model.
 
+### S-042 Choose the model that writes to-dos and summaries
+As the user, Silvanus uses a model file that's already on my Mac, and I can pick another.
+Screens: settings-summaries
+Acceptance:
+- [unit] With nothing chosen, the largest GGUF file another app downloaded (Biscotti's) is used; a chosen file wins while it exists.
+- [snap] Settings › Summaries shows the model's name, where it came from, and Choose…; Use Default appears after a file was chosen.
+- [self] A chosen file is saved, and Use Default forgets it.
+- [manual] `APP_ASK=<question>` on the dev binary loads the model and prints its answer.
+Status: done
+
 ### S-041 Get a to-do list after a call
 As the user, when a call's transcript is ready, I get the to-dos from it: what I said I'd do, and what others said they'd do.
 Screens: meeting-summary
-Depends: S-005
+Depends: S-005, S-042
 Acceptance:
 - [unit] To-dos are written to the meeting's `todo.md` as Markdown checkboxes, each with who owns it when the transcript says so.
 - [unit] Ticking a box, editing a to-do, or adding one of my own is saved to `todo.md`, and making the list again never overwrites my changes.

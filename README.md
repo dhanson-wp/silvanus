@@ -113,7 +113,7 @@ Recording laws differ by place. Tell the people on your call that you're recordi
 
 Working now: recording both tracks, pause and resume, notes with timestamps, after-call transcripts, echo cleanup, playback, folders, call detection, stopping when the call ends, recovery after a crash or a device change, and light and dark mode.
 
-Not built yet: summaries written for you, search, naming individual speakers, calendar titles, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
+Silvanus can run a local model (Gemma, through llama.cpp) from a file already on your Mac; Settings > Summaries shows which. Not built yet: the to-dos and summaries it will write, search, naming individual speakers, calendar titles, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
 
 Transcripts are English only for now.
 

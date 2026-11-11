@@ -64,12 +64,14 @@ Every word Silvanus puts on screen. One name per idea.
 | No summary yet | The Summary view before a meeting has one | Nothing here |
 | No transcript yet | The Transcript view before a meeting has one | No captions |
 | Pick a meeting or start one | The canvas with no meeting open | Nothing selected |
-| Settings | The panes that open inside the main window (⌘,): General, Appearance, About, Transcription | Preferences, Options |
+| Settings | The panes that open inside the main window (⌘,): General, Appearance, About, Transcription, Summaries | Preferences, Options |
 | Show in Dock | The General switch that keeps Silvanus's icon in the Dock | Dock icon |
 | Prompt when a meeting starts | The General switch (on by default) that shows Meeting detected when a call app starts using the microphone; its description reads "When a call app starts using the microphone, offer to start recording." | Auto-detect meetings, Meeting notifications |
 | Stop when the call ends | The General switch (on by default) that stops a recording started during a call once the call app stops using audio, after the Call ended countdown; never for Quick Note. Its description reads "When the call app stops using audio, stop recording after a short countdown." with the footnote "Needs the Mac's per-app audio list; without it, waits for the call app to quit." | Auto-stop, End with call |
 | Open at login | The General switch that starts Silvanus when you log in; "Coming soon" for now | Launch at startup |
 | Theme | The Appearance choice: System, Light, or Dark | Mode, Color scheme |
-| Model | The Transcription pane's speech model, "Parakeet TDT v2, on this Mac" | Engine |
+| Model | The Transcription pane's speech model, "Parakeet TDT v2, on this Mac"; and the Summaries pane's model file, which writes to-dos and summaries on this Mac ("No model" when there's none). Its footnote says where the file came from: "The file you chose.", "Found in (app), so it isn't downloaded twice.", or "Choose a GGUF model file, or download Gemma in Biscotti." | Engine, LLM, AI |
+| Choose… | The Summaries pane's button that picks a model file (the panel is Choose a Model File) | Browse, Select |
+| Use Default | The Summaries pane's button, shown after a file was chosen, that goes back to the model another app downloaded | Reset, Clear |
 | Couldn't save notes: (reason) | The banner over My notes when writing notes.md fails; the reason is the system's | Save error, Sync failed |
 | Retry | Try the failed step again, from its banner: the notes' save, or a meeting's transcription | Try again, Resave |
