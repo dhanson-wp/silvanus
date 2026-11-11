@@ -7,9 +7,13 @@ import SilvanusKit
 /// loads the model file (Settings' choice, one another app downloaded, or APP_MODEL_FILE),
 /// prints its answer and how long it took, and quits. APP_ASK_FILE=<text file> adds that
 /// file's text after the question. Touches no meetings.
+///
+///   APP_STORE=<dir> APP_MODEL_FILE=<gguf> APP_TODOS=<meeting id> Silvanus
+/// writes that meeting's to-do list from its transcript, prints it, and quits.
 enum AskCommand {
     static func runIfRequested() -> Int32? {
         let env = ProcessInfo.processInfo.environment
+        if let id = env["APP_TODOS"], !id.isEmpty { return todos(id) }
         guard let question = env["APP_ASK"], !question.isEmpty else { return nil }
         setvbuf(stdout, nil, _IOLBF, 0)
         var user = question
@@ -38,6 +42,33 @@ enum AskCommand {
                 code = answer.isEmpty ? 1 : 0
             } catch {
                 print("ASK FAIL \(error.localizedDescription)")
+                code = 1
+            }
+        }
+        while code == nil { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        return code ?? 1
+    }
+
+    /// APP_STORE=<dir> APP_MODEL_FILE=<gguf> APP_TODOS=<meeting id>: writes that meeting's
+    /// to-dos from its transcript with the model, prints them, and quits.
+    private static func todos(_ id: String) -> Int32 {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        guard Store.isOverridden else {
+            print("TODOS refused: set APP_STORE")
+            return 1
+        }
+        var code: Int32?
+        Task {
+            do {
+                let started = Date()
+                let saved = try await TodoWriter.write(id: id, library: MeetingLibrary(root: Store.root), me: AppDefaults.meName) {
+                    try await LocalModel.ask(system: $0, user: $1)
+                }
+                print("TODOS done in \(Int(Date().timeIntervalSince(started))) s")
+                print(saved ?? "no transcript")
+                code = saved == nil ? 1 : 0
+            } catch {
+                print("TODOS FAIL \(error.localizedDescription)")
                 code = 1
             }
         }

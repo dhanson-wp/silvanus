@@ -217,6 +217,12 @@ struct MeetingCommands: Commands {
                 }
             }
             .disabled(noMeeting)
+            Button("Write To-dos") {
+                if let meeting { model.writeTodos(for: meeting.id, asked: true); model.show(.summary) }
+            }
+                .keyboardShortcut("t", modifiers: [.control, .command])
+                .disabled(!model.canWriteTodos(meeting?.id))
+                .help("List the to-dos from this meeting's transcript, on this Mac")
             Divider()
             // ⌘⌫ while typing (the notes, a title being renamed) deletes to the line's start, as
             // in any Mac text field. The notes editor keeps it (NotesTextView); this catches the rest.

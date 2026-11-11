@@ -599,6 +599,7 @@ final class Recorder {
         failedMeetings[id] = nil
         guard let model else { return }
         model.reload()
+        model.writeTodos(for: id, asked: false)
         if recovered {
             notice = RecorderNotice(message: "Finished transcribing an interrupted recording")
         }

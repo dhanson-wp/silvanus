@@ -623,6 +623,19 @@ final class NotesTextView: NSTextView {
         isIncrementalSearchingEnabled = true
     }
 
+    /// The Summary page with to-dos: only the to-do list between a locked heading and the
+    /// locked summary can be changed. Lengths in UTF-16 units, from each end of the text.
+    var locked: (prefix: Int, suffix: Int) = (0, 0)
+    /// True while text from disk is applied: that may change the locked parts too.
+    private var unlocked = false
+
+    override func shouldChangeText(in range: NSRange, replacementString: String?) -> Bool {
+        if !unlocked, locked.prefix + locked.suffix > 0 {
+            guard range.location >= locked.prefix, NSMaxRange(range) <= ns.length - locked.suffix else { return false }
+        }
+        return super.shouldChangeText(in: range, replacementString: replacementString)
+    }
+
     var isTextKit2: Bool { textLayoutManager != nil && fallbacks == 0 }
 
     /// Replaces the whole text. The edit styles every paragraph once and clears undo.
@@ -644,6 +657,12 @@ final class NotesTextView: NSTextView {
         let change = TextChange.between(storage.string, markdown)
         guard !change.isEmpty else { return }
         let range = NSRange(location: change.range.lowerBound, length: change.range.count)
+        unlocked = true
+        defer {
+            unlocked = false
+            // An undo could otherwise reach into the locked parts.
+            if locked.prefix + locked.suffix > 0 { undoManager?.removeAllActions() }
+        }
         guard shouldChangeText(in: range, replacementString: change.replacement) else { return }
         externalChanges += 1
         let caret = selectedRange()

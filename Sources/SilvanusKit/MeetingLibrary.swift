@@ -86,6 +86,28 @@ public final class MeetingLibrary {
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
+    /// The meeting's `todo.md` as it is on disk now, or nil when the meeting is unknown or
+    /// the file is missing or can't be read.
+    public func readTodo(id: String) -> String? {
+        guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.todo) else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Writes only `todo.md`, atomically; an empty list removes the file. With `written`,
+    /// also records it as what the model wrote (`.todo-written.md`), so a later answer can
+    /// tell a list the user changed from one they didn't.
+    public func saveTodo(_ todo: String, written: String? = nil, for id: String) throws {
+        guard let folder = notesURL(for: id)?.deletingLastPathComponent() else { throw NotFound(id: id) }
+        try write(todo, to: MeetingFolder.todo, in: folder)
+        if let written { try write(written, to: MeetingFolder.todoWritten, in: folder) }
+    }
+
+    /// The list as the model last wrote it, or empty when it never has.
+    public func readWrittenTodo(id: String) -> String {
+        guard let url = notesURL(for: id)?.deletingLastPathComponent().appending(path: MeetingFolder.todoWritten) else { return "" }
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+
     /// Writes only `notes.md`, atomically. The notes canvas saves this way so a summary,
     /// transcript, or details another app changed meanwhile are never overwritten with
     /// an older copy.

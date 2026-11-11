@@ -142,6 +142,7 @@ enum SelfTest {
             await checkTranscript(model: model)
             await checkPlayback()
             await checkSummary(model: model)
+            await checkTodos(model: model)
             checkAudio()
             await checkMicRestarts()
             await checkMeetingDetection(model: model)
@@ -792,6 +793,90 @@ enum SelfTest {
         check("reaching the end stops playback at the end", !player.isPlaying && player.currentTime == player.duration,
               "time \(player.currentTime) of \(player.duration)")
         player.stop()
+    }
+
+    /// To-dos (S-041): the model's answer becomes todo.md, the Summary page shows it under
+    /// a locked To-dos heading and above the locked summary, a tick is saved, and writing
+    /// the list again keeps the tick and adds only what's new. The model is a stand-in:
+    /// no check loads the real one.
+    private static func checkTodos(model: AppModel) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else {
+            check("the main window is open for the to-do checks", false)
+            return
+        }
+        let summary = "## Overview\nAgreed on **scope**.\n"
+        let meeting = Meeting(info: MeetingInfo(id: "selftest-todos", title: "Acme kickoff", start: Date(timeIntervalSince1970: 1_793_975_400)),
+                              summary: summary, transcriptMarkdown: "[00:01] **Sam Rivera:** I'll send the project plan by Friday.")
+        _ = try? model.library.save(meeting)
+        model.reload()
+        var answers = ["Sure:\n- [ ] Sam Rivera: send the project plan by Friday\n- [ ] Priya Shah: book the review room\n"]
+        var requests: [String] = []
+        model.todoModelIsInjected = true
+        model.askModel = { _, user in
+            requests.append(user)
+            return answers.isEmpty ? "NONE" : answers.removeFirst()
+        }
+        defer {
+            model.todoModelIsInjected = false
+            model.askModel = { _, _ in throw LocalModelError.noModel }
+        }
+        check("Write To-dos is offered for a meeting with a transcript", model.canWriteTodos(meeting.id))
+        await model.writeTodos(for: meeting.id, asked: true)?.value
+        let first = "- [ ] Sam Rivera: send the project plan by Friday\n- [ ] Priya Shah: book the review room\n"
+        check("the model's to-dos are written to todo.md", model.library.readTodo(id: meeting.id) == first,
+              model.library.readTodo(id: meeting.id) ?? "none")
+        check("the model is given the transcript", requests.first?.contains("I'll send the project plan by Friday.") == true)
+
+        func editor() -> NotesTextView? { main.contentView.flatMap(NotesTextView.find) }
+        model.closeSettings()
+        model.sidebar = .all
+        model.selection = meeting.id
+        model.canvasMode = .summary
+        let page = TodoPage(summary: summary).text(todo: first)
+        await poll { editor()?.string == page }
+        let view = editor()
+        check("Summary shows To-dos, the list, then the summary", view?.string == page, view?.string.debugDescription ?? "no editor")
+        if let view {
+            main.makeFirstResponder(view)
+            let summaryStart = (view.string as NSString).range(of: "## Overview").location
+            view.setSelectedRange(NSRange(location: summaryStart + 3, length: 0))
+            view.insertText("typed", replacementRange: view.selectedRange())
+            view.setSelectedRange(NSRange(location: 2, length: 0))
+            view.insertText("typed", replacementRange: view.selectedRange())
+            check("the heading and the summary can't be changed", view.string == page, view.string.debugDescription)
+            let box = (view.string as NSString).range(of: "[ ]").location
+            check("a to-do's box can be ticked in place", view.toggleTask(at: box))
+        }
+        let ticked = first.replacingOccurrences(of: "- [ ] Sam", with: "- [x] Sam")
+        await poll(timeout: 3) { model.library.readTodo(id: meeting.id) == ticked }
+        check("the tick is saved to todo.md", model.library.readTodo(id: meeting.id) == ticked,
+              model.library.readTodo(id: meeting.id) ?? "none")
+        check("the Summary page with to-dos never writes summary.md", model.library.readSummary(id: meeting.id) == summary)
+
+        answers = ["- [ ] Sam Rivera: send the project plan by Friday\n- [ ] Jordan Lee: share the deck\n"]
+        await model.writeTodos(for: meeting.id, asked: true)?.value
+        let merged = ticked + "- [ ] Jordan Lee: share the deck\n"
+        check("writing the list again keeps my tick and adds only the new to-do",
+              model.library.readTodo(id: meeting.id) == merged, model.library.readTodo(id: meeting.id) ?? "none")
+        await poll { editor()?.string == TodoPage(summary: summary).text(todo: merged) }
+        check("the open page shows the new list", editor()?.string == TodoPage(summary: summary).text(todo: merged))
+
+        let quiet = Meeting(info: MeetingInfo(id: "selftest-no-todos", title: "Weekly sync", start: Date(timeIntervalSince1970: 1_793_971_800)),
+                            transcriptMarkdown: "[00:01] **Sam Rivera:** Nothing new this week.")
+        _ = try? model.library.save(quiet)
+        model.reload()
+        await model.writeTodos(for: quiet.id, asked: true)?.value
+        check("a call with no to-dos says so", model.library.readTodo(id: quiet.id) == Todos.none + "\n")
+        model.askModel = { _, _ in throw LocalModelError.noModel }
+        await model.writeTodos(for: quiet.id, asked: true)?.value
+        check("a missing model is reported, and the list is left alone",
+              model.todoStatus[quiet.id] == .failed(LocalModelError.noModel.localizedDescription)
+              && model.library.readTodo(id: quiet.id) == Todos.none + "\n")
+        let bare = Meeting(info: MeetingInfo(id: "selftest-no-transcript", title: "Notes only", start: Date(timeIntervalSince1970: 1_793_968_200)))
+        _ = try? model.library.save(bare)
+        model.reload()
+        check("Write To-dos is off without a transcript", !model.canWriteTodos(bare.id))
+        model.canvasMode = .notes
     }
 
     /// The Summary page: summary.md read back through the library, shown read-only in the

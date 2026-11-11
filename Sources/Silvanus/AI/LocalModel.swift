@@ -24,6 +24,21 @@ enum LocalModelError: LocalizedError {
 actor LocalModel {
     static let shared = LocalModel()
 
+    /// One request, start to finish: loads the model file, answers, and gives the memory
+    /// back. What the app's features call; a connector to another model would replace it.
+    @MainActor static func ask(system: String, user: String) async throws -> String {
+        guard let file = file() else { throw LocalModelError.noModel }
+        try await shared.load(file.url)
+        do {
+            let answer = try await shared.answer(system: system, user: user)
+            await shared.unload()
+            return answer
+        } catch {
+            await shared.unload()
+            throw error
+        }
+    }
+
     private var model: OpaquePointer?
     private var loaded: URL?
     private static let started: Void = {
@@ -35,6 +50,8 @@ actor LocalModel {
     /// The model file in use: Settings' choice, or one another app downloaded.
     @MainActor static func file() -> LocalModelFile.Found? {
         let env = ProcessInfo.processInfo.environment["APP_MODEL_FILE"].flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
+        // Test, snapshot, and self-test runs never load a model on their own: it's 7 GB.
+        if AppDefaults.isTest, env == nil, ProcessInfo.processInfo.environment["APP_ASK"] == nil { return nil }
         return LocalModelFile.find(chosen: env ?? AppDefaults.shared.string(forKey: AppDefaults.modelFileKey),
                                    home: FileManager.default.homeDirectoryForCurrentUser)
     }

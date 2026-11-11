@@ -501,10 +501,12 @@ Acceptance:
 - [snap] The meeting shows its to-dos with boxes I can tick in place; a meeting with none says so.
 - [self] The list is written by a local Gemma model on this Mac. Nothing is sent anywhere, and it works offline after the one-time model download.
 - [manual] On a real call, the list has the to-dos I'd have written down and no made-up ones.
-Status: todo
+- [self] Meeting › Write To-dos (⌃⌘T) writes the list again for the open meeting; it's off without a transcript.
+Status: done, except the manual check on a real call. A list can't be started by hand on a meeting that has none yet.
 
 ## Later
 - Summaries written by the same local model as the to-dos.
+- Connectors, so to-dos and summaries can come from a model you choose: the Ollama app, Claude, or ChatGPT. The local model stays the default.
 - Multilingual transcription (WhisperKit).
 - "I'm recording for my notes" snippet copied when recording starts.
 

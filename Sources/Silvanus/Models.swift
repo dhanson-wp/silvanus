@@ -172,6 +172,70 @@ final class AppModel {
         summaryModelPath = url.path
     }
 
+    // MARK: - To-dos
+
+    /// What's happening to a meeting's to-do list.
+    enum TodoStatus: Equatable {
+        case writing
+        case failed(String)
+    }
+
+    static let writingTodos = "Writing to-dos…"
+    static func todoFailure(_ reason: String) -> String { "Couldn't write to-dos: \(reason)" }
+
+    /// Asks the model that writes to-dos: the local one. The self-test swaps in its own.
+    @ObservationIgnored var askModel: TodoWriter.Ask = {
+        try await LocalModel.ask(system: $0, user: $1)
+    }
+    /// Meetings whose to-do list is being written, or couldn't be.
+    private(set) var todoStatus: [String: TodoStatus] = [:]
+    /// Goes up each time a to-do list is written, so the Summary page reads it again.
+    private(set) var todoRevision = 0
+    /// One list at a time: the model is large.
+    @ObservationIgnored private var todoWork: Task<Void, Never>?
+
+    /// True when Meeting > Write To-dos can run: the meeting has a transcript and isn't being written.
+    func canWriteTodos(_ id: String?) -> Bool {
+        guard let id, let meeting = meetings.first(where: { $0.id == id }) else { return false }
+        return !meeting.transcriptMarkdown.isEmpty && todoStatus[id] != .writing
+    }
+
+    /// Writes the meeting's to-dos from its transcript with the local model, keeping what
+    /// the user changed (`Todos.merge`). `asked` is true from the menu: then a missing model
+    /// is reported; after a call it's skipped quietly.
+    @discardableResult
+    func writeTodos(for id: String, asked: Bool) -> Task<Void, Never>? {
+        guard todoStatus[id] != .writing else { return todoWork }
+        if !asked, !todoModelIsInjected, LocalModel.file() == nil { return nil }
+        todoStatus[id] = .writing
+        let earlier = todoWork
+        let work = Task { [weak self] in
+            await earlier?.value
+            guard let self else { return }
+            do {
+                if let saved = try await TodoWriter.write(id: id, library: library, me: AppDefaults.meName, ask: askModel) {
+                    todoSaved(saved, for: id)
+                }
+                todoStatus[id] = nil
+            } catch {
+                print("TODOS \(id): \(error.localizedDescription)")
+                todoStatus[id] = .failed(error.localizedDescription)
+            }
+            todoRevision += 1
+        }
+        todoWork = work
+        return work
+    }
+
+    /// True when the self-test's model stands in for the file, so a run without one still writes.
+    @ObservationIgnored var todoModelIsInjected = false
+
+    /// The Summary page saved the to-do list: keep the loaded copy current.
+    func todoSaved(_ text: String, for id: String) {
+        guard let index = meetings.firstIndex(where: { $0.id == id }) else { return }
+        meetings[index].todo = text
+    }
+
     /// Settings > General > Show in Dock. Saved only; no behavior yet.
     var showInDock: Bool = AppDefaults.showInDock {
         didSet { AppDefaults.showInDock = showInDock }

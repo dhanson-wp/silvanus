@@ -26,6 +26,8 @@ struct MarkdownEditor: NSViewRepresentable {
     var accessibilityLabel: String? = nil
     /// The Summary page: selectable and findable, never edited or saved.
     var readOnly = false
+    /// The Summary page with to-dos: how much of the text's start and end can't be changed.
+    var locked: (prefix: Int, suffix: Int) = (0, 0)
     /// Timestamps for the trailing margin (My notes while recording); nil for none.
     var marginTimes: NoteTimes? = nil
 
@@ -40,6 +42,7 @@ struct MarkdownEditor: NSViewRepresentable {
         view.delegate = coordinator
         coordinator.view = view
         view.load(text)
+        view.locked = locked
         view.marginTimes = marginTimes
         coordinator.known = text
         view.onCharactersChanged = { [weak coordinator] in coordinator?.edited() }
@@ -55,6 +58,7 @@ struct MarkdownEditor: NSViewRepresentable {
         }
         link?.attach(view: context.coordinator.view, coordinator: context.coordinator)
         context.coordinator.take(text)
+        context.coordinator.view?.locked = locked
         context.coordinator.view?.marginTimes = marginTimes
     }
 

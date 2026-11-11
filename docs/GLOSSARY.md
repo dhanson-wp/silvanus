@@ -61,6 +61,11 @@ Every word Silvanus puts on screen. One name per idea.
 | Move to Trash | Remove a meeting so it can be restored from the Trash | Delete (unless it can't come back) |
 | Attendees | The people in a meeting, listed from the date chip; "No attendees" when there are none | Participants, Guests |
 | Add to folder | The folder chip on a meeting that isn't in a folder; its menu (and Meeting > Move to Folder) has the folders, None, and New Folder… | Move to Project, Tag |
+| To-dos | The heading over a meeting's to-do list on Summary: checkboxes the local model wrote from the transcript, which can be ticked, edited, and added to | Action items, Tasks, Next steps |
+| Write To-dos | Meeting menu (⌃⌘T): list the to-dos from the open meeting's transcript again, keeping what was ticked, edited, or added | Generate, Regenerate, Extract action items |
+| Writing to-dos… | The Summary view while the first list is being written | Generating, Thinking |
+| No to-dos from this call. | The to-do list's one line when the model found nothing to do | No action items, Nothing to do |
+| Couldn't write to-dos: (reason) | The Summary view when the list couldn't be written and there's nothing else to show | To-do error, Generation failed |
 | No summary yet | The Summary view before a meeting has one | Nothing here |
 | No transcript yet | The Transcript view before a meeting has one | No captions |
 | Pick a meeting or start one | The canvas with no meeting open | Nothing selected |

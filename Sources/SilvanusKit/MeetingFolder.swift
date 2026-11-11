@@ -8,6 +8,8 @@ public enum MeetingFolder {
     public static let transcriptJSON = "transcript.json"
     public static let summary = "summary.md"
     public static let todo = "todo.md"
+    /// The to-do list as the model last wrote it. Hidden: it's bookkeeping, not a document.
+    public static let todoWritten = ".todo-written.md"
     public static let info = "meeting.json"
     public static let audio = "audio"
     /// When each note line was written during the recording (`NoteTimes`).

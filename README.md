@@ -96,6 +96,7 @@ Everything is under `~/Silvanus/library`, one folder per meeting:
 ├── transcript.md       the transcript, speaker by speaker
 ├── transcript.json     every word with its timing and confidence
 ├── summary.md          a summary, when there is one
+├── todo.md             the to-dos, as Markdown checkboxes
 └── audio/              the recording, in two 16 kHz tracks
 ```
 
@@ -113,7 +114,7 @@ Recording laws differ by place. Tell the people on your call that you're recordi
 
 Working now: recording both tracks, pause and resume, notes with timestamps, after-call transcripts, echo cleanup, playback, folders, call detection, stopping when the call ends, recovery after a crash or a device change, and light and dark mode.
 
-Silvanus can run a local model (Gemma, through llama.cpp) from a file already on your Mac; Settings > Summaries shows which. Not built yet: the to-dos and summaries it will write, search, naming individual speakers, calendar titles, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
+After a call, a local model (Gemma, through llama.cpp, from a file already on your Mac) lists the to-dos on the Summary view, where you can tick, edit, and add to them; Settings > Summaries shows which model. Not built yet: written summaries, search, naming individual speakers, calendar titles, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
 
 Transcripts are English only for now.
 
