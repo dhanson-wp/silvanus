@@ -478,13 +478,28 @@ Acceptance:
 - [snap] Each listed page has a dark snapshot that passes the contrast check.
 Status: todo
 
+## M8 To-dos and summaries
+What I owe after a call, written on this Mac by a local model.
+
+### S-041 Get a to-do list after a call
+As the user, when a call's transcript is ready, I get the to-dos from it: what I said I'd do, and what others said they'd do.
+Screens: meeting-summary
+Depends: S-005
+Acceptance:
+- [unit] To-dos are written to the meeting's `todo.md` as Markdown checkboxes, each with who owns it when the transcript says so.
+- [unit] Ticking a box, editing a to-do, or adding one of my own is saved to `todo.md`, and making the list again never overwrites my changes.
+- [snap] The meeting shows its to-dos with boxes I can tick in place; a meeting with none says so.
+- [self] The list is written by a local Gemma model on this Mac. Nothing is sent anywhere, and it works offline after the one-time model download.
+- [manual] On a real call, the list has the to-dos I'd have written down and no made-up ones.
+Status: todo
+
 ## Later
-- Optional local summaries (Ollama, or Apple's on-device model for titles only).
+- Summaries written by the same local model as the to-dos.
 - Multilingual transcription (WhisperKit).
 - "I'm recording for my notes" snippet copied when recording starts.
 
 ## Dropped
-- Built-in AI summaries, chat, and templates: agents do this through MCP.
+- Cloud AI summaries, chat, and templates: to-dos and summaries use a local model, and agents do the rest through MCP.
 - Sharing, links, teammates, workspaces, and sync: Silvanus is for one person.
 - Accounts and sign-in: nothing leaves the Mac.
 - Mobile app.
