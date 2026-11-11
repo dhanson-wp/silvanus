@@ -355,3 +355,23 @@ enum Motion {
     /// second). Off with Reduce Motion.
     static let level = Animation.easeOut(duration: 0.1)
 }
+
+/// KIT.md "Coming up card": the home page's card of today's and tomorrow's events.
+extension Metric {
+    static let comingUpCorner: CGFloat = 12
+    static let comingUpBorder: CGFloat = 0.5
+    /// The day number's leading edge, and the month and weekday's, from the card's.
+    static let comingUpDayX: CGFloat = 16
+    static let comingUpMonthX: CGFloat = 48
+    /// Where event rows start, from the card's leading edge.
+    static let comingUpEventsX: CGFloat = 168
+    /// The accent rule beside an event: 3 wide, 32 tall, corner 1.5; the title 14 after it.
+    static let comingUpRuleWidth: CGFloat = 3
+    static let comingUpRuleHeight: CGFloat = 32
+    static let comingUpRuleCorner: CGFloat = 1.5
+    static let comingUpTitleGap: CGFloat = 14
+    /// Events repeat every 52.
+    static let comingUpEventPitch: CGFloat = 52
+    static let comingUpTodayDot: CGFloat = 4.5
+    static let comingUpDash: [CGFloat] = [3, 3]
+}

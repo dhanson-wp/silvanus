@@ -32,6 +32,7 @@ final class AppModel {
         recorder = Recorder(library: library)
         appearance.apply()
         recorder.model = self
+        refreshCalendar()
     }
 
     let library: MeetingLibrary
@@ -173,6 +174,75 @@ final class AppModel {
         summaryModelPath = url.path
     }
 
+    // MARK: - Calendar
+
+    /// Where events come from: the Mac's calendars, or made-up events in test runs.
+    @ObservationIgnored var calendar: CalendarSource = AppDefaults.isTest ? .fixed([], access: .notAsked) : .live {
+        didSet { refreshCalendar() }
+    }
+    /// Whether Silvanus may read the calendar. Home and Settings > Calendar show it.
+    private(set) var calendarAccess: CalendarAccess = .notAsked
+    /// Events from yesterday to two weeks ahead, read when access is allowed.
+    private(set) var calendarEvents: [CalendarEvent] = []
+    @ObservationIgnored private var watchingCalendar = false
+
+    /// Today and tomorrow for the home page's Coming up card.
+    var comingUp: [CalendarRules.Day] { CalendarRules.comingUp(calendarEvents, now: now) }
+
+    /// Reads the events again. Cheap; called at launch, when Home shows, when the calendars
+    /// change, and when a recording starts.
+    func refreshCalendar(now: Date = Date()) {
+        calendarAccess = calendar.access()
+        guard calendarAccess == .allowed else {
+            calendarEvents = []
+            return
+        }
+        calendarEvents = calendar.events(now.addingTimeInterval(-86_400), now.addingTimeInterval(14 * 86_400))
+        if !watchingCalendar {
+            watchingCalendar = true
+            calendar.onChange { [weak self] in self?.refreshCalendar() }
+        }
+    }
+
+    /// Connect Calendar (Home, Settings > Calendar): asks macOS once, then reads the events.
+    func connectCalendar() {
+        Task {
+            _ = await calendar.request()
+            refreshCalendar()
+        }
+    }
+
+    /// Open System Settings… when calendar access was turned down.
+    func openCalendarSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// The calendar event a recording starting at `date` belongs to, if any.
+    func calendarEvent(at date: Date) -> CalendarEvent? {
+        refreshCalendar(now: date)
+        return CalendarRules.event(at: date, in: calendarEvents)
+    }
+
+    /// A Coming up event was clicked: open its meeting, making it (titled after the event,
+    /// with its attendees) the first time.
+    func open(event: CalendarEvent) {
+        if let made = CalendarRules.meeting(for: event, in: meetings) {
+            open(made.id)
+        } else {
+            // An event that's on starts now; one still ahead keeps its own start.
+            newMeeting(now: max(event.start, Date()),
+                       title: event.title.isEmpty ? Meeting.untitled : event.title, attendees: event.attendees)
+        }
+    }
+
+    /// Join: opens the event's call link, if it's on a call service's own domain.
+    func join(_ event: CalendarEvent) {
+        guard let link = event.link, CalendarRules.isCallLink(link) else { return }
+        NSWorkspace.shared.open(link)
+    }
+
     // MARK: - To-dos
 
     /// What's happening to a meeting's to-do list.
@@ -291,6 +361,7 @@ final class AppModel {
 
     /// Home (the sidebar's Home row, ⇧⌘H): closes the open meeting and shows what's coming up.
     func showHome() {
+        refreshCalendar()
         settingsOpen = false
         showingTodos = false
         selection = nil
@@ -545,8 +616,8 @@ extension AppModel {
     /// New Meeting (⌘N, the sidebar's new meeting button): a meeting page for notes, without
     /// recording, filed in the folder the sidebar shows. It opens on My notes.
     @discardableResult
-    func newMeeting(now: Date = Date(), title: String = Meeting.untitled) -> Meeting? {
-        let meeting = Meeting(info: MeetingInfo(title: title, start: now, folder: folder))
+    func newMeeting(now: Date = Date(), title: String = Meeting.untitled, attendees: [String] = []) -> Meeting? {
+        let meeting = Meeting(info: MeetingInfo(title: title, start: now, attendees: attendees, folder: folder))
         // The full save is safe here: a new id gets a new folder, so there's nothing to overwrite.
         guard (try? library.save(meeting)) != nil else { return nil }
         settingsOpen = false

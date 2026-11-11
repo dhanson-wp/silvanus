@@ -147,6 +147,7 @@ enum SelfTest {
             await checkMicRestarts()
             await checkMeetingDetection(model: model)
             await checkRecording(model: model)
+            await checkCalendar(model: model)
             if ProcessInfo.processInfo.environment["APP_SELFTEST_AUDIO"] == "1" {
                 await checkAfterCall(model: model)
                 await checkRecordedSpeech(model: model)
@@ -1226,6 +1227,75 @@ enum SelfTest {
     /// buffers through the real SegmentWriter: no device opens and nothing asks for a
     /// permission. The after-call pass is a stand-in that stitches the real segments and
     /// writes an empty transcript (APP_SELFTEST_AUDIO runs the real one on speech).
+    /// The calendar connection (S-023, S-040) on made-up events, never the Mac's calendars:
+    /// Home's Coming up, an event opening its meeting, and a recording titled after the
+    /// event that's on.
+    private static func checkCalendar(model: AppModel) async {
+        let recorder = model.recorder
+        let saved = (recorder.captures, recorder.permissionsReady, recorder.afterCall, model.calendar)
+        defer { (recorder.captures, recorder.permissionsReady, recorder.afterCall, model.calendar) = saved }
+        check("test runs start with no calendar access and never ask", model.calendarAccess == .notAsked && model.calendarEvents.isEmpty)
+
+        let now = Date()
+        let kickoff = CalendarEvent(id: "kickoff", title: "Acme kickoff", start: now.addingTimeInterval(-300), end: now.addingTimeInterval(1_500),
+                                    attendees: ["Sam Rivera", "Priya Shah"], link: URL(string: "https://meet.google.com/abc-defg-hij"))
+        let later = CalendarEvent(id: "review", title: "Design review", start: now.addingTimeInterval(86_400), end: now.addingTimeInterval(88_200),
+                                  attendees: ["Jordan Lee"])
+        let declined = CalendarEvent(id: "optional", title: "Optional sync", start: now.addingTimeInterval(60), end: now.addingTimeInterval(1_800), declined: true)
+        model.calendar = .fixed([kickoff, later, declined])
+        check("a connected calendar's events are read", model.calendarAccess == .allowed && model.calendarEvents.count == 3)
+        model.now = now
+        let shown = model.comingUp.flatMap(\.events).map(\.title)
+        check("Coming up leaves out the declined event", shown.contains("Acme kickoff") && !shown.contains("Optional sync"), "\(shown)")
+
+        model.closeSettings()
+        model.showHome()
+        let before = model.meetings.count
+        model.open(event: later)
+        let made = model.selectedMeeting
+        check("clicking an event makes a meeting titled after it, with its attendees",
+              model.meetings.count == before + 1 && made?.info.title == "Design review" && made?.info.attendees == ["Jordan Lee"]
+              && made?.info.start == later.start)
+        model.showHome()
+        model.open(event: later)
+        check("clicking it again opens the same meeting", model.meetings.count == before + 1 && model.selection == made?.id)
+        if let id = made?.id { try? model.library.moveToTrash(id) }
+        model.reload()
+
+        recorder.captures = CaptureFactory(mic: { FakeCapture(channels: 1, level: 0.3) },
+                                           system: { FakeCapture(channels: 2, level: 0.5) })
+        recorder.permissionsReady = { true }
+        recorder.afterCall = { [library = model.library] id, progress in
+            try library.saveTranscript(TranscriptBuilder.build(me: [], them: [], engine: Transcriber.engineName), for: id)
+            progress(1)
+        }
+        model.showHome()
+        model.startRecording()
+        await poll { recorder.isRecording }
+        let recording = model.selectedMeeting
+        check("a recording started during an event takes its title and attendees",
+              recorder.isRecording && recording?.info.title == "Acme kickoff" && recording?.info.attendees == ["Sam Rivera", "Priya Shah"],
+              "\(recording?.info.title ?? "none") \(recording?.info.attendees ?? [])")
+        try? await Task.sleep(for: .milliseconds(400))
+        recorder.stop()
+        await poll(timeout: 10) { !recorder.isRecording && recorder.transcribingID == nil }
+        if let id = recording?.id { try? model.library.moveToTrash(id) }
+
+        model.calendar = .fixed([])
+        model.startRecording()
+        await poll { recorder.isRecording }
+        check("with no event on, a recording is titled after the time",
+              model.selectedMeeting?.info.title == RecordingRules.title(for: model.selectedMeeting?.info.start ?? now),
+              model.selectedMeeting?.info.title ?? "none")
+        let untitled = model.selection
+        try? await Task.sleep(for: .milliseconds(400))
+        recorder.stop()
+        await poll(timeout: 10) { !recorder.isRecording && recorder.transcribingID == nil }
+        if let untitled { try? model.library.moveToTrash(untitled) }
+        model.reload()
+        model.selection = nil
+    }
+
     private static func checkRecording(model: AppModel) async {
         guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else {
             check("the main window is open", false)

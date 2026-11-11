@@ -74,11 +74,13 @@ Every word Silvanus puts on screen. One name per idea.
 | Writing the summary… | The Summary view while the first summary is being written | Generating, Summarizing |
 | Couldn't write the summary: (reason) | The Summary view when the summary couldn't be written and there's nothing else to show | Summary error |
 | Home | The sidebar's first row and View > Home (⇧⌘H): closes the open meeting and shows Coming up | Dashboard, Today, Start |
+| Coming up | Home's heading and card: today's and tomorrow's calendar events, each with its time and how many people; "Nothing on your calendar" for a day with none | Upcoming, Agenda, Schedule |
+| Join | The button on a Coming up event with a Zoom, Meet, or Teams link: opens the call | Open link, Launch |
+| Connect Calendar | The button on Home and in Settings > Calendar that asks macOS for calendar access, once; after it, Settings shows Connected. If access was turned down the button is Open System Settings… and the line reads "Calendar access is off for Silvanus." | Link calendar, Sign in, Sync |
 | Settings (sidebar) | The sidebar's last row: opens Settings, like ⌘, | Preferences, Gear |
 | No summary yet | The Summary view before a meeting has one | Nothing here |
 | No transcript yet | The Transcript view before a meeting has one | No captions |
-| Pick a meeting or start one | The canvas with no meeting open | Nothing selected |
-| Settings | The panes that open inside the main window (⌘,): General, Appearance, About, Transcription, Summaries | Preferences, Options |
+| Settings | The panes that open inside the main window (⌘,): General, Appearance, Calendar, About, Transcription, Summaries | Preferences, Options |
 | Show in Dock | The General switch that keeps Silvanus's icon in the Dock | Dock icon |
 | Prompt when a meeting starts | The General switch (on by default) that shows Meeting detected when a call app starts using the microphone; its description reads "When a call app starts using the microphone, offer to start recording." | Auto-detect meetings, Meeting notifications |
 | Stop when the call ends | The General switch (on by default) that stops a recording started during a call once the call app stops using audio, after the Call ended countdown; never for Quick Note. Its description reads "When the call app stops using audio, stop recording after a short countdown." with the footnote "Needs the Mac's per-app audio list; without it, waits for the call app to quit." | Auto-stop, End with call |

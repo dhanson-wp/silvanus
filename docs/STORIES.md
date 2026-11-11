@@ -4,7 +4,7 @@ The meeting screen layout comes from `design/KIT.md`. It follows the notes canva
 
 The transcription engine (Parakeet through FluidAudio) and the bleed cleanup are proven first, in a command-line prototype. Stories that depend on that result say `Depends: engine spike`.
 
-Snapshot pages: `meeting-notes`, `meeting-transcript`, `meeting-summary`, `recording-bar`, `menubar-menu`, `call-prompt`, `name-speakers`, `sidebar-filters`, `search`, `settings-recording`, `settings-transcription`, `settings-summaries`, `todos`, `settings-agents`, `settings-storage`, `import-granola`, `onboarding-permissions`, `empty-library`.
+Snapshot pages: `meeting-notes`, `meeting-transcript`, `meeting-summary`, `recording-bar`, `menubar-menu`, `call-prompt`, `name-speakers`, `sidebar-filters`, `search`, `settings-recording`, `settings-transcription`, `settings-summaries`, `settings-calendar`, `home`, `todos`, `settings-agents`, `settings-storage`, `import-granola`, `onboarding-permissions`, `empty-library`.
 
 ## M1 Record and read
 One call, recorded and transcribed on this Mac, readable the same day, and still there after a restart.
@@ -318,24 +318,28 @@ Status: done
 
 ### S-023 Title a meeting from the calendar
 As the user, a recording during a calendar event gets the event's title and attendees.
-Screens: meeting-notes
+Screens: meeting-notes, settings-calendar
 Depends: S-002
 Acceptance:
-- [unit] The event overlapping the start time is chosen; with two, the one with a video link wins.
-- [snap] The meta line shows date, time, call app, and attendee chips.
-- [manual] Calendar access is read-only and asked for once.
-Status: todo
+- [unit] The event that's on when the recording starts (or starts within 10 minutes) is chosen; with two, the one with a video link wins. All-day and declined events never match.
+- [self] A recording started during an event takes its title and attendees; with no event on, it's titled after the time. Quick Note never takes an event.
+- [snap] Settings › Calendar shows Connect Calendar, Connected, or Open System Settings….
+- [manual] Calendar access is read-only and asked for once, from Connect Calendar, never at launch.
+Status: done
+Note: the manual check with the real calendar is still to do. Starting a recording in a meeting that's already open keeps that meeting's title.
 
 ### S-040 See upcoming calls
 As the user, I see my next calls for today and tomorrow, and start notes for one with a click.
-Screens: coming-up
+Screens: home
 Depends: S-023
 Acceptance:
-- [snap] With no meeting open, the page shows Coming up: today and tomorrow, each event with time, title, and attendee avatars; declined events are left out.
-- [self] Clicking an event creates a meeting titled after it, with attendees, ready to record; Join opens its Zoom, Meet, or Teams link (only on those services' own domains).
-- [snap] The menu bar menu lists the next events (Today, Tomorrow) above Start Recording.
+- [snap] Home (and the canvas with no meeting open) shows Coming up: today and tomorrow, each event with its time, title, and how many people; declined, all-day, and finished events are left out.
+- [self] Clicking an event creates a meeting titled after it, with attendees, ready to record; clicking it again opens the same one.
+- [unit] Join opens the event's Zoom, Meet, or Teams link, only on those services' own domains.
 - [self] Events come from EventKit, read-only, from 1 day back to 14 days ahead.
-Status: todo
+- [snap] Before the calendar is connected, the card offers Connect Calendar.
+Status: done
+Note: the menu bar menu doesn't list the next events yet, and events show a count of people, not avatars.
 
 ### S-024 Stop automatically when the call ends
 As the user, the recording stops when the call app releases the mic near the event's end.

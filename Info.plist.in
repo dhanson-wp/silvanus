@@ -14,5 +14,6 @@
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSMicrophoneUsageDescription</key><string>Silvanus records your microphone so your side of the call is in the transcript.</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>Silvanus reads your calendar to title recordings and show what's coming up. It never changes your calendar.</string>
 <key>NSAudioCaptureUsageDescription</key><string>Silvanus records call audio so the other people on the call are in the transcript.</string>
 </dict></plist>

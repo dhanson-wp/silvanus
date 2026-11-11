@@ -200,6 +200,15 @@ final class Recorder {
     /// banner says why, and a meeting made for it is removed again. Call audio that can't
     /// start is a warning: the microphone records on its own. `quickNote` marks a voice
     /// note: it never stops when a call ends.
+    /// The meeting a new recording goes into: titled after the calendar event that's on,
+    /// with its attendees, or after the time when there's none. Quick Note never takes an event.
+    private static func newMeeting(in model: AppModel, start: Date, quickNote: Bool) -> Meeting? {
+        if !quickNote, let event = model.calendarEvent(at: start), !event.title.isEmpty {
+            return model.newMeeting(now: start, title: event.title, attendees: event.attendees)
+        }
+        return model.newMeeting(now: start, title: RecordingRules.title(for: start))
+    }
+
     func start(into meetingID: String?, quickNote: Bool = false) throws {
         guard let model else { throw Failure.noFolder }
         guard apply(.start) else { throw Failure.busy }
@@ -208,7 +217,7 @@ final class Recorder {
         var made: String?
         if let meetingID, model.library.folderExists(for: meetingID) {
             id = meetingID
-        } else if let meeting = model.newMeeting(now: start, title: RecordingRules.title(for: start)) {
+        } else if let meeting = Self.newMeeting(in: model, start: start, quickNote: quickNote) {
             id = meeting.id
             made = id
         } else {

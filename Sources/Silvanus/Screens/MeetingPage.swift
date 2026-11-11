@@ -23,10 +23,7 @@ struct MeetingPage: View {
                 MeetingTranscript(meeting: meeting)
             }
         } else {
-            Text("Pick a meeting or start one")
-                .kitType(.subheading)
-                .foregroundStyle(Ink.text)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HomePage()
         }
     }
 

@@ -13,7 +13,7 @@ import SwiftUI
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
-/// notes canvas, "summary" for the Summary view, "todos" for the To-dos page, "transcript" for the Transcript view, "recording" for
+/// notes canvas, "summary" for the Summary view, "home" for Home, "todos" for the To-dos page, "transcript" for the Transcript view, "recording" for
 /// the recording states, the recording controls, the Meeting detected prompt, and the permissions sheet, "settings" for Settings.
 /// "reference-main" (only when asked for by name) writes the reference-main page for the pixel
 /// compare (captureReferenceMain, tools/compare.sh).
@@ -68,6 +68,9 @@ enum Snapshot {
             }
             if only == nil || only?.contains("summary") == true {
                 await captureSummary(model: model, to: dir)
+            }
+            if only == nil || only?.contains("home") == true {
+                await captureHome(model: model, to: dir)
             }
             if only == nil || only?.contains("todos") == true {
                 await captureTodos(model: model, to: dir)
@@ -201,6 +204,38 @@ enum Snapshot {
         let other = model.meetings.last?.notes ?? ""
         print("SNAPSHOT canvas after picking another meeting: \(open.count) editor, showing it: \(open.map(\.string) == [other])")
         model.selection = nil
+    }
+
+    /// Home at 910 × 600, with made-up events (never the Mac's calendars):
+    ///   home-<mode>.png          Coming up: today with two events (one on now, with Join) and tomorrow with one
+    ///   home-connect-<mode>.png  before the calendar is connected
+    @MainActor private static func captureHome(model: AppModel, to dir: String) async {
+        guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
+        model.sidebar = .all
+        model.sidebarVisible = true
+        main.setContentSize(Metric.windowDefault)
+        let saved = model.calendar
+        let now = Date()
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: now) ?? now
+        let events = [
+            CalendarEvent(id: "kickoff", title: "Acme kickoff", start: now.addingTimeInterval(-600), end: now.addingTimeInterval(1_200),
+                          attendees: ["Sam Rivera", "Priya Shah"], link: URL(string: "https://meet.google.com/abc-defg-hij")),
+            CalendarEvent(id: "review", title: "Design review", start: now.addingTimeInterval(1_800), end: now.addingTimeInterval(3_600),
+                          attendees: ["Jordan Lee"]),
+            CalendarEvent(id: "sync", title: "Weekly sync", start: noon.addingTimeInterval(86_400), end: noon.addingTimeInterval(88_200),
+                          attendees: ["Sam Rivera", "Jordan Lee", "Priya Shah"], link: URL(string: "https://acme.zoom.us/j/123456789")),
+        ]
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            model.calendar = .fixed(events)
+            model.showHome()
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/home-\(mode).png", window: main)
+            model.calendar = .fixed([], access: .notAsked)
+            try? await Task.sleep(for: .seconds(0.5))
+            capture(to: "\(dir)/home-connect-\(mode).png", window: main)
+        }
+        model.calendar = saved
     }
 
     /// The To-dos page (the sidebar's To-dos row) at 910 × 600:

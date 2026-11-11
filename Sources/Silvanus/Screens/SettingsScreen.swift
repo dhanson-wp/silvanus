@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The Settings panes, in the order the list shows them. Snapshot mode walks through every case.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, appearance, about, transcription, summaries
+    case general, appearance, calendar, about, transcription, summaries
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .appearance: "Appearance"
+        case .calendar: "Calendar"
         case .transcription: "Transcription"
         case .summaries: "Summaries"
         case .about: "About"
@@ -21,6 +22,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: .settingsGeneral
         case .appearance: .settingsAppearance
+        case .calendar: .date
         case .transcription: .settingsAudio
         case .summaries: .settingsSummaries
         case .about: .settingsAbout
@@ -29,7 +31,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     /// The list's groups (KIT.md "Settings"): app panes, then the ones about speech.
     static let groups: [SettingsListGroup<SettingsPane>] = [
-        SettingsListGroup(title: "App", items: [SettingsPane.general, .appearance, .about].map { item($0) }),
+        SettingsListGroup(title: "App", items: [SettingsPane.general, .appearance, .calendar, .about].map { item($0) }),
         SettingsListGroup(title: "AI", items: [SettingsPane.transcription, .summaries].map { item($0) }),
     ]
 
@@ -40,6 +42,14 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// Stop when the call ends: what it does, and a footnote on what it needs.
     static let stopWhenCallEndsDescription = "When the call app stops using audio, stop recording after a short countdown."
     static let stopWhenCallEndsFootnote = "Needs the Mac's per-app audio list; without it, waits for the call app to quit."
+
+    static func calendarFootnote(_ access: CalendarAccess) -> String {
+        switch access {
+        case .allowed: "Silvanus only reads your calendar. It never changes it."
+        case .notAsked: "macOS asks once. Silvanus only reads your calendar."
+        case .denied: "Calendar access is off for Silvanus."
+        }
+    }
 
     /// Summaries > Model: what it's for, and where the file in use came from.
     static let summaryModelDescription = "Writes to-dos and summaries. Nothing leaves your Mac."
@@ -138,6 +148,23 @@ struct SettingsScreen: View {
                         .kitType(.rowTitle)
                         .foregroundStyle(Ink.textSecondary)
                         .textSelection(.enabled)
+                }
+            case .calendar:
+                SettingRow(title: "Calendar",
+                           description: "Titles recordings after your events, and shows what's coming up on Home.",
+                           footnote: SettingsPane.calendarFootnote(model.calendarAccess)) {
+                    switch model.calendarAccess {
+                    case .allowed:
+                        Text("Connected")
+                            .kitType(.rowTitle)
+                            .foregroundStyle(Ink.textSecondary)
+                    case .notAsked:
+                        Button("Connect Calendar", action: model.connectCalendar)
+                            .buttonStyle(KitButtonStyle())
+                    case .denied:
+                        Button("Open System Settings…", action: model.openCalendarSettings)
+                            .buttonStyle(KitButtonStyle())
+                    }
                 }
             case .summaries:
                 SettingRow(title: "Model", description: SettingsPane.summaryModelDescription,
