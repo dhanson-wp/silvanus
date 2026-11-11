@@ -19,14 +19,14 @@ enum ModelWords {
         }
     }
 
-    /// "7.4 GB download. Best for Macs with 24 GB of memory or more. Uses about 8 GB while it writes."
+    /// "7.4 GB download. Best with 24 GB of memory or more." One line: a row's description never wraps.
     static func about(_ model: CatalogModel) -> String {
         "\(LocalModelCatalog.size(model.bytes)) download. \(model.bestFor)"
     }
 
-    /// "Gemma 4, 12B · 7.4 GB download"
+    /// "Gemma 4, 12B by Google · 7.4 GB download · Apache 2.0 license"
     static func offer(_ model: CatalogModel) -> String {
-        "\(model.name) · \(LocalModelCatalog.size(model.bytes)) download"
+        "\(model.name) by Google · \(LocalModelCatalog.size(model.bytes)) download · \(LocalModelCatalog.licenseName) license"
     }
 
     /// How far along a model is, for the line beside its bar.
@@ -43,36 +43,39 @@ struct SummariesPane: View {
 
     var body: some View {
         let inUse = model.summaryModel
-        SettingRow(title: "Model", description: ModelWords.modelDescription, footnote: ModelWords.source(inUse?.source)) {
-            HStack(spacing: Space.sm) {
-                Text(inUse?.name ?? ModelWords.noModel)
-                    .kitType(.rowTitle)
-                    .foregroundStyle(Ink.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                if inUse?.source == .chosen, model.summaryModels.hasDownloaded {
-                    Button("Use Downloaded Model") { model.summaryModelPath = nil }
+        // Three-line rows, so a little air between them.
+        VStack(alignment: .leading, spacing: Space.md) {
+            SettingRow(title: "Model", description: ModelWords.modelDescription, footnote: ModelWords.source(inUse?.source)) {
+                HStack(spacing: Space.sm) {
+                    Text(inUse?.name ?? ModelWords.noModel)
+                        .kitType(.rowTitle)
+                        .foregroundStyle(Ink.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    if inUse?.source == .chosen, model.summaryModels.hasDownloaded {
+                        Button("Use Downloaded Model") { model.summaryModelPath = nil }
+                            .buttonStyle(KitButtonStyle())
+                            .help("Go back to the model Silvanus downloaded")
+                    }
+                    Button("Choose…") { model.chooseSummaryModel() }
                         .buttonStyle(KitButtonStyle())
-                        .help("Go back to the model Silvanus downloaded")
+                        .help("Use a GGUF model file you already have")
+                        .accessibilityLabel("Choose a model file")
                 }
-                Button("Choose…") { model.chooseSummaryModel() }
+            }
+            ForEach(model.summaryModels.catalog) { item in
+                let state = model.summaryModels.state(of: item)
+                SettingRow(title: item.name, description: ModelWords.about(item), footnote: failure(state) ?? item.memoryNote,
+                           badge: item.id == model.summaryModels.recommended?.id ? ModelWords.recommended : nil) {
+                    ModelDownloadControl(item: item, state: state)
+                }
+            }
+            SettingRow(title: "License", description: LocalModelCatalog.credit, footnote: LocalModelCatalog.conversionCredit) {
+                Button("Gemma License") { NSWorkspace.shared.open(LocalModelCatalog.licenseURL) }
                     .buttonStyle(KitButtonStyle())
-                    .help("Use a GGUF model file you already have")
-                    .accessibilityLabel("Choose a model file")
+                    .help("Opens the Apache 2.0 license on ai.google.dev")
             }
-        }
-        ForEach(model.summaryModels.catalog) { item in
-            let state = model.summaryModels.state(of: item)
-            SettingRow(title: item.name, description: ModelWords.about(item), footnote: failure(state),
-                       badge: item.id == model.summaryModels.recommended?.id ? ModelWords.recommended : nil) {
-                ModelDownloadControl(item: item, state: state)
-            }
-        }
-        SettingRow(title: "License", description: LocalModelCatalog.credit) {
-            Button("Gemma License") { NSWorkspace.shared.open(LocalModelCatalog.licenseURL) }
-                .buttonStyle(KitButtonStyle())
-                .help("Opens the Apache 2.0 license on ai.google.dev")
         }
     }
 
@@ -124,6 +127,8 @@ struct ModelDownloadControl: View {
                     .accessibilityLabel("Retry downloading \(item.name)")
             }
         }
+        // The buttons and the bar keep their size; the words beside them give way.
+        .fixedSize()
     }
 
     private func status(_ text: String) -> some View {

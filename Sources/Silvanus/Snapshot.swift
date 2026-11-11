@@ -9,7 +9,8 @@ import SwiftUI
 /// writes <page>-light.png and <page>-dark.png for every sidebar page, the window frame at
 /// its default and minimum sizes and with the sidebar hidden (captureFrames), and
 /// settings-<pane>-light.png and settings-<pane>-dark.png for every Settings pane (Settings is
-/// open in the main window), then quits.
+/// open in the main window; Summaries also as settings-summaries-none and
+/// settings-summaries-downloading, with made-up models), then quits.
 /// Each PNG gets a <page>-<mode>-layout.json with the grid probes (tools/check-layout.swift).
 /// It also writes canvas-light.png and canvas-dark.png: the notes canvas with a seeded meeting open.
 /// APP_SNAPSHOT_PAGES=all,starred limits the pages. Add "window" for the frames, "canvas" for the
@@ -92,6 +93,17 @@ enum Snapshot {
                         model.settingsPane = pane
                         try? await Task.sleep(for: .seconds(0.8))
                         capture(to: "\(dir)/settings-\(pane.rawValue)-\(mode).png")
+                        if pane == .summaries {
+                            // Summaries again with no model yet, and partway through a download.
+                            let staged = model.summaryModels.staged
+                            for (name, state) in [("none", [:]), ("downloading", [LocalModelCatalog.large.id: .downloading(2_100_000_000)])]
+                                as [(String, [String: SummaryModels.State])] {
+                                model.summaryModels.staged = state
+                                try? await Task.sleep(for: .seconds(0.5))
+                                capture(to: "\(dir)/settings-summaries-\(name)-\(mode).png")
+                            }
+                            model.summaryModels.staged = staged
+                        }
                     }
                 }
                 model.closeSettings()
@@ -209,6 +221,8 @@ enum Snapshot {
     /// Home at 910 × 600, with made-up events (never the Mac's calendars):
     ///   home-<mode>.png          Coming up: today with two events (one on now, with Join) and tomorrow with one
     ///   home-connect-<mode>.png  before the calendar is connected
+    ///   home-model-<mode>.png    the model card under Coming up, before a model is downloaded
+    ///   home-model-downloading-<mode>.png  the same card partway through the download
     @MainActor private static func captureHome(model: AppModel, to dir: String) async {
         guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
         model.sidebar = .all
@@ -234,6 +248,18 @@ enum Snapshot {
             model.calendar = .fixed([], access: .notAsked)
             try? await Task.sleep(for: .seconds(0.5))
             capture(to: "\(dir)/home-connect-\(mode).png", window: main)
+            // The model card: before a model is downloaded, and partway through.
+            let staged = model.summaryModels.staged
+            model.calendar = .fixed(events)
+            model.modelSetupHidden = false
+            model.summaryModels.staged = [:]
+            try? await Task.sleep(for: .seconds(0.5))
+            capture(to: "\(dir)/home-model-\(mode).png", window: main)
+            model.summaryModels.staged = [LocalModelCatalog.large.id: .downloading(2_100_000_000)]
+            try? await Task.sleep(for: .seconds(0.5))
+            capture(to: "\(dir)/home-model-downloading-\(mode).png", window: main)
+            model.summaryModels.staged = staged
+            model.modelSetupHidden = true
         }
         model.calendar = saved
     }

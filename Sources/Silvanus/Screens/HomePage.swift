@@ -139,6 +139,7 @@ private struct ModelSetupCard: View {
                     .kitType(.label)
                     .foregroundStyle(Ink.textSecondary)
             }
+            .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: Space.sm) {
                 ModelDownloadControl(item: offer, state: state, canRemove: false)
                 Button("More Options") { model.openSettings(.summaries) }
@@ -160,7 +161,7 @@ private struct ModelSetupCard: View {
 
     /// The offer, or why its download stopped.
     private func detail(_ state: SummaryModels.State) -> String {
-        if case let .failed(reason) = state { reason } else { "\(ModelWords.offer(offer)). \(LocalModelCatalog.credit)" }
+        if case let .failed(reason) = state { reason } else { ModelWords.offer(offer) }
     }
 }
 

@@ -39,6 +39,12 @@ struct SettingsGallery: View {
                             .buttonStyle(KitButtonStyle(isSelected: true))
                             .environment(\.forcedPartState, .selected)
                     }
+                    GridRow {
+                        label("Progress bar")
+                        KitProgressBar(value: 0, label: "Empty")
+                        KitProgressBar(value: 0.3, label: "Partway")
+                        KitProgressBar(value: 1, label: "Full")
+                    }
                 }
                 HStack(alignment: .top, spacing: Space.xxl) {
                     VStack(alignment: .leading, spacing: 0) {

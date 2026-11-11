@@ -16,7 +16,7 @@ public struct CatalogModel: Equatable, Sendable, Identifiable {
     public var sha256: String
     /// Roughly how much memory it uses while it writes, in GB.
     public var memoryGB: Int
-    /// One line on which Macs it suits.
+    /// A short line on which Macs it suits.
     public var bestFor: String
 
     public init(id: String, name: String, url: URL, bytes: Int64, sha256: String, memoryGB: Int, bestFor: String) {
@@ -28,6 +28,9 @@ public struct CatalogModel: Equatable, Sendable, Identifiable {
         self.memoryGB = memoryGB
         self.bestFor = bestFor
     }
+
+    /// "Uses about 8 GB of memory while it writes."
+    public var memoryNote: String { "Uses about \(memoryGB) GB of memory while it writes." }
 
     /// The file's name in the models folder.
     public var fileName: String { url.lastPathComponent }
@@ -42,13 +45,13 @@ public enum LocalModelCatalog {
         id: "12b", name: "Gemma 4, 12B",
         url: URL(string: "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/fc034cfff751157913579611efad8462ac1be606/gemma-4-12b-it-UD-Q4_K_XL.gguf")!,
         bytes: 7_366_423_360, sha256: "90fd944d227e9d9b68e7e2c7d5b57b79d4c66ed521b0919fbbd932cf834f6f8e",
-        memoryGB: 8, bestFor: "Best for Macs with 24 GB of memory or more. Uses about 8 GB while it writes.")
+        memoryGB: 8, bestFor: "Best with 24 GB of memory or more.")
 
     public static let small = CatalogModel(
         id: "small", name: "Gemma 4, small",
         url: URL(string: "https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF/resolve/66a399f68ddd113b06dff02fca9523e55465d11d/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf")!,
         bytes: 2_620_370_976, sha256: "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889",
-        memoryGB: 4, bestFor: "Best for Macs with less than 24 GB of memory. Uses about 4 GB while it writes.")
+        memoryGB: 4, bestFor: "Best with less than 24 GB of memory.")
 
     /// Largest first.
     public static let all = [large, small]
@@ -56,7 +59,8 @@ public enum LocalModelCatalog {
     /// The license both models are under, and who made them.
     public static let licenseName = "Apache 2.0"
     public static let licenseURL = URL(string: "https://ai.google.dev/gemma/docs/gemma_4_license")!
-    public static let credit = "Gemma 4 is made by Google, under the Apache 2.0 license. The files are GGUF conversions by Unsloth."
+    public static let credit = "Gemma 4 by Google, under the Apache 2.0 license."
+    public static let conversionCredit = "GGUF files converted by Unsloth."
 
     /// A Mac with this much memory or more gets the large model.
     public static let largeModelMemory: UInt64 = 24_000_000_000
