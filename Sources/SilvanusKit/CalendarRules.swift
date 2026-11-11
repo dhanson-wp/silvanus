@@ -100,4 +100,17 @@ public enum CalendarRules {
             $0.info.title == event.title && $0.info.start >= event.start.addingTimeInterval(-early) && $0.info.start < event.end
         }
     }
+
+    /// The user's own address, guessed from their calendar: the one address on at least
+    /// four in five of their meetings with others (three or more of them). Nil when no
+    /// address is that common. `attendeesByEvent` holds each event's attendee addresses.
+    public static func ownAddress(attendeesByEvent: [[String]]) -> String? {
+        let meetings = attendeesByEvent.map { Set($0.map { $0.lowercased() }) }.filter { $0.count >= 2 }
+        guard meetings.count >= 3 else { return nil }
+        var counts: [String: Int] = [:]
+        for meeting in meetings { for address in meeting { counts[address, default: 0] += 1 } }
+        guard let best = counts.max(by: { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key }),
+              best.value * 5 >= meetings.count * 4 else { return nil }
+        return best.key
+    }
 }

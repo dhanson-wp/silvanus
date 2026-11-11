@@ -74,4 +74,20 @@ import Testing
         #expect(CalendarRules.meeting(for: kickoff, in: [old, made])?.id == "made")
         #expect(CalendarRules.meeting(for: kickoff, in: [old]) == nil)
     }
+
+    @Test("My address is the one on nearly every meeting with others")
+    func ownAddress() {
+        let me = "sam.rivera@acme.test"
+        let weeks: [[String]] = [[me, "priya@acme.test"], [me, "jordan@acme.test", "priya@acme.test"],
+                                 ["Sam.Rivera@acme.test", "lee@acme.test"], [me, "ana@acme.test"]]
+        #expect(CalendarRules.ownAddress(attendeesByEvent: weeks) == me)
+        // A meeting I'm not on still leaves me as most of them.
+        #expect(CalendarRules.ownAddress(attendeesByEvent: weeks + [["priya@acme.test", "jordan@acme.test"]]) == me)
+        // Too few meetings, or nobody on most of them: no guess.
+        #expect(CalendarRules.ownAddress(attendeesByEvent: Array(weeks.prefix(2))) == nil)
+        #expect(CalendarRules.ownAddress(attendeesByEvent: [["a@x.test", "b@x.test"], ["c@x.test", "d@x.test"],
+                                                            ["e@x.test", "f@x.test"]]) == nil)
+        // Meetings with nobody else don't count.
+        #expect(CalendarRules.ownAddress(attendeesByEvent: [[me], [me], ["priya@acme.test"]]) == nil)
+    }
 }

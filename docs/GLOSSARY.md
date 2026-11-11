@@ -19,7 +19,7 @@ Every word Silvanus puts on screen. One name per idea.
 | Summary | The view holding agent notes and, for imported meetings, the Granola summary | AI notes, Overview |
 | Agent notes | Text agents write into a meeting through the MCP server | AI summary |
 | Me | The microphone side of a meeting; shown as my name | You, Mic, Host |
-| Them | The call-audio side, before speakers are named | Others, Remote, System |
+| Them | The call-audio side, before speakers are named, when the meeting has no other attendees to name it by | Others, Remote, System |
 | Speaker | One voice in the call audio, named or numbered | Participant, Voice (in labels) |
 | Name Speakers | Assign names to the voices in a meeting | Identify, Label |
 | Recording controls | The small floating bar shown for the whole recording, whichever app is in front: the grip, the state and time, five level bars, Pause/Resume, and Stop. Its VoiceOver name is "Silvanus recording controls" | Recording pill, toolbar, HUD, Recording bar |

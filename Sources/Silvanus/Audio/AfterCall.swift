@@ -72,7 +72,7 @@ enum AfterCall {
 
         // Read again just before writing, so a rename made meanwhile is kept.
         guard var meeting = library.meeting(id: meetingID) else { throw Failure.noMeeting(meetingID) }
-        let names = SpeakerNames.resolve(info: meeting.info, defaultMe: me)
+        let names = AppDefaults.speakerNames(meeting.info, me: me)
         try library.saveTranscript(transcript, markdown: transcript.markdown(me: names.me, them: names.them) + "\n",
                                    for: meetingID)
         meeting.info.asr = ASRInfo(engine: Transcriber.engine, model: Transcriber.model, processedAt: transcript.processedAt)

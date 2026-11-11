@@ -244,6 +244,8 @@ final class AppModel {
             return
         }
         calendarAccounts = calendar.accounts()
+        let own = calendar.ownAddresses()
+        if !own.isEmpty { AppDefaults.ownAddresses = own }
         calendarEvents = calendar.events(now.addingTimeInterval(-86_400), now.addingTimeInterval(14 * 86_400))
         if !watchingCalendar {
             watchingCalendar = true

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SilvanusKit
 
 /// Every defaults read and write in the app goes through `AppDefaults.shared`,
 /// including `@AppStorage(..., store: AppDefaults.shared)`.
@@ -70,6 +71,20 @@ extension AppDefaults {
     static var meName: String {
         let name = shared.string(forKey: meNameKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return name.isEmpty ? "Me" : name
+    }
+
+    static let ownAddressesKey = "calendar.ownAddresses"
+
+    /// The user's own email addresses: their calendar accounts that are addresses, saved
+    /// whenever the calendars are read. They're left off a transcript's call side.
+    static var ownAddresses: Set<String> {
+        get { Set(shared.stringArray(forKey: ownAddressesKey) ?? []) }
+        set { shared.set(newValue.sorted(), forKey: ownAddressesKey) }
+    }
+
+    /// The names a meeting's transcript shows for its two sides.
+    static func speakerNames(_ info: MeetingInfo, me: String = meName) -> (me: String, them: String) {
+        SpeakerNames.resolve(info: info, defaultMe: me, ownAddresses: ownAddresses)
     }
 
     static var appearance: AppearanceChoice {

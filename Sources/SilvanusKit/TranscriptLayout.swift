@@ -123,13 +123,57 @@ extension TranscriptLayout {
 
 /// The names the transcript shows for its two sides.
 public enum SpeakerNames {
-    /// The meeting's own names win (`speakers["me"]`, `speakers["them"]`, when not blank);
-    /// otherwise `defaultMe` and "Them".
-    public static func resolve(info: MeetingInfo, defaultMe: String) -> (me: String, them: String) {
+    /// The meeting's own names win (`speakers["me"]`, `speakers["them"]`, when not blank).
+    /// Otherwise the mic side is `defaultMe`, and the call side is the other attendees
+    /// ("Priya and Jordan"), or "Them" when there are none. `ownAddresses` are the user's
+    /// own email addresses (their calendar accounts), so they're never on the call side.
+    public static func resolve(info: MeetingInfo, defaultMe: String,
+                               ownAddresses: Set<String> = []) -> (me: String, them: String) {
         func name(_ key: Side) -> String? {
             let value = info.speakers[key.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return value.isEmpty ? nil : value
         }
-        return (name(.me) ?? defaultMe, name(.them) ?? "Them")
+        let me = name(.me) ?? defaultMe
+        let them = name(.them) ?? others(info.attendees, me: me, ownAddresses: ownAddresses) ?? "Them"
+        return (me, them)
+    }
+
+    /// The attendees other than the user, as one label: "Priya", "Priya and Jordan",
+    /// "Priya, Jordan, and Sam", "Priya, Jordan, and 3 others". Nil when nobody else is there.
+    public static func others(_ attendees: [String], me: String, ownAddresses: Set<String> = []) -> String? {
+        let own = Set(ownAddresses.map { $0.lowercased() })
+        let myKey = key(me)
+        var seen = Set<String>()
+        var names: [String] = []
+        for attendee in attendees {
+            let raw = attendee.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty, !own.contains(raw.lowercased()) else { continue }
+            let name = personName(raw)
+            let k = key(name)
+            guard !k.isEmpty, k != myKey, seen.insert(k).inserted else { continue }
+            names.append(name)
+        }
+        switch names.count {
+        case 0: return nil
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        case 3: return "\(names[0]), \(names[1]), and \(names[2])"
+        default: return "\(names[0]), \(names[1]), and \(names.count - 2) others"
+        }
+    }
+
+    /// A person's name from a calendar attendee: the name itself, or for an email address,
+    /// its part before the @ in words ("priya.natarajan@…" is "Priya Natarajan").
+    public static func personName(_ attendee: String) -> String {
+        let value = attendee.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let at = value.firstIndex(of: "@") else { return value }
+        let words = value[..<at].split(whereSeparator: { ".-_+".contains($0) || $0.isNumber })
+        let name = words.map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }.joined(separator: " ")
+        return name.isEmpty ? value : name
+    }
+
+    /// Letters only, lowercased: "Sam Rivera" and "sam.rivera" match.
+    private static func key(_ name: String) -> String {
+        String(name.lowercased().unicodeScalars.filter { CharacterSet.letters.contains($0) }.map(Character.init))
     }
 }

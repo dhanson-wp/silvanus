@@ -28,7 +28,7 @@ struct MeetingTranscript: View {
             }
         }
         .task(id: key) {
-            let names = SpeakerNames.resolve(info: meeting.info, defaultMe: AppDefaults.meName)
+            let names = AppDefaults.speakerNames(meeting.info)
             let layout = model.library.readTranscript(id: meeting.id)
                 .map { TranscriptView.Layout($0, me: names.me, them: names.them) }
             // Playback needs at least one stitched track (after-call makes them).

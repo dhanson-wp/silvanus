@@ -114,6 +114,30 @@ func speakerNames() {
     #expect(blank.me == "Jordan Lee" && blank.them == "Them")
 }
 
+@Test("The call side is named for the meeting's other attendees until speakers are named")
+func speakerNamesFromAttendees() {
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    func them(_ attendees: [String], me: String = "Me", own: Set<String> = [], speakers: [String: String] = [:]) -> String {
+        SpeakerNames.resolve(info: MeetingInfo(title: "Acme kickoff", start: start, attendees: attendees, speakers: speakers),
+                             defaultMe: me, ownAddresses: own).them
+    }
+    #expect(them(["Priya Natarajan"]) == "Priya Natarajan")
+    #expect(them(["priya.natarajan@acme.test"]) == "Priya Natarajan")
+    #expect(them(["jordan_lee@acme.test", "sam@acme.test"]) == "Jordan Lee and Sam")
+    #expect(them(["Priya Natarajan", "Jordan Lee", "Sam Rivera"]) == "Priya Natarajan, Jordan Lee, and Sam Rivera")
+    #expect(them(["Ana", "Ben", "Cy", "Dee", "Eli"]) == "Ana, Ben, and 3 others")
+    // I'm left out: by my calendar account's address, or by my name.
+    #expect(them(["sam.rivera@acme.test", "priya@acme.test"], own: ["Sam.Rivera@acme.test"]) == "Priya")
+    #expect(them(["sam.rivera@acme.test", "priya@acme.test"], me: "Sam Rivera") == "Priya")
+    #expect(them(["Sam Rivera", "Priya"], me: "Sam Rivera") == "Priya")
+    // The same person twice counts once.
+    #expect(them(["Priya", "priya@acme.test"]) == "Priya")
+    // Nobody else, or a name the meeting already has: those win.
+    #expect(them([]) == "Them")
+    #expect(them(["sam.rivera@acme.test"], me: "Sam Rivera") == "Them")
+    #expect(them(["priya@acme.test"], speakers: ["them": "Acme team"]) == "Acme team")
+}
+
 @Test("Times read aloud", arguments: [(0.0, "0 seconds"), (1, "1 second"), (14.9, "14 seconds"), (60, "1 minute"),
                                       (65, "1 minute 5 seconds"), (125, "2 minutes 5 seconds"), (3725, "1 hour 2 minutes 5 seconds"),
                                       (7200, "2 hours")])

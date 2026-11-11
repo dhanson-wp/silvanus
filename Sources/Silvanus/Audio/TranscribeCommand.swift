@@ -61,7 +61,7 @@ enum TranscribeCommand {
         do {
             let t = try await AfterCall.run(meetingID: id, library: library, transcriber: .shared, me: me)
             print("TRANSCRIBE done in \(Int(Date().timeIntervalSince(started))) s: \(t.lines.count) lines, \(t.removedEcho.count) echo lines removed")
-            let names = library.meeting(id: id).map { SpeakerNames.resolve(info: $0.info, defaultMe: me) } ?? (me: me, them: "Them")
+            let names = library.meeting(id: id).map { AppDefaults.speakerNames($0.info, me: me) } ?? (me: me, them: "Them")
             print(t.markdown(me: names.me, them: names.them))
             return 0
         } catch {

@@ -102,7 +102,7 @@ As the user, I open Transcript, read the turns, and click a line to hear it.
 Screens: meeting-transcript
 Depends: S-005
 Acceptance:
-- [snap] Transcript shows the player strip on top, then blocks with speaker, timestamp, and text; my side is labeled with my name and theirs as Them until speakers are named.
+- [snap] Transcript shows the player strip on top, then blocks with speaker, timestamp, and text; my side is labeled with my name, and theirs with the other attendees ("Priya and Jordan", or Them when there are none) until speakers are named.
 - [self] Clicking a block plays from its start; the playing block is highlighted.
 - [snap] Words below the confidence threshold are underlined.
 UX:
