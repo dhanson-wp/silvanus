@@ -4,16 +4,22 @@ import SilvanusKit
 /// Headless check of the local model, before any window opens.
 ///
 ///   APP_ASK=<question> Silvanus
-/// loads the model file (Settings' choice, one another app downloaded, or APP_MODEL_FILE),
+/// loads the model file (Settings' choice, one Silvanus downloaded, or APP_MODEL_FILE),
 /// prints its answer and how long it took, and quits. APP_ASK_FILE=<text file> adds that
 /// file's text after the question. Touches no meetings.
 ///
 ///   APP_STORE=<dir> APP_MODEL_FILE=<gguf> APP_TODOS=<meeting id> Silvanus
 /// writes that meeting's to-do list from its transcript, prints it, and quits.
+///
+///   APP_STORE=<dir> APP_MODEL_DOWNLOAD=small Silvanus     (or 12b)
+/// downloads that model into <dir>/models with the app's downloader, printing its
+/// progress, the checked size and SHA-256, and the file's path, then quits. Run again
+/// after stopping it and it picks up where it stopped. This one uses the network.
 enum AskCommand {
     static func runIfRequested() -> Int32? {
         let env = ProcessInfo.processInfo.environment
         if let id = env["APP_TODOS"], !id.isEmpty { return todos(id) }
+        if let name = env["APP_MODEL_DOWNLOAD"], !name.isEmpty { return download(name) }
         guard let question = env["APP_ASK"], !question.isEmpty else { return nil }
         setvbuf(stdout, nil, _IOLBF, 0)
         var user = question
@@ -76,6 +82,47 @@ enum AskCommand {
                 code = saved == nil ? 1 : 0
             } catch {
                 print("TODOS FAIL \(error.localizedDescription)")
+                code = 1
+            }
+        }
+        while code == nil { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        return code ?? 1
+    }
+
+    /// APP_STORE=<dir> APP_MODEL_DOWNLOAD=<small or 12b>: downloads that model into the
+    /// store's models folder, printing progress, and quits.
+    private static func download(_ name: String) -> Int32 {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        guard Store.isOverridden else {
+            print("DOWNLOAD refused: set APP_STORE")
+            return 1
+        }
+        guard let model = LocalModelCatalog.all.first(where: { $0.id == name.lowercased() }) else {
+            print("DOWNLOAD FAIL no model named \(name): use \(LocalModelCatalog.all.map(\.id).joined(separator: " or "))")
+            return 1
+        }
+        let folder = SummaryModels.defaultFolder
+        let already = ModelDownloader.partialBytes(model, in: folder)
+        print("DOWNLOAD \(model.name) (\(model.bytes) bytes) into \(folder.path)")
+        if already > 0 { print("DOWNLOAD resuming at \(already) bytes (\(LocalModelCatalog.progress(already, of: model.bytes)))") }
+        var code: Int32?
+        Task {
+            do {
+                let started = Date()
+                // A line for about every 100 MB.
+                let file = try await ModelDownloader.download(model, into: folder, progressStep: 100_000_000) { event in
+                    switch event {
+                    case let .progress(bytes):
+                        print("DOWNLOAD progress \(bytes) bytes, \(LocalModelCatalog.progress(bytes, of: model.bytes)) at \(Int(Date().timeIntervalSince(started))) s")
+                    case .checking:
+                        print("DOWNLOAD checking size and SHA-256")
+                    }
+                }
+                print("DOWNLOAD checked \(model.bytes) bytes, sha256 \(model.sha256)")
+                print("DOWNLOAD done in \(Int(Date().timeIntervalSince(started))) s: \(file.path)")
+                code = 0
+            } catch {
+                print("DOWNLOAD FAIL \(error.localizedDescription)")
                 code = 1
             }
         }

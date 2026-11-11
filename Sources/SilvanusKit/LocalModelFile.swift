@@ -1,45 +1,53 @@
 import Foundation
 
 /// Which model file writes to-dos and summaries. The model is a GGUF file on this Mac:
-/// the one chosen in Settings, or else one another app already downloaded, so it isn't
-/// downloaded twice. Nothing here opens the file.
+/// the one chosen in Settings, or else one Silvanus downloaded into its own models
+/// folder. Nothing here opens the file.
 public enum LocalModelFile {
     /// Where a model came from.
     public enum Source: Equatable, Sendable {
-        /// Chosen in Settings.
+        /// A file of the user's own, chosen in Settings.
         case chosen
-        /// Found in another app's folder; the name is that app's.
-        case shared(String)
+        /// Downloaded by Silvanus into its models folder.
+        case downloaded
     }
 
     public struct Found: Equatable, Sendable {
         public var url: URL
         public var source: Source
+        /// The catalog's name for a downloaded model ("Gemma 4, 12B").
+        public var title: String?
 
-        public init(url: URL, source: Source) { self.url = url; self.source = source }
+        public init(url: URL, source: Source, title: String? = nil) {
+            self.url = url
+            self.source = source
+            self.title = title
+        }
 
-        /// The file's name without ".gguf", as Settings shows it.
-        public var name: String { url.deletingPathExtension().lastPathComponent }
+        /// What Settings calls it: the catalog's name, or the file's name without ".gguf".
+        public var name: String { title ?? url.deletingPathExtension().lastPathComponent }
     }
 
-    /// Folders where other apps keep GGUF models, under the home folder.
-    public static let sharedFolders: [(app: String, path: String)] = [
-        ("Biscotti", "Library/Application Support/Biscotti/llms"),
-    ]
+    /// Silvanus's models folder under `home`: `Library/Application Support/Silvanus/models`.
+    public static func folder(home: URL) -> URL {
+        home.appendingPathComponent("Library/Application Support/Silvanus/models", isDirectory: true)
+    }
 
-    /// The model to use: `chosen` when that file exists, else the largest GGUF file in
-    /// the first shared folder that has one. Nil when there's none.
-    public static func find(chosen: String?, home: URL, files: FileManager = .default) -> Found? {
+    /// The model to use: `chosen` when that file exists, else the first of `models`
+    /// (the recommended one first) that's been downloaded into `folder`. Nil when there's
+    /// none. A file still downloading has another name, so it's never picked.
+    public static func find(chosen: String?, folder: URL, models: [CatalogModel], files: FileManager = .default) -> Found? {
         if let chosen, !chosen.isEmpty, files.fileExists(atPath: chosen) {
             return Found(url: URL(fileURLWithPath: chosen), source: .chosen)
         }
-        for folder in sharedFolders {
-            let url = home.appendingPathComponent(folder.path)
-            let found = (try? files.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey])) ?? []
-            let models = found.filter { isModel($0) }
-                .map { (url: $0, size: (try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
-                .sorted { ($0.size, $1.url.lastPathComponent) > ($1.size, $0.url.lastPathComponent) }
-            if let best = models.first { return Found(url: best.url, source: .shared(folder.app)) }
+        return downloaded(in: folder, models: models, files: files)
+    }
+
+    /// The first of `models` whose file is in `folder`.
+    public static func downloaded(in folder: URL, models: [CatalogModel], files: FileManager = .default) -> Found? {
+        for model in models {
+            let url = folder.appendingPathComponent(model.fileName)
+            if files.fileExists(atPath: url.path) { return Found(url: url, source: .downloaded, title: model.name) }
         }
         return nil
     }

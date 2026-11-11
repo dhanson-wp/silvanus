@@ -10,7 +10,7 @@ enum LocalModelError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noModel: "There's no model file. Choose one in Settings > Summaries."
+        case .noModel: "There's no model yet. Download one in Settings > Summaries."
         case let .cannotLoad(name): "Unable to load the model \(name)."
         case .tooLong: "This is too long for the model to read at once."
         case let .failed(step): "The model stopped while \(step)."
@@ -47,13 +47,15 @@ actor LocalModel {
         llama_backend_init()
     }()
 
-    /// The model file in use: Settings' choice, or one another app downloaded.
+    /// The model file in use: Settings' choice, or one Silvanus downloaded (the one
+    /// recommended for this Mac first). `APP_MODEL_FILE` picks a file for the headless commands.
     @MainActor static func file() -> LocalModelFile.Found? {
         let env = ProcessInfo.processInfo.environment["APP_MODEL_FILE"].flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
-        // Test, snapshot, and self-test runs never load a model on their own: it's 7 GB.
+        // Test, snapshot, and self-test runs never load a model on their own: it's gigabytes.
         if AppDefaults.isTest, env == nil, ProcessInfo.processInfo.environment["APP_ASK"] == nil { return nil }
         return LocalModelFile.find(chosen: env ?? AppDefaults.shared.string(forKey: AppDefaults.modelFileKey),
-                                   home: FileManager.default.homeDirectoryForCurrentUser)
+                                   folder: SummaryModels.defaultFolder,
+                                   models: LocalModelCatalog.ordered(physicalMemory: ProcessInfo.processInfo.physicalMemory))
     }
 
     /// Loads `url` unless it's already loaded.

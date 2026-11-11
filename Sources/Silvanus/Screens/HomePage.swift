@@ -27,6 +27,9 @@ struct HomePage: View {
                             .help("Opens System Settings > Internet Accounts")
                     }
                 }
+                if model.showsModelSetup, let offer = model.summaryModels.recommended {
+                    ModelSetupCard(offer: offer)
+                }
             }
             .padding(.horizontal, Metric.contentX - Metric.canvasX)
             .padding(.vertical, Space.lg)
@@ -115,6 +118,49 @@ struct HomePage: View {
         .padding(.leading, Metric.comingUpDayX)
         .padding(.trailing, Space.xs)
         .padding(.vertical, Space.lg)
+    }
+}
+
+/// Home's model card, under Coming up until a model is in place: what the model is for,
+/// the one recommended for this Mac with its size, Download (then its progress), More
+/// Options for Settings > Summaries, and Not Now, which puts the card away.
+private struct ModelSetupCard: View {
+    @Environment(AppModel.self) private var model
+    let offer: CatalogModel
+
+    var body: some View {
+        let state = model.summaryModels.state(of: offer)
+        VStack(alignment: .leading, spacing: Space.md) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text(ModelWords.setup)
+                    .kitType(.rowTitle)
+                    .foregroundStyle(Ink.text)
+                Text(detail(state))
+                    .kitType(.label)
+                    .foregroundStyle(Ink.textSecondary)
+            }
+            HStack(spacing: Space.sm) {
+                ModelDownloadControl(item: offer, state: state, canRemove: false)
+                Button("More Options") { model.openSettings(.summaries) }
+                    .buttonStyle(KitButtonStyle())
+                    .help("Open Settings > Summaries")
+                Spacer(minLength: Space.sm)
+                Button("Not Now") { model.modelSetupHidden = true }
+                    .buttonStyle(KitButtonStyle())
+                    .help("Hide this. Summaries stay off until you download a model in Settings > Summaries.")
+            }
+        }
+        .padding(Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Ink.canvas, in: RoundedRectangle(cornerRadius: Metric.comingUpCorner))
+        .overlay(RoundedRectangle(cornerRadius: Metric.comingUpCorner).strokeBorder(Ink.divider, lineWidth: Metric.comingUpBorder))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Set up summaries")
+    }
+
+    /// The offer, or why its download stopped.
+    private func detail(_ state: SummaryModels.State) -> String {
+        if case let .failed(reason) = state { reason } else { "\(ModelWords.offer(offer)). \(LocalModelCatalog.credit)" }
     }
 }
 

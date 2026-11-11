@@ -61,8 +61,10 @@ extension AppDefaults {
     static let stopWhenCallEndsKey = "general.stopWhenCallEnds"
     static let settingsPaneKey = "settings.pane"
     static let meNameKey = "meName"
-    /// The model file chosen in Settings > Summaries; unset uses one another app downloaded.
+    /// The model file chosen in Settings > Summaries; unset uses the one Silvanus downloaded.
     nonisolated static let modelFileKey = "summaries.modelFile"
+    /// True once Home's model card was put away: by Not Now, or because a model is in place.
+    static let modelSetupHiddenKey = "summaries.setupHidden"
 
     /// The name the transcript shows for the mic side. "Me" until a name is set.
     static var meName: String {

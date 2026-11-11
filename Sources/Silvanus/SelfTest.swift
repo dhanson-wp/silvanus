@@ -138,6 +138,7 @@ enum SelfTest {
             await checkWindowFrame(model: model)
             await checkHeaders(model: model)
             await checkSettings(model: model)
+            await checkModels(model: model)
             await checkNotesAcrossViews(model: model)
             await checkTranscript(model: model)
             await checkPlayback()
@@ -305,18 +306,218 @@ enum SelfTest {
         model.closeSettings()
         model.settingsPane = .general
 
-        // Summaries > Model: a chosen file is saved and used; Use Default forgets it.
-        let chosen = FileManager.default.temporaryDirectory.appendingPathComponent("silvanus-selftest-\(UUID().uuidString).gguf")
-        FileManager.default.createFile(atPath: chosen.path, contents: Data())
-        defer { try? FileManager.default.removeItem(at: chosen) }
-        model.summaryModelPath = chosen.path
-        let found = LocalModelFile.find(chosen: AppDefaults.shared.string(forKey: AppDefaults.modelFileKey),
-                                        home: FileManager.default.homeDirectoryForCurrentUser)
-        check("a chosen model file is saved and used", found?.url.path == chosen.path && found?.source == .chosen)
-        model.summaryModelPath = nil
-        check("Use Default forgets the chosen model file", AppDefaults.shared.string(forKey: AppDefaults.modelFileKey) == nil)
         check("Settings has a Summaries pane under AI",
               SettingsPane.groups.last?.items.map(\.id) == [.transcription, .summaries])
+    }
+
+    /// The model that writes to-dos and summaries (S-042): the downloader against a tiny
+    /// made-up file served from memory (never the network, never a real model), then the
+    /// same through the app's state: which file is in use, Remove, and Home's card.
+    private static func checkModels(model: AppModel) async {
+        let models = model.summaryModels
+        let files = FileManager.default
+        check("test runs keep downloaded models in the scratch store",
+              models.folder.path.hasPrefix(Store.root.path) && models.staged == nil, models.folder.path)
+        check("the 12B model is recommended from 24 GB of memory, the small one below",
+              LocalModelCatalog.recommended(physicalMemory: 32 << 30)?.id == "12b"
+              && LocalModelCatalog.recommended(physicalMemory: 16 << 30)?.id == "small")
+
+        // A 6 KB stand-in for a model, with its real checksum.
+        let data = Data((0..<6_000).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ $0 / 7) })
+        let scratch = Store.root.appending(path: "download-check")
+        try? files.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let reference = scratch.appending(path: "reference")
+        try? data.write(to: reference)
+        let sum = ModelDownloadRules.sha256(of: reference) ?? ""
+        func stand(_ name: String, sha256: String? = nil) -> CatalogModel {
+            CatalogModel(id: name, name: "Stand-in \(name)", url: URL(string: "https://example.invalid/\(name)/stand-in-\(name).gguf")!,
+                         bytes: Int64(data.count), sha256: sha256 ?? sum, memoryGB: 1, bestFor: "For checks.")
+        }
+        func size(_ url: URL) -> Int { ((try? files.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue ?? -1 }
+        /// One run of the downloader into `folder`: the events, and the error if it threw.
+        func run(_ item: CatalogModel, in folder: URL, transport: ModelTransport,
+                 free: Int64? = nil) async -> (events: [ModelDownloader.Event], error: Error?) {
+            let seen = EventLog()
+            do {
+                _ = try await ModelDownloader.download(item, into: folder, transport: transport,
+                                                       freeSpace: { _ in free }, progressStep: 1_000) { seen.add($0) }
+                return (seen.events, nil)
+            } catch {
+                return (seen.events, error)
+            }
+        }
+        func bytes(_ events: [ModelDownloader.Event]) -> [Int64] {
+            events.compactMap { if case let .progress(done) = $0 { done } else { nil } }
+        }
+
+        // Start to finish: progress climbs to the size, the file is checked, then it has its name.
+        let whole = stand("whole")
+        let wholeFolder = scratch.appending(path: "whole")
+        let wholeLog = ModelTransport.FixtureLog()
+        let first = await run(whole, in: wholeFolder, transport: .fixture(data, log: wholeLog))
+        let steps = bytes(first.events)
+        check("a download reports its progress up to the file's size",
+              first.error == nil && steps.count >= 4 && steps == steps.sorted() && steps.last == Int64(data.count),
+              "\(steps)")
+        check("a download is checked after the last byte, then given its name",
+              first.events.last == .checking
+              && (try? Data(contentsOf: wholeFolder.appending(path: whole.fileName))) == data
+              && !files.fileExists(atPath: wholeFolder.appending(path: whole.partialName).path)
+              && wholeLog.offsets == [0])
+
+        // The wrong checksum: the file is deleted and the failure says so.
+        let wrong = stand("wrong", sha256: String(repeating: "0", count: 64))
+        let wrongFolder = scratch.appending(path: "wrong")
+        let bad = await run(wrong, in: wrongFolder, transport: .fixture(data))
+        check("a file that fails its checksum is deleted and reported",
+              (bad.error as? ModelDownloadError) == .failedCheck
+              && ((try? files.contentsOfDirectory(atPath: wrongFolder.path)) ?? ["?"]).isEmpty,
+              "\(String(describing: bad.error))")
+        let long = Data(data + data)
+        let tooMuch = await run(stand("long"), in: scratch.appending(path: "long"), transport: .fixture(long))
+        check("a file that's the wrong size is deleted and reported",
+              (tooMuch.error as? ModelDownloadError) == .failedCheck
+              && ((try? files.contentsOfDirectory(atPath: scratch.appending(path: "long").path)) ?? ["?"]).isEmpty,
+              "\(String(describing: tooMuch.error))")
+
+        // A dropped connection keeps what arrived; the next try asks for the rest only.
+        let cut = stand("cut")
+        let cutFolder = scratch.appending(path: "cut")
+        let dropped = await run(cut, in: cutFolder, transport: .fixture(data, piece: 500, stopAfter: 2_000))
+        let kept = size(cutFolder.appending(path: cut.partialName))
+        check("a dropped connection keeps the part that arrived",
+              (dropped.error as? ModelDownloadError) == .interrupted && kept == 2_000
+              && !files.fileExists(atPath: cutFolder.appending(path: cut.fileName).path),
+              "kept \(kept), \(String(describing: dropped.error))")
+        let resumeLog = ModelTransport.FixtureLog()
+        let resumed = await run(cut, in: cutFolder, transport: .fixture(data, log: resumeLog))
+        check("the next try resumes from the partial file and the whole file checks out",
+              resumed.error == nil && resumeLog.offsets == [2_000] && bytes(resumed.events).first == 2_000
+              && (try? Data(contentsOf: cutFolder.appending(path: cut.fileName))) == data,
+              "asked from \(resumeLog.offsets), \(String(describing: resumed.error))")
+
+        // Cancel stops it partway and keeps the part, with no file under the real name.
+        let stopped = stand("stopped")
+        let stoppedFolder = scratch.appending(path: "stopped")
+        let stoppedPartial = stoppedFolder.appending(path: stopped.partialName)
+        let slow = Task { await run(stopped, in: stoppedFolder, transport: .fixture(data, piece: 200, pause: .milliseconds(20))) }
+        await poll { size(stoppedPartial) >= 400 }
+        slow.cancel()
+        let cancelled = await slow.value
+        let partway = size(stoppedPartial)
+        check("Cancel stops a download partway and keeps what arrived",
+              cancelled.error is CancellationError && partway >= 400 && partway < data.count
+              && !files.fileExists(atPath: stoppedFolder.appending(path: stopped.fileName).path),
+              "\(partway) bytes, \(String(describing: cancelled.error))")
+
+        // No room, and a server that says no: refused in plain words, nothing fetched.
+        let roomLog = ModelTransport.FixtureLog()
+        let full = await run(stand("full"), in: scratch.appending(path: "full"), transport: .fixture(data, log: roomLog), free: 1_000)
+        check("a download is refused when the disk has no room",
+              full.error?.localizedDescription.hasPrefix("Not enough disk space.") == true && roomLog.offsets.isEmpty,
+              full.error?.localizedDescription ?? "no error")
+        let missing = ModelTransport { _, _, head, _ in try head(.init(status: 404, contentRange: nil)) }
+        let refused = await run(stand("refused"), in: scratch.appending(path: "refused"), transport: missing)
+        check("a server that says no is reported", (refused.error as? ModelDownloadError) == .refused(404))
+
+        // The same through the app: Download, the model in use, Remove, and Home's card.
+        let savedCatalog = models.catalog
+        let savedMemory = models.physicalMemory
+        let savedConfirm = model.confirmRemoval
+        defer {
+            models.catalog = savedCatalog
+            models.physicalMemory = savedMemory
+            models.transport = .live
+            model.confirmRemoval = savedConfirm
+            model.summaryModelPath = nil
+            model.modelSetupHidden = false
+            try? files.removeItem(at: models.folder)
+            try? files.removeItem(at: scratch)
+        }
+        let big = stand("big"), little = stand("little")
+        models.catalog = [big, little]
+        models.physicalMemory = 16 << 30
+        models.progressStep = 1_000
+        model.summaryModelPath = nil
+        model.modelSetupHidden = false
+        check("with no model, Home offers the one recommended for this Mac",
+              model.summaryModel == nil && model.showsModelSetup && models.recommended?.id == "little"
+              && models.state(of: little) == .notDownloaded)
+
+        models.transport = .fixture(data, piece: 200, pause: .milliseconds(10))
+        let work = models.download(little)
+        await poll { if case let .downloading(done) = models.state(of: little) { done > 0 } else { false } }
+        let midway = models.state(of: little)
+        check("a download shows its progress, and Home keeps its card meanwhile",
+              { if case let .downloading(done) = midway { done > 0 && done < Int64(data.count) } else { false } }()
+              && model.showsModelSetup && models.isBusy, "\(midway)")
+        await work?.value
+        check("a downloaded model is in use, and Home's card is gone for good",
+              models.state(of: little) == .downloaded && model.summaryModel?.source == .downloaded
+              && model.summaryModel?.name == little.name && !model.showsModelSetup && model.modelSetupHidden && !models.isBusy,
+              "\(models.state(of: little))")
+
+        // With both downloaded the recommended one is used; a chosen file wins over both.
+        models.transport = .fixture(data)
+        await models.download(big)?.value
+        check("with both downloaded, the recommended one is used", model.summaryModel?.name == little.name)
+        models.physicalMemory = 32 << 30
+        check("on a Mac with more memory the larger one is used", model.summaryModel?.name == big.name)
+        let chosen = scratch.appending(path: "my-own.gguf")
+        files.createFile(atPath: chosen.path, contents: Data())
+        model.summaryModelPath = chosen.path
+        check("a chosen model file is saved and used",
+              AppDefaults.shared.string(forKey: AppDefaults.modelFileKey) == chosen.path
+              && model.summaryModel?.url.path == chosen.path && model.summaryModel?.source == .chosen)
+        model.summaryModelPath = nil
+        check("Use Downloaded Model forgets the chosen file",
+              AppDefaults.shared.string(forKey: AppDefaults.modelFileKey) == nil && model.summaryModel?.source == .downloaded)
+
+        // Remove asks first, naming the size; Cancel there keeps the file.
+        var asked: [String] = []
+        model.confirmRemoval = { item, bytes in
+            asked.append(AppModel.removeQuestion(item) + " " + AppModel.removeDetail(bytes: bytes))
+            return false
+        }
+        model.removeSummaryModel(big)
+        check("Remove asks first and names the size",
+              asked == ["Remove Stand-in big? This deletes the 6 KB file from this Mac. To use the model again, you'd download it again."]
+              && models.state(of: big) == .downloaded, asked.joined())
+        check("the question for the 12B model names 7.4 GB", AppModel.removeDetail(bytes: LocalModelCatalog.large.bytes).contains("7.4 GB"))
+        model.confirmRemoval = { _, _ in true }
+        model.removeSummaryModel(big)
+        model.removeSummaryModel(little)
+        check("Remove deletes the model's file, and there's no model again",
+              models.state(of: big) == .notDownloaded && model.summaryModel == nil
+              && ((try? files.contentsOfDirectory(atPath: models.folder.path)) ?? []).isEmpty)
+        check("Home's card stays away after a model was in place", !model.showsModelSetup)
+
+        // A failure says why and Retry picks up; Cancel leaves a partial one to Resume.
+        models.transport = .fixture(data, piece: 500, stopAfter: 1_500)
+        await models.download(big)?.value
+        check("a failed download says why in plain words",
+              models.state(of: big) == .failed(ModelDownloadError.interrupted.localizedDescription), "\(models.state(of: big))")
+        let retryLog = ModelTransport.FixtureLog()
+        models.transport = .fixture(data, log: retryLog)
+        await models.download(big)?.value
+        check("Retry picks up where the download stopped", models.state(of: big) == .downloaded && retryLog.offsets == [1_500],
+              "\(retryLog.offsets)")
+        models.transport = .fixture(data, piece: 200, pause: .milliseconds(20))
+        let pausing = models.download(little)
+        await poll { size(models.folder.appending(path: little.partialName)) >= 400 }
+        models.cancel(little)
+        await pausing?.value
+        check("Cancel leaves a partial download to resume",
+              { if case let .partial(done) = models.state(of: little) { done >= 400 && done < Int64(data.count) } else { false } }(),
+              "\(models.state(of: little))")
+        try? files.removeItem(at: models.folder)
+        models.remove(big)
+        model.modelSetupHidden = false
+        check("Not Now puts Home's card away", {
+            guard model.showsModelSetup else { return false }
+            model.modelSetupHidden = true
+            return !model.showsModelSetup && AppDefaults.shared.bool(forKey: AppDefaults.modelSetupHiddenKey)
+        }())
     }
 
     /// The headers (task 4): New Meeting, renaming and filing a meeting, the view menu's
@@ -2521,4 +2722,12 @@ nonisolated final class FakeMicEngine: MicEngine, @unchecked Sendable {
     }
 
     func stop() { lock.withLock { _running = false } }
+}
+
+/// The downloader's events, collected from whatever thread sends them.
+private nonisolated final class EventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: [ModelDownloader.Event] = []
+    var events: [ModelDownloader.Event] { lock.withLock { seen } }
+    func add(_ event: ModelDownloader.Event) { lock.withLock { seen.append(event) } }
 }

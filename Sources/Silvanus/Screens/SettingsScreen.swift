@@ -56,18 +56,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Summaries > Model: what it's for, and where the file in use came from.
-    static let summaryModelDescription = "Writes to-dos and summaries. Nothing leaves your Mac."
-    static let noSummaryModel = "No model"
-
-    static func summaryModelFootnote(_ source: LocalModelFile.Source?) -> String {
-        switch source {
-        case .chosen: "The file you chose."
-        case let .shared(app): "Found in \(app), so it isn't downloaded twice."
-        case nil: "Choose a GGUF model file, or download Gemma in Biscotti."
-        }
-    }
-
     /// The speech model, shown read-only until there is more than one.
     static let modelName = "Parakeet TDT v2, on this Mac"
 }
@@ -180,25 +168,7 @@ struct SettingsScreen: View {
                     }
                 }
             case .summaries:
-                SettingRow(title: "Model", description: SettingsPane.summaryModelDescription,
-                           footnote: SettingsPane.summaryModelFootnote(model.summaryModel?.source)) {
-                    HStack(spacing: Space.sm) {
-                        Text(model.summaryModel?.name ?? SettingsPane.noSummaryModel)
-                            .kitType(.rowTitle)
-                            .foregroundStyle(Ink.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                        if model.summaryModel?.source == .chosen {
-                            Button("Use Default") { model.summaryModelPath = nil }
-                                .buttonStyle(KitButtonStyle())
-                                .help("Go back to the model another app downloaded")
-                        }
-                        Button("Choose…") { model.chooseSummaryModel() }
-                            .buttonStyle(KitButtonStyle())
-                            .accessibilityLabel("Choose a model file")
-                    }
-                }
+                SummariesPane()
             case .about:
                 BrandAboutContent()
                     .frame(maxWidth: .infinity)
