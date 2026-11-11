@@ -969,6 +969,57 @@ enum SelfTest {
         _ = try? model.library.save(bare)
         model.reload()
         check("Write To-dos and Write Summary are off without a transcript", !model.canWriteTodos(bare.id) && !model.canWriteSummary(bare.id))
+
+        // The Write buttons on Summary: the same two actions, with a rule for each state.
+        let ready = AppModel.writeButton(.summary, hasTranscript: true, isWriting: false, hasModel: true)
+        check("the Write Summary button writes when there's a transcript and a model, and its help names ⌃⌘U",
+              ready.label == "Write Summary" && ready.click == .write && ready.isEnabled && ready.help.hasSuffix("(⌃⌘U)"), "\(ready)")
+        let readyTodos = AppModel.writeButton(.todos, hasTranscript: true, isWriting: false, hasModel: true)
+        check("the Write To-dos button's help names ⌃⌘T", readyTodos.label == "Write To-dos" && readyTodos.help.hasSuffix("(⌃⌘T)"), "\(readyTodos)")
+        for kind in AppModel.WriteKind.allCases {
+            let off = model.writeButton(kind, for: bare.id)
+            check("the \(kind.title) button is off without a transcript, and says why",
+                  !off.isEnabled && off.label == kind.title && off.help.contains("needs a transcript"), "\(off)")
+            let noModel = model.writeButton(kind, for: meeting.id, hasModel: false)
+            check("the \(kind.title) button stays on without a model file, and says it opens Settings",
+                  noModel.isEnabled && noModel.click == .openSettings && noModel.help.contains("Settings > Summaries"), "\(noModel)")
+        }
+        check("a list that's already there keeps the button's words", model.writeButton(.todos, for: meeting.id).label == "Write To-dos"
+              && model.writeButton(.summary, for: meeting.id).label == "Write Summary")
+        let roadmap = Meeting(info: MeetingInfo(id: "selftest-write-buttons", title: "Roadmap review", start: Date(timeIntervalSince1970: 1_793_964_600)),
+                            transcriptMarkdown: "[00:01] **Sam Rivera:** I'll draft the roadmap.")
+        _ = try? model.library.save(roadmap)
+        model.reload()
+        model.closeSettings()
+        let unwritten = model.pressWrite(.summary, for: roadmap.id, hasModel: false)
+        check("without a model file, the button opens Settings > Summaries and writes nothing",
+              unwritten == nil && model.settingsOpen && model.settingsPane == .summaries
+              && model.summaryStatus[roadmap.id] == nil && model.writeFailures(for: roadmap.id).isEmpty)
+        model.closeSettings()
+        check("the button does nothing without a transcript", model.pressWrite(.todos, for: bare.id) == nil && model.todoStatus[bare.id] == nil)
+        model.askModel = { system, _ in
+            system == Summaries.system ? "## Overview\nSam Rivera drafts the roadmap.\n" : "- [ ] Sam Rivera: draft the roadmap\n"
+        }
+        let writingTodos = model.pressWrite(.todos, for: roadmap.id)
+        let busy = model.writeButton(.todos, for: roadmap.id)
+        check("while the list is written the button reads Writing… and is off",
+              busy.label == "Writing…" && !busy.isEnabled && model.writeButton(.summary, for: roadmap.id).isEnabled, "\(busy)")
+        await writingTodos?.value
+        await model.pressWrite(.summary, for: roadmap.id)?.value
+        check("the buttons write todo.md and summary.md, then read as before",
+              model.library.readTodo(id: roadmap.id) == "- [ ] Sam Rivera: draft the roadmap\n"
+              && model.library.readSummary(id: roadmap.id) == "## Overview\nSam Rivera drafts the roadmap.\n"
+              && model.writeButton(.todos, for: roadmap.id) == readyTodos && model.writeButton(.summary, for: roadmap.id) == ready,
+              "\(model.library.readTodo(id: roadmap.id) ?? "none") / \(model.library.readSummary(id: roadmap.id) ?? "none")")
+        model.askModel = { _, _ in throw LocalModelError.noModel }
+        await model.pressWrite(.summary, for: roadmap.id)?.value
+        await model.pressWrite(.todos, for: roadmap.id)?.value
+        let reason = LocalModelError.noModel.localizedDescription
+        check("a failure is in the Write row's words even when the page has a list and a summary",
+              model.writeFailures(for: roadmap.id) == ["Couldn't write the summary: \(reason)", "Couldn't write to-dos: \(reason)"]
+              && model.library.readTodo(id: roadmap.id) == "- [ ] Sam Rivera: draft the roadmap\n"
+              && model.writeButton(.summary, for: roadmap.id).isEnabled,
+              "\(model.writeFailures(for: roadmap.id))")
         model.canvasMode = .notes
     }
 
@@ -1011,6 +1062,9 @@ enum SelfTest {
         check("Summary puts the meeting header above the text in one scroll view",
               page != nil && page?.enclosingScrollView?.documentView === page
               && (page?.header.frame.maxY ?? 0) <= (page?.textView.frame.minY ?? 0) + (view?.textContainerInset.height ?? 0))
+        check("Summary's header has room for the Write row under the title and chips",
+              page?.header.frame.height == MeetingHeader.height + Metric.settingsButtonHeight + Metric.bodyBelowChipRow,
+              "\(page?.header.frame.height ?? 0)")
         check("VoiceOver calls the Summary text Summary", view?.accessibilityLabel() == "Summary", view?.accessibilityLabel() ?? "none")
         if let view {
             main.makeFirstResponder(view)

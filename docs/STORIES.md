@@ -506,6 +506,7 @@ Acceptance:
 - [self] The list is written by a local Gemma model on this Mac. Nothing is sent anywhere, and it works offline after the one-time model download.
 - [manual] On a real call, the list has the to-dos I'd have written down and no made-up ones.
 - [self] Meeting › Write To-dos (⌃⌘T) writes the list again for the open meeting; it's off without a transcript.
+- [self] Summary has a Write To-dos button under the title and chips, on every meeting. It's off without a transcript, reads "Writing…" while the list is written, and opens Settings › Summaries when there's no model file; a failure shows beside it.
 Status: done
 Note: the manual check on a real call is still to do.
 
@@ -532,6 +533,7 @@ Acceptance:
 - [unit] The summary is written to the meeting's `summary.md`: Overview, then Decisions and Open questions when there were any.
 - [unit] A summary that was already there (an imported one) is kept under the new one; writing again replaces only the model's part.
 - [self] Meeting › Write Summary (⌃⌘U) writes it for the open meeting; it's off without a transcript.
+- [self] Summary has a Write Summary button next to Write To-dos, with the same rules; a failure shows beside the buttons even when the page already has a summary.
 - [self] The summary is written by the local model on this Mac, after the to-dos.
 - [manual] On a real call, the summary says what happened and nothing that didn't.
 Status: done

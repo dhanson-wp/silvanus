@@ -307,6 +307,7 @@ Organization part, adapted to this grid. It's the top of the canvas on a meeting
 - Date chip: padding 14 leading and 10.5 trailing, calendar icon 13, 5.5 gap, date (`chip`), 8 gap, attendees icon 15, 4.5 gap, count (`chip`). Text `Ink.textSecondary`.
 - Folder chip: padding 10.5, folder icon 13, 6.5 gap, folder name (`chip`), truncates. With no folder it reads "Add to folder" in `textSecondary`.
 - The canvas body starts 20 below the chip row (**adapted** from 21.5 to the 4 pt rhythm).
+- On Summary, a Write row follows the chip row at the same 20: two bordered buttons ("Settings", 36 tall) at x 221, 8 apart, then why the last try failed (`label`, `Ink.textSecondary`, a line each). The canvas body starts 20 below the row.
 
 | State | Fill | Text |
 | --- | --- | --- |

@@ -354,6 +354,82 @@ final class AppModel {
     /// True when the self-test's model stands in for the file, so a run without one still writes.
     @ObservationIgnored var todoModelIsInjected = false
 
+    // MARK: - Write buttons
+
+    /// The two things the local model writes for a meeting, each with a button on Summary.
+    enum WriteKind: CaseIterable {
+        case todos, summary
+
+        /// The button's words, and the Meeting menu item's.
+        var title: String { self == .summary ? "Write Summary" : "Write To-dos" }
+        /// The Meeting menu item's keys, named in the button's hover help.
+        var shortcut: String { self == .summary ? "⌃⌘U" : "⌃⌘T" }
+        var what: String {
+            self == .summary ? "Summarize this meeting's transcript, on this Mac"
+                : "List the to-dos from this meeting's transcript, on this Mac"
+        }
+    }
+
+    /// The button's label while its file is being written.
+    static let writing = "Writing…"
+
+    /// How a Write button looks and what a click does.
+    struct WriteButton: Equatable {
+        enum Click: Equatable { case write, openSettings, nothing }
+
+        var label: String
+        /// What it does, for VoiceOver; `help` adds the shortcut.
+        var hint: String
+        var help: String
+        var click: Click
+        var isEnabled: Bool { click != .nothing }
+    }
+
+    /// The rule for a Write button: off while writing (and it says so), off without a
+    /// transcript, a way to Settings > Summaries without a model file, else it writes.
+    static func writeButton(_ kind: WriteKind, hasTranscript: Bool, isWriting: Bool, hasModel: Bool) -> WriteButton {
+        let (label, hint, click): (String, String, WriteButton.Click) = if isWriting {
+            (writing, kind == .summary ? writingSummary : writingTodos, .nothing)
+        } else if !hasTranscript {
+            (kind.title, "This meeting needs a transcript first", .nothing)
+        } else if !hasModel {
+            (kind.title, "There's no model file yet. Opens Settings > Summaries to choose one", .openSettings)
+        } else {
+            (kind.title, kind.what, .write)
+        }
+        return WriteButton(label: label, hint: hint, help: isWriting ? hint : "\(hint) (\(kind.shortcut))", click: click)
+    }
+
+    /// True when there's a model to ask: a model file, or the self-test's stand-in.
+    var hasWritingModel: Bool { todoModelIsInjected || summaryModel != nil }
+
+    /// The Write button for a meeting on Summary. `hasModel` is for the checks.
+    func writeButton(_ kind: WriteKind, for id: String, hasModel: Bool? = nil) -> WriteButton {
+        let transcript = meetings.first { $0.id == id }?.transcriptMarkdown ?? ""
+        let status = kind == .summary ? summaryStatus[id] : todoStatus[id]
+        return Self.writeButton(kind, hasTranscript: !transcript.isEmpty, isWriting: status == .writing,
+                                hasModel: hasModel ?? hasWritingModel)
+    }
+
+    /// A click on a Write button: write, or open Settings > Summaries when there's no model file.
+    @discardableResult
+    func pressWrite(_ kind: WriteKind, for id: String, hasModel: Bool? = nil) -> Task<Void, Never>? {
+        switch writeButton(kind, for: id, hasModel: hasModel).click {
+        case .write: return kind == .summary ? writeSummary(for: id, asked: true) : writeTodos(for: id, asked: true)
+        case .openSettings: openSettings(.summaries)
+        case .nothing: break
+        }
+        return nil
+    }
+
+    /// Why a meeting's summary or to-dos couldn't be written, in the words the page shows; one line each.
+    func writeFailures(for id: String) -> [String] {
+        var lines: [String] = []
+        if case let .failed(reason) = summaryStatus[id] { lines.append(Self.summaryFailure(reason)) }
+        if case let .failed(reason) = todoStatus[id] { lines.append(Self.todoFailure(reason)) }
+        return lines
+    }
+
     /// True while the canvas shows the To-dos page (the sidebar's To-dos row, ⇧⌘T) in place
     /// of the open meeting. Opening a meeting leaves it.
     var showingTodos = false {

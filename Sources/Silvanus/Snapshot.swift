@@ -257,6 +257,7 @@ enum Snapshot {
     /// The Summary view (⌘1) at 910 × 600:
     ///   summary-<mode>.png        the recorded seed meeting: headings, bullets, bold, "## Imported summary"
     ///   summary-empty-<mode>.png  a meeting with no summary yet
+    ///   summary-failed-<mode>.png the seed meeting after a Write Summary that failed: the reason beside the buttons
     @MainActor private static func captureSummary(model: AppModel, to dir: String) async {
         guard let main = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isSheet }) else { return }
         model.sidebar = .all
@@ -272,6 +273,15 @@ enum Snapshot {
             model.selection = empty
             try? await Task.sleep(for: .seconds(0.8))
             capture(to: "\(dir)/summary-empty-\(mode).png", window: main)
+        }
+        // A try that failed (no model answers here), over a page that has its list and summary.
+        model.askModel = { _, _ in throw LocalModelError.noModel }
+        await model.writeSummary(for: SeedData.recordedID, asked: true)?.value
+        for mode in ["light", "dark"] {
+            NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+            model.selection = SeedData.recordedID
+            try? await Task.sleep(for: .seconds(0.8))
+            capture(to: "\(dir)/summary-failed-\(mode).png", window: main)
         }
         model.show(.notes)
         model.selection = nil

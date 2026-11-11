@@ -11,9 +11,13 @@ import SwiftUI
 /// typing pauses. The heading and the summary are locked, and `summary.md` is never
 /// written. Without to-dos the summary is read-only (selectable, copyable, ⌘F finds), and
 /// with neither, one line says so, or says the to-dos are being written.
+///
+/// In every layout the header ends with the Write row (`SummaryActions`): the Write Summary
+/// and Write To-dos buttons, and beside them why the last try failed, if it did.
 struct SummaryView: View {
     @Environment(AppModel.self) private var model
     let meeting: Meeting
+    /// The meeting header (title and chips); the page adds the Write row under it.
     let header: AnyView
     /// What the page was read for (nil while the files are being read).
     @State private var loaded: Loaded?
@@ -33,12 +37,12 @@ struct SummaryView: View {
                 if let page = loaded.page {
                     let layout = TodoPage(summary: loaded.summary)
                     MarkdownEditor(text: Binding(get: { page }, set: { save($0, layout: layout) }),
-                                   link: link, header: header, headerHeight: MeetingHeader.height,
+                                   link: link, header: fullHeader, headerHeight: SummaryActions.headerHeight,
                                    accessibilityLabel: "Summary",
                                    locked: (layout.lockedPrefix, layout.lockedSuffix))
                 } else if loaded.summary.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
-                        header
+                        fullHeader
                         Text(emptyLine)
                             .kitType(.label)
                             .foregroundStyle(Ink.textSecondary)
@@ -46,7 +50,7 @@ struct SummaryView: View {
                         Spacer(minLength: 0)
                     }
                 } else {
-                    MarkdownEditor(text: .constant(loaded.summary), header: header, headerHeight: MeetingHeader.height,
+                    MarkdownEditor(text: .constant(loaded.summary), header: fullHeader, headerHeight: SummaryActions.headerHeight,
                                    accessibilityLabel: "Summary", readOnly: true)
                 }
             } else {
@@ -61,14 +65,21 @@ struct SummaryView: View {
         }
     }
 
-    /// The line under the header when there's nothing to show yet.
+    /// The meeting header with the Write row under it, `SummaryActions.headerHeight` tall.
+    private var fullHeader: AnyView {
+        AnyView(VStack(spacing: 0) {
+            header
+            // The editor's scroll view hosts it outside this view's environment.
+            SummaryActions(meetingID: meeting.id).environment(model)
+        })
+    }
+
+    /// The line under the header when there's nothing to show yet. A failure is in the Write row.
     private var emptyLine: String {
         switch (model.summaryStatus[meeting.id], model.todoStatus[meeting.id]) {
         case (_, .writing): AppModel.writingTodos
         case (.writing, _): AppModel.writingSummary
-        case let (.failed(reason), _): AppModel.summaryFailure(reason)
-        case let (_, .failed(reason)): AppModel.todoFailure(reason)
-        case (nil, nil): "No summary yet"
+        default: "No summary yet"
         }
     }
 
@@ -104,5 +115,52 @@ struct SummaryView: View {
         } catch {
             print("TODOS couldn't save \(meeting.id): \(error.localizedDescription)")
         }
+    }
+}
+
+/// The Write row, the last part of Summary's header: Write Summary and Write To-dos
+/// (`KitButtonStyle`), starting at the title's left edge, and beside them why the last try
+/// failed ("Couldn't write the summary: …"), in `Ink.textSecondary`, a line each, with the
+/// whole reason in its hover help. The buttons' rule is `AppModel.writeButton`.
+struct SummaryActions: View {
+    @Environment(AppModel.self) private var model
+    let meetingID: String
+
+    /// The row's height: the buttons, then the same gap to the body as under the chip row.
+    static var height: CGFloat { Metric.settingsButtonHeight + Metric.bodyBelowChipRow }
+    /// Summary's whole header: the meeting header, then this row.
+    static var headerHeight: CGFloat { MeetingHeader.height + height }
+
+    var body: some View {
+        let failures = model.writeFailures(for: meetingID)
+        HStack(spacing: Space.sm) {
+            ForEach([AppModel.WriteKind.summary, .todos], id: \.self) { kind in
+                let button = model.writeButton(kind, for: meetingID)
+                Button(button.label) { model.pressWrite(kind, for: meetingID) }
+                    .buttonStyle(KitButtonStyle())
+                    .disabled(!button.isEnabled)
+                    .help(button.help)
+                    .accessibilityLabel(button.label == AppModel.writing ? "\(kind.title), \(button.label)" : button.label)
+                    .accessibilityHint(button.hint)
+                    .fixedSize()
+            }
+            if !failures.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(failures, id: \.self) { line in
+                        Text(line)
+                            .kitType(.label)
+                            .foregroundStyle(Ink.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(line)
+                    }
+                }
+                .padding(.leading, Space.xs)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(height: Metric.settingsButtonHeight)
+        .padding(.bottom, Metric.bodyBelowChipRow)
+        .padding(.horizontal, Metric.contentX - Metric.canvasX)
     }
 }

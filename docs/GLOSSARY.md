@@ -66,13 +66,14 @@ Every word Silvanus puts on screen. One name per idea.
 | My to-dos | The To-dos page's first list: to-dos that belong to no meeting | Personal, Inbox, General |
 | New to-do | The field at the end of each list on the To-dos page (type, then Return); and Meeting > New To-do (⌥⌘T), which adds a to-do with these words to the open meeting, selected to type over | Add task, Add item |
 | Delete To-do | A to-do's menu on the To-dos page, with Mark as Done or Mark as Not Done | Remove, Trash |
-| Write To-dos | Meeting menu (⌃⌘T): list the to-dos from the open meeting's transcript again, keeping what was ticked, edited, or added | Generate, Regenerate, Extract action items |
+| Write To-dos | The button on Summary and the Meeting menu item (⌃⌘T): list the to-dos from the open meeting's transcript again, keeping what was ticked, edited, or added | Generate, Regenerate, Extract action items |
 | Writing to-dos… | The Summary view while the first list is being written | Generating, Thinking |
+| Writing… | A Write Summary or Write To-dos button on Summary while its file is being written; the button is off until it's done | Generating…, Working…, Loading |
 | No to-dos from this call. | The to-do list's one line when the model found nothing to do | No action items, Nothing to do |
-| Couldn't write to-dos: (reason) | The Summary view when the list couldn't be written and there's nothing else to show | To-do error, Generation failed |
-| Write Summary | Meeting menu (⌃⌘U): the local model summarizes the open meeting's transcript into Overview, Decisions, and Open questions, above any summary that was already there | Generate summary, Summarize, AI notes |
+| Couldn't write to-dos: (reason) | Summary, beside the Write buttons, when the list couldn't be written | To-do error, Generation failed |
+| Write Summary | The button on Summary and the Meeting menu item (⌃⌘U): the local model summarizes the open meeting's transcript into Overview, Decisions, and Open questions, above any summary that was already there | Generate summary, Summarize, AI notes |
 | Writing the summary… | The Summary view while the first summary is being written | Generating, Summarizing |
-| Couldn't write the summary: (reason) | The Summary view when the summary couldn't be written and there's nothing else to show | Summary error |
+| Couldn't write the summary: (reason) | Summary, beside the Write buttons, when the summary couldn't be written | Summary error |
 | Home | The sidebar's first row and View > Home (⇧⌘H): closes the open meeting and shows Coming up | Dashboard, Today, Start |
 | Coming up | Home's heading and card: today's and tomorrow's calendar events, each with its time and how many people; "Nothing on your calendar" for a day with none | Upcoming, Agenda, Schedule |
 | Join | The button on a Coming up event with a Zoom, Meet, or Teams link: opens the call | Open link, Launch |
