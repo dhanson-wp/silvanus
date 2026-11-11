@@ -10,7 +10,7 @@ enum LocalModelError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noModel: "There's no model file. Choose one in Settings > Summaries."
+        case .noModel: "There's no model yet. Download one in Settings > Summaries."
         case let .cannotLoad(name): "Unable to load the model \(name)."
         case .tooLong: "This is too long for the model to read at once."
         case let .failed(step): "The model stopped while \(step)."
@@ -47,13 +47,15 @@ actor LocalModel {
         llama_backend_init()
     }()
 
-    /// The model file in use: Settings' choice, or one another app downloaded.
+    /// The model file in use: Settings' choice, or one Silvanus downloaded (the one
+    /// recommended for this Mac first). `APP_MODEL_FILE` picks a file for the headless commands.
     @MainActor static func file() -> LocalModelFile.Found? {
         let env = ProcessInfo.processInfo.environment["APP_MODEL_FILE"].flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
-        // Test, snapshot, and self-test runs never load a model on their own: it's 7 GB.
+        // Test, snapshot, and self-test runs never load a model on their own: it's gigabytes.
         if AppDefaults.isTest, env == nil, ProcessInfo.processInfo.environment["APP_ASK"] == nil { return nil }
         return LocalModelFile.find(chosen: env ?? AppDefaults.shared.string(forKey: AppDefaults.modelFileKey),
-                                   home: FileManager.default.homeDirectoryForCurrentUser)
+                                   folder: SummaryModels.defaultFolder,
+                                   models: LocalModelCatalog.ordered(physicalMemory: ProcessInfo.processInfo.physicalMemory))
     }
 
     /// Loads `url` unless it's already loaded.
@@ -134,10 +136,18 @@ actor LocalModel {
         return LocalModelText.cleaned(String(decoding: bytes, as: UTF8.self))
     }
 
-    /// The request in the model's own chat format; Gemma's when llama.cpp doesn't know the file's.
+    /// The request in the model's own chat format: Gemma 4's and Gemma 3's are written
+    /// here (llama.cpp doesn't know Gemma 4's template), any other by llama.cpp from the
+    /// file's template, and Gemma 3's when that fails.
     private static func prompt(model: OpaquePointer, system: String, user: String) -> String {
         let fallback = LocalModelText.gemmaPrompt(system: system, user: user)
         guard let template = llama_model_chat_template(model, nil) else { return fallback }
+        switch LocalModelText.format(template: String(cString: template)) {
+        case let .gemma4(closesThinking):
+            return LocalModelText.gemma4Prompt(system: system, user: user, closesThinking: closesThinking)
+        case .gemma3: return fallback
+        case .other: break
+        }
         let turns = (system.isEmpty ? [] : [("system", system)]) + [("user", user)]
         let strings = turns.map { (strdup($0.0), strdup($0.1)) }
         defer { strings.forEach { free($0.0); free($0.1) } }

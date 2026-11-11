@@ -485,15 +485,22 @@ Status: todo
 ## M8 To-dos and summaries
 What I owe after a call, written on this Mac by a local model.
 
-### S-042 Choose the model that writes to-dos and summaries
-As the user, Silvanus uses a model file that's already on my Mac, and I can pick another.
-Screens: settings-summaries
+### S-042 Download the model that writes to-dos and summaries
+As the user, I download a model from Home or Settings with one click, see how far along it is, and can use a file of my own instead.
+Screens: home, settings-summaries
 Acceptance:
-- [unit] With nothing chosen, the largest GGUF file another app downloaded (Biscotti's) is used; a chosen file wins while it exists.
-- [snap] Settings › Summaries shows the model's name, where it came from, and Choose…; Use Default appears after a file was chosen.
-- [self] A chosen file is saved, and Use Default forgets it.
-- [manual] `APP_ASK=<question>` on the dev binary loads the model and prints its answer.
+- [unit] Silvanus offers two models, Gemma 4, 12B and Gemma 4, small, each pinned to a commit with its size and SHA-256; the 12B is recommended from 24 GB of memory, the small one below.
+- [unit] The model in use is the file chosen in Settings while it exists, else the one Silvanus downloaded (the recommended one first). A model another app downloaded is never used on its own.
+- [self] A download goes to `<file>.download` in Silvanus's models folder, reports its progress, and is given its name only after its size and SHA-256 check out; a file that fails is deleted and reported.
+- [self] Cancel, a dropped connection, or quitting keeps what arrived, and the next try asks for the rest only. With no room on the disk the download is refused before it starts.
+- [snap] Settings › Summaries shows the model in use and where it came from, each model's size, which Macs it suits, the Recommended for this Mac mark, and Download; a bar with "2.1 of 7.4 GB" and Cancel while downloading; Downloaded and Remove after; Choose…, and the Gemma license.
+- [self] Remove asks first, naming the size, then deletes the file. A chosen file is saved, and Use Downloaded Model forgets it.
+- [snap] With no model, Home shows a card under Coming up with the recommended model, Download, More Options, and Not Now; it shows the download's progress.
+- [self] Not Now puts the card away, and once a model is in place it's gone for good.
+- [manual] `APP_STORE=<dir> APP_MODEL_DOWNLOAD=small` on the dev binary downloads the small model, resumes after being stopped, and checks it; `APP_ASK=<question>` loads the model and prints its answer.
+- [unit] A Gemma 4 file is asked in Gemma 4's own turn format, with thinking off.
 Status: done
+Note: test, snapshot, and self-test runs keep models under their scratch store and never use the network. The 12B download and the buttons in a real window weren't run by hand.
 
 ### S-041 Get a to-do list after a call
 As the user, when a call's transcript is ready, I get the to-dos from it: what I said I'd do, and what others said they'd do.

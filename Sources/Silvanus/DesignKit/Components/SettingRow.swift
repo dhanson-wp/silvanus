@@ -2,13 +2,15 @@ import SwiftUI
 
 /// A setting's row in a Settings pane, from KIT.md "Settings": the title in `settingTitle`,
 /// the description in `label` and `textSecondary` under it (then an optional one-line
-/// footnote in the same style), and the control right-aligned.
+/// footnote in the same style), and the control right-aligned. An optional `badge` follows
+/// the title in `label` and `accentText` ("Recommended for this Mac").
 /// Rows repeat every 56 pt. A control that can't be used yet passes `isEnabled: false` and a
 /// `help` that says why.
 struct SettingRow<Control: View>: View {
     let title: String
     var description: String?
     var footnote: String?
+    var badge: String?
     @ViewBuilder var control: Control
 
     private var hint: String { [description, footnote].compactMap { $0 }.joined(separator: " ") }
@@ -16,9 +18,16 @@ struct SettingRow<Control: View>: View {
     var body: some View {
         HStack(spacing: Space.lg) {
             VStack(alignment: .leading, spacing: Space.xs) {
-                Text(title)
-                    .kitType(.settingTitle)
-                    .foregroundStyle(Ink.text)
+                HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                    Text(title)
+                        .kitType(.settingTitle)
+                        .foregroundStyle(Ink.text)
+                    if let badge {
+                        Text(badge)
+                            .kitType(.label)
+                            .foregroundStyle(Ink.accentText)
+                    }
+                }
                 if let description {
                     Text(description)
                         .kitType(.label)

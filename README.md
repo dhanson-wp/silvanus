@@ -41,6 +41,7 @@ The name comes from Silvanus, the scribe who wrote down Peter's letter. It also 
 - macOS 26 or later
 - Swift 6.2 or later, from Xcode or the Command Line Tools (`xcode-select --install`)
 - About 450 MB of disk space for the speech model
+- For to-dos and summaries (optional): 2.6 GB or 7.4 GB of disk space for the model, and 4 GB or 8 GB of memory while it writes
 
 ## Install
 
@@ -67,8 +68,9 @@ SIGN_IDENTITY="Your Certificate Name"
 
 1. **Start a recording.** Click **Start Recording**, or press ⇧⌘R.
 2. **Grant two permissions.** Silvanus asks for microphone access (your side of the call) and system audio access (everyone else). It only asks when you first record, never at launch.
-3. **Let the speech model download.** The first transcript downloads Parakeet TDT 0.6B v2 (about 450 MB) from Hugging Face. This is the only time Silvanus uses the network. The model is kept in `~/Library/Application Support/FluidAudio/Models`.
+3. **Let the speech model download.** The first transcript downloads Parakeet TDT 0.6B v2 (about 450 MB) from Hugging Face. The model is kept in `~/Library/Application Support/FluidAudio/Models`.
 4. **Stop, and read.** After you stop, the transcript appears in a few minutes.
+5. **Download a model for to-dos and summaries, if you want them.** Home offers the Gemma 4 model that suits your Mac's memory: Gemma 4, 12B (7.4 GB) with 24 GB of memory or more, Gemma 4, small (2.6 GB) below that. Click **Download**, or pick the other one, or a GGUF file of your own, in Settings > Summaries. The download comes from Hugging Face, can be stopped and continued, and is checked against its SHA-256 before it's used. It's kept in `~/Library/Application Support/Silvanus/models`.
 
 Wearing headphones gives the cleanest transcript. Your microphone still hears a little of the other side, faintly through headphones and loudly on speakers; Silvanus silences that before it transcribes your side, but on speakers it won't catch everything.
 
@@ -106,7 +108,7 @@ These files are the source of truth. There's no database to export from, and del
 
 - Audio, notes, and transcripts never leave your Mac.
 - There's no account, no analytics, and no telemetry.
-- The only network request is the one-time speech model download.
+- The only network requests are model downloads: the speech model, once, and the model for to-dos and summaries when you click Download.
 
 Recording laws differ by place. Tell the people on your call that you're recording, and get their consent where it's required.
 
@@ -114,7 +116,7 @@ Recording laws differ by place. Tell the people on your call that you're recordi
 
 Working now: recording both tracks, pause and resume, notes with timestamps, after-call transcripts, echo cleanup, playback, folders, call detection, stopping when the call ends, recovery after a crash or a device change, and light and dark mode.
 
-After a call, a local model (Gemma, through llama.cpp, from a file already on your Mac) lists the to-dos on the Summary view, where you can tick, edit, and add to them, and To-dos in the sidebar is a light task manager: every meeting's open ones in one place, plus your own, to tick, reword, add, and delete; Settings > Summaries shows which model. It also writes a short summary. Connect your calendar and recordings take the event's title and attendees, and Home shows what's coming up today and tomorrow. Not built yet: search, naming individual speakers, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
+After a call, a local model (Gemma 4, through llama.cpp, downloaded once from Home or Settings > Summaries) lists the to-dos on the Summary view, where you can tick, edit, and add to them, and To-dos in the sidebar is a light task manager: every meeting's open ones in one place, plus your own, to tick, reword, add, and delete; Settings > Summaries shows which model is in use, and takes a GGUF file of your own. It also writes a short summary. Connect your calendar and recordings take the event's title and attendees, and Home shows what's coming up today and tomorrow. Not built yet: search, naming individual speakers, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
 
 Transcripts are English only for now.
 
@@ -164,6 +166,7 @@ Silvanus stands on other people's work, and I'm grateful for it:
 
 - [FluidAudio](https://github.com/FluidInference/FluidAudio) by FluidInference runs speech recognition on the Neural Engine (Apache 2.0).
 - [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) by NVIDIA is the speech model, in the [Core ML conversion](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml) by FluidInference (CC BY 4.0).
+- [Gemma 4](https://ai.google.dev/gemma) by Google writes the to-dos and summaries, in the GGUF conversions by [Unsloth](https://huggingface.co/unsloth) (Apache 2.0), run by [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT).
 - [OpenOats](https://github.com/yazinsai/OpenOats) and its contributors showed the way on system audio capture; that part of Silvanus is adapted from it (MIT).
 
 The full license texts are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

@@ -30,9 +30,17 @@ final class AppModel {
     init(library: MeetingLibrary) {
         self.library = library
         recorder = Recorder(library: library)
+        summaryModels = SummaryModels()
+        if Snapshot.requested {
+            // A made-up downloaded model on a made-up Mac, whatever is on this one.
+            summaryModels.physicalMemory = 32 << 30
+            summaryModels.staged = [LocalModelCatalog.large.id: .downloaded]
+        }
         appearance.apply()
         recorder.model = self
         refreshCalendar()
+        summaryModels.changed = { [weak self] in self?.modelsChanged() }
+        modelsChanged()
     }
 
     let library: MeetingLibrary
@@ -148,18 +156,18 @@ final class AppModel {
             appearance.apply()
         }
     }
-    /// Settings > Summaries > Model: the chosen file's path. Nil uses a model another app downloaded.
+    /// Settings > Summaries > Choose…: the chosen file's path. Nil uses the model Silvanus downloaded.
     var summaryModelPath: String? = AppDefaults.shared.string(forKey: AppDefaults.modelFileKey) {
-        didSet { AppDefaults.shared.set(summaryModelPath, forKey: AppDefaults.modelFileKey) }
-    }
-    /// The model file that writes to-dos and summaries, or nil when there's none.
-    /// Snapshots show a made-up one, so they don't depend on what's on this Mac.
-    var summaryModel: LocalModelFile.Found? {
-        if Snapshot.requested {
-            return LocalModelFile.Found(url: URL(fileURLWithPath: "/gemma-4-12b-it.gguf"), source: .shared("Biscotti"))
+        didSet {
+            AppDefaults.shared.set(summaryModelPath, forKey: AppDefaults.modelFileKey)
+            modelsChanged()
         }
-        return LocalModelFile.find(chosen: summaryModelPath, home: FileManager.default.homeDirectoryForCurrentUser)
     }
+    /// Silvanus's own models and any download under way (AI/ModelDownloader.swift).
+    /// Snapshots stage it, so they don't depend on what's on this Mac.
+    let summaryModels: SummaryModels
+    /// The model file that writes to-dos and summaries, or nil when there's none.
+    var summaryModel: LocalModelFile.Found? { summaryModels.found(chosen: summaryModelPath) }
 
     /// Settings > Summaries > Choose…: pick a GGUF model file.
     func chooseSummaryModel() {
@@ -172,6 +180,41 @@ final class AppModel {
         if let current = summaryModel?.url { panel.directoryURL = current.deletingLastPathComponent() }
         guard panel.runModal() == .OK, let url = panel.url, LocalModelFile.isModel(url) else { return }
         summaryModelPath = url.path
+    }
+
+    /// Asks before a downloaded model is deleted. The self-test answers for it.
+    @ObservationIgnored var confirmRemoval: (CatalogModel, Int64) -> Bool = { model, bytes in
+        let alert = NSAlert()
+        alert.messageText = AppModel.removeQuestion(model)
+        alert.informativeText = AppModel.removeDetail(bytes: bytes)
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    static func removeQuestion(_ model: CatalogModel) -> String { "Remove \(model.name)?" }
+    static func removeDetail(bytes: Int64) -> String {
+        "This deletes the \(LocalModelCatalog.size(bytes)) file from this Mac. To use the model again, you'd download it again."
+    }
+
+    /// Settings > Summaries > Remove: deletes a downloaded model (or what's arrived of
+    /// one) after asking, naming how much would have to be downloaded again.
+    func removeSummaryModel(_ model: CatalogModel) {
+        let bytes: Int64 = if case let .partial(done) = summaryModels.state(of: model) { done } else { model.bytes }
+        guard confirmRemoval(model, bytes) else { return }
+        summaryModels.remove(model)
+    }
+
+    /// Home's model card is put away: by Not Now, or for good once a model is in place.
+    var modelSetupHidden = AppDefaults.shared.bool(forKey: AppDefaults.modelSetupHiddenKey) {
+        didSet { AppDefaults.shared.set(modelSetupHidden, forKey: AppDefaults.modelSetupHiddenKey) }
+    }
+    /// True while Home offers to download a model: there's none yet, and the card wasn't put away.
+    var showsModelSetup: Bool { !modelSetupHidden && summaryModel == nil }
+
+    /// A model arrived, left, or was chosen: once there is one, the Home card is done.
+    private func modelsChanged() {
+        if !modelSetupHidden, summaryModel != nil { modelSetupHidden = true }
     }
 
     // MARK: - Calendar
