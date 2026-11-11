@@ -17,7 +17,8 @@ struct HomePage: View {
                     .foregroundStyle(Ink.text)
                     .accessibilityAddTraits(.isHeader)
                 card
-                if model.calendarAccess == .allowed, model.calendarAccounts.isEmpty || model.comingUp.allSatisfy(\.events.isEmpty) {
+                // Only when nothing is coming up: with events showing, the calendar is clearly connected.
+                if model.calendarAccess == .allowed, model.comingUp.allSatisfy(\.events.isEmpty) {
                     HStack(spacing: Space.sm) {
                         Text(model.calendarAccounts.isEmpty ? "No calendar accounts on this Mac yet." : "Missing your Google Calendar?")
                             .kitType(.label)
