@@ -77,6 +77,7 @@ Every word Silvanus puts on screen. One name per idea.
 | Coming up | Home's heading and card: today's and tomorrow's calendar events, each with its time and how many people; "Nothing on your calendar" for a day with none | Upcoming, Agenda, Schedule |
 | Join | The button on a Coming up event with a Zoom, Meet, or Teams link: opens the call | Open link, Launch |
 | Connect Calendar | The button on Home and in Settings > Calendar that asks macOS for calendar access, once; after it, Settings shows Connected. If access was turned down the button is Open System Settings… and the line reads "Calendar access is off for Silvanus." | Link calendar, Sign in, Sync |
+| Add Google Calendar… | The button in Settings > Calendar (and on Home when nothing's coming up) that opens System Settings > Internet Accounts, where a Google account is added with Calendars on; the row above it reads "Reading calendars from: (accounts)." or "No calendar accounts on this Mac yet." | Sign in with Google, Link Google |
 | Settings (sidebar) | The sidebar's last row: opens Settings, like ⌘, | Preferences, Gear |
 | No summary yet | The Summary view before a meeting has one | Nothing here |
 | No transcript yet | The Transcript view before a meeting has one | No captions |

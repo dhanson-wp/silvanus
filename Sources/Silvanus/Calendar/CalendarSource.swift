@@ -14,6 +14,8 @@ struct CalendarSource {
     /// Asks macOS for access (once; later calls return the answer already given).
     var request: () async -> CalendarAccess
     var events: (_ from: Date, _ to: Date) -> [CalendarEvent]
+    /// The accounts whose calendars the Mac has ("Google", "iCloud"), for Settings > Calendar.
+    var accounts: () -> [String] = { [] }
     /// Calls back when the calendars change. The self-test's never does.
     var onChange: (@escaping @MainActor () -> Void) -> Void
 
@@ -29,6 +31,15 @@ struct CalendarSource {
                 guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return [] }
                 return store.events(matching: store.predicateForEvents(withStart: from, end: to, calendars: nil)).map { event($0) }
             },
+            accounts: {
+                guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return [] }
+                // Accounts only: not the Mac's own Birthdays, holidays, or subscribed calendars.
+                let titles = store.calendars(for: .event).compactMap { calendar -> String? in
+                    guard let source = calendar.source, [.calDAV, .exchange, .local, .mobileMe].contains(source.sourceType) else { return nil }
+                    return source.title
+                }
+                return Array(Set(titles)).sorted()
+            },
             onChange: { changed in
                 NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { _ in
                     MainActor.assumeIsolated { changed() }
@@ -37,9 +48,10 @@ struct CalendarSource {
     }()
 
     /// No calendar at all: test runs, until they set their own events.
-    static func fixed(_ events: [CalendarEvent], access: CalendarAccess = .allowed) -> CalendarSource {
+    static func fixed(_ events: [CalendarEvent], access: CalendarAccess = .allowed, accounts: [String] = []) -> CalendarSource {
         CalendarSource(access: { access }, request: { access },
                        events: { from, to in events.filter { $0.end > from && $0.start < to } },
+                       accounts: { accounts },
                        onChange: { _ in })
     }
 

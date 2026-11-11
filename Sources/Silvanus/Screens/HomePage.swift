@@ -17,12 +17,24 @@ struct HomePage: View {
                     .foregroundStyle(Ink.text)
                     .accessibilityAddTraits(.isHeader)
                 card
+                if model.calendarAccess == .allowed, model.calendarAccounts.isEmpty || model.comingUp.allSatisfy(\.events.isEmpty) {
+                    HStack(spacing: Space.sm) {
+                        Text(model.calendarAccounts.isEmpty ? "No calendar accounts on this Mac yet." : "Missing your Google Calendar?")
+                            .kitType(.label)
+                            .foregroundStyle(Ink.textSecondary)
+                        Button("Add Google Calendar…", action: model.addCalendarAccount)
+                            .buttonStyle(KitButtonStyle())
+                            .help("Opens System Settings > Internet Accounts")
+                    }
+                }
             }
             .padding(.horizontal, Metric.contentX - Metric.canvasX)
             .padding(.vertical, Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { model.refreshCalendar() }
+        // Coming back from System Settings (after adding an account) shows the new events.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshCalendar() }
     }
 
     private var card: some View {

@@ -184,6 +184,8 @@ final class AppModel {
     private(set) var calendarAccess: CalendarAccess = .notAsked
     /// Events from yesterday to two weeks ahead, read when access is allowed.
     private(set) var calendarEvents: [CalendarEvent] = []
+    /// The accounts whose calendars the Mac has ("Google", "iCloud"). Settings > Calendar lists them.
+    private(set) var calendarAccounts: [String] = []
     @ObservationIgnored private var watchingCalendar = false
 
     /// Today and tomorrow for the home page's Coming up card.
@@ -195,8 +197,10 @@ final class AppModel {
         calendarAccess = calendar.access()
         guard calendarAccess == .allowed else {
             calendarEvents = []
+            calendarAccounts = []
             return
         }
+        calendarAccounts = calendar.accounts()
         calendarEvents = calendar.events(now.addingTimeInterval(-86_400), now.addingTimeInterval(14 * 86_400))
         if !watchingCalendar {
             watchingCalendar = true
@@ -209,6 +213,14 @@ final class AppModel {
         Task {
             _ = await calendar.request()
             refreshCalendar()
+        }
+    }
+
+    /// Add Google Calendar: opens System Settings > Internet Accounts, where a Google account
+    /// is added with Calendars on. Its events then show up here on their own.
+    func addCalendarAccount() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension") {
+            NSWorkspace.shared.open(url)
         }
     }
 

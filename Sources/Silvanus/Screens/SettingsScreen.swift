@@ -43,6 +43,11 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     static let stopWhenCallEndsDescription = "When the call app stops using audio, stop recording after a short countdown."
     static let stopWhenCallEndsFootnote = "Needs the Mac's per-app audio list; without it, waits for the call app to quit."
 
+    /// Which accounts' calendars Silvanus can see.
+    static func calendarAccounts(_ accounts: [String]) -> String {
+        accounts.isEmpty ? "No calendar accounts on this Mac yet." : "Reading calendars from: " + accounts.joined(separator: ", ") + "."
+    }
+
     static func calendarFootnote(_ access: CalendarAccess) -> String {
         switch access {
         case .allowed: "Silvanus only reads your calendar. It never changes it."
@@ -164,6 +169,14 @@ struct SettingsScreen: View {
                     case .denied:
                         Button("Open System Settings…", action: model.openCalendarSettings)
                             .buttonStyle(KitButtonStyle())
+                    }
+                }
+                if model.calendarAccess == .allowed {
+                    SettingRow(title: "Google Calendar", description: SettingsPane.calendarAccounts(model.calendarAccounts),
+                               footnote: "Add your Google account to this Mac with Calendars on, and its events show up here.") {
+                        Button("Add Google Calendar…", action: model.addCalendarAccount)
+                            .buttonStyle(KitButtonStyle())
+                            .help("Opens System Settings > Internet Accounts")
                     }
                 }
             case .summaries:
