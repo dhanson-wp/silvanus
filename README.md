@@ -114,7 +114,7 @@ Recording laws differ by place. Tell the people on your call that you're recordi
 
 Working now: recording both tracks, pause and resume, notes with timestamps, after-call transcripts, echo cleanup, playback, folders, call detection, stopping when the call ends, recovery after a crash or a device change, and light and dark mode.
 
-After a call, a local model (Gemma, through llama.cpp, from a file already on your Mac) lists the to-dos on the Summary view, where you can tick, edit, and add to them, and To-dos in the sidebar gathers every meeting's open ones in one place; Settings > Summaries shows which model. Not built yet: written summaries, search, naming individual speakers, calendar titles, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
+After a call, a local model (Gemma, through llama.cpp, from a file already on your Mac) lists the to-dos on the Summary view, where you can tick, edit, and add to them, and To-dos in the sidebar is a light task manager: every meeting's open ones in one place, plus your own, to tick, reword, add, and delete; Settings > Summaries shows which model. Not built yet: written summaries, search, naming individual speakers, calendar titles, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
 
 Transcripts are English only for now.
 

@@ -888,6 +888,51 @@ enum SelfTest {
             model.toggleTodo(item)
             check("unticking puts it back", model.library.readTodo(id: meeting.id) == merged && model.openTodoCount == openBefore)
         }
+        // Creating, rewording, and deleting from the To-dos page, in a meeting's list and in mine.
+        if let item = board?.items.last {
+            model.editTodo(item, text: "Jordan Lee: share the final deck")
+            check("rewording on the To-dos page writes the meeting's todo.md",
+                  model.library.readTodo(id: meeting.id) == ticked + "- [ ] Jordan Lee: share the final deck\n",
+                  model.library.readTodo(id: meeting.id) ?? "none")
+            model.addTodo("Order lunch", to: meeting.id)
+            let withLunch = ticked + "- [ ] Jordan Lee: share the final deck\n- [ ] Order lunch\n"
+            check("a to-do added on the To-dos page joins the meeting's list", model.library.readTodo(id: meeting.id) == withLunch)
+            await poll { editor()?.string == TodoPage(summary: summary).text(todo: withLunch) }
+            if let added = TodoBoard.items(in: withLunch, meetingID: meeting.id).last {
+                model.deleteTodo(added)
+                // The row as it is now: its words changed above.
+                let reworded = TodoBoard.Item(meetingID: item.meetingID, line: item.line, text: "Jordan Lee: share the final deck", done: false)
+                model.editTodo(reworded, text: "Jordan Lee: share the deck")
+            }
+            check("deleting and rewording back restore the list", model.library.readTodo(id: meeting.id) == merged,
+                  model.library.readTodo(id: meeting.id) ?? "none")
+        }
+        let countBefore = model.openTodoCount
+        model.addTodo("Renew the domain", to: TodoBoard.own)
+        check("a to-do of my own is saved in the library's root, outside any meeting",
+              model.library.readOwnTodo() == "- [ ] Renew the domain\n" && model.ownTodo == "- [ ] Renew the domain\n"
+              && model.openTodoCount == countBefore + 1)
+        if let mine = TodoBoard.items(in: model.ownTodo, meetingID: TodoBoard.own).first {
+            model.toggleTodo(mine)
+            check("my own to-do can be ticked", model.library.readOwnTodo() == "- [x] Renew the domain\n" && model.openTodoCount == countBefore)
+            model.editTodo(TodoBoard.items(in: model.ownTodo, meetingID: TodoBoard.own)[0], text: "")
+            check("clearing a to-do's words deletes it", model.library.readOwnTodo().isEmpty && model.ownTodo.isEmpty)
+        }
+        // Meeting > New To-do starts a list on a meeting that has none.
+        let fresh = Meeting(info: MeetingInfo(id: "selftest-new-todo", title: "Design review", start: Date(timeIntervalSince1970: 1_793_964_600)))
+        _ = try? model.library.save(fresh)
+        model.reload()
+        model.newTodo(in: fresh.id)
+        check("New To-do starts the meeting's list and opens its Summary",
+              model.library.readTodo(id: fresh.id) == "- [ ] New to-do\n" && model.selection == fresh.id
+              && model.canvasMode == .summary && !model.showingTodos)
+        await poll { editor()?.string == "## To-dos\n- [ ] New to-do" && editor()?.selectedRange().length == 9 }
+        let selected = editor().map { ($0.string as NSString).substring(with: $0.selectedRange()) }
+        check("the new to-do's words are selected, ready to type over", selected == AppModel.newTodoText, selected ?? "no editor")
+        model.deleteTodo(TodoBoard.Item(meetingID: fresh.id, line: 0, text: AppModel.newTodoText, done: false))
+        model.selection = meeting.id
+        model.showTodos()
+
         model.open(meeting.id)
         check("opening a meeting leaves the To-dos page", !model.showingTodos)
         model.showTodos()

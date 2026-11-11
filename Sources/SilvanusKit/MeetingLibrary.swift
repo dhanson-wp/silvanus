@@ -108,6 +108,17 @@ public final class MeetingLibrary {
         return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 
+    /// To-dos that belong to no meeting, added on the To-dos page: `<root>/todo.md`.
+    public func readOwnTodo() -> String {
+        (try? String(contentsOf: root.appending(path: MeetingFolder.todo), encoding: .utf8)) ?? ""
+    }
+
+    /// Writes `<root>/todo.md`, atomically; an empty list removes the file.
+    public func saveOwnTodo(_ todo: String) throws {
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try write(todo, to: MeetingFolder.todo, in: root)
+    }
+
     /// Writes only `notes.md`, atomically. The notes canvas saves this way so a summary,
     /// transcript, or details another app changed meanwhile are never overwritten with
     /// an older copy.

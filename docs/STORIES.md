@@ -503,7 +503,7 @@ Acceptance:
 - [manual] On a real call, the list has the to-dos I'd have written down and no made-up ones.
 - [self] Meeting › Write To-dos (⌃⌘T) writes the list again for the open meeting; it's off without a transcript.
 Status: done
-Note: the manual check on a real call is still to do. A list can't be started by hand on a meeting that has none yet.
+Note: the manual check on a real call is still to do.
 
 ### S-043 See every to-do in one place
 As the user, I open To-dos in the sidebar and see what's still open across all my meetings, like a light task manager.
@@ -514,8 +514,11 @@ Acceptance:
 - [snap] The sidebar's To-dos row sits above the meetings with the count of open to-dos; the page shows each meeting's title and date over its to-dos, done ones struck through.
 - [self] Ticking or unticking a to-do on the page writes that meeting's `todo.md`, and the count follows.
 - [self] Clicking a meeting's title opens its Summary; opening any meeting leaves the page. View › To-dos (⇧⌘T) opens it.
+- [self] On the page, a to-do's words can be changed in place (clearing them deletes it), a to-do can be deleted from its menu, and each list ends with a New to-do field. Every change is saved to that list's `todo.md`.
+- [self] My to-dos, at the top, holds to-dos that belong to no meeting (`todo.md` in the library's root); they count in the sidebar too.
+- [self] Meeting › New To-do (⌥⌘T) adds a to-do to the open meeting, starting its list if it has none, and selects its words on Summary to type over.
 Status: done
-Note: no due dates, sorting, or to-dos of your own outside a meeting yet.
+Note: no due dates, sorting, reordering, or moving a to-do between lists yet. A done to-do on the page is dimmed, not struck through.
 
 ## Later
 - Summaries written by the same local model as the to-dos.

@@ -237,24 +237,69 @@ final class AppModel {
         willSet { if newValue, !showingTodos { leavingNotes?() } }
     }
 
-    /// Open to-dos across every meeting: the count on the sidebar's To-dos row.
-    var openTodoCount: Int { TodoBoard.openCount(meetings) }
+    /// To-dos that belong to no meeting (`<root>/todo.md`), added on the To-dos page.
+    private(set) var ownTodo = ""
+
+    /// Open to-dos, mine and every meeting's: the count on the sidebar's To-dos row.
+    var openTodoCount: Int {
+        TodoBoard.openCount(meetings) + TodoBoard.items(in: ownTodo, meetingID: TodoBoard.own).count { !$0.done }
+    }
 
     func showTodos() {
         settingsOpen = false
         showingTodos = true
     }
 
-    /// Ticks or unticks a to-do from the To-dos page, in its meeting's `todo.md`.
+    /// Ticks or unticks a to-do from the To-dos page.
     func toggleTodo(_ item: TodoBoard.Item) {
-        guard let todo = library.readTodo(id: item.meetingID),
-              let toggled = TodoBoard.toggled(todo, line: item.line) else { return }
+        changeTodos(item.meetingID) { TodoBoard.toggled($0, line: item.line) }
+    }
+
+    /// Changes a to-do's words from the To-dos page; blank words remove it.
+    func editTodo(_ item: TodoBoard.Item, text: String) {
+        guard text.trimmingCharacters(in: .whitespacesAndNewlines) != item.text else { return }
+        changeTodos(item.meetingID) { TodoBoard.edited($0, line: item.line, text: text) }
+    }
+
+    func deleteTodo(_ item: TodoBoard.Item) {
+        changeTodos(item.meetingID) { TodoBoard.removed($0, line: item.line) }
+    }
+
+    /// Adds an open to-do to a meeting's list, or to mine (`TodoBoard.own`).
+    func addTodo(_ text: String, to list: String) {
+        changeTodos(list) { TodoBoard.added($0, text: text) }
+    }
+
+    /// Meeting > New To-do: starts or extends the open meeting's list with a to-do to type
+    /// over, and shows it on Summary with its words selected.
+    static let newTodoText = "New to-do"
+    /// The meeting whose newest to-do the Summary page should select. The page clears it.
+    var todoToSelect: String?
+
+    func newTodo(in id: String) {
+        addTodo(Self.newTodoText, to: id)
+        todoToSelect = id
+        open(id)
+        show(.summary)
+    }
+
+    /// Reads a list as it is on disk, changes it, and saves it. Nothing is written when
+    /// `change` returns nil or the same text.
+    private func changeTodos(_ list: String, _ change: (String) -> String?) {
+        let own = list == TodoBoard.own
+        let current = own ? library.readOwnTodo() : (library.readTodo(id: list) ?? "")
+        guard let changed = change(current), changed != current else { return }
         do {
-            try library.saveTodo(toggled, for: item.meetingID)
-            todoSaved(toggled, for: item.meetingID)
+            if own {
+                try library.saveOwnTodo(changed)
+                ownTodo = changed
+            } else {
+                try library.saveTodo(changed, for: list)
+                todoSaved(changed, for: list)
+            }
             todoRevision += 1
         } catch {
-            print("TODOS couldn't save \(item.meetingID): \(error.localizedDescription)")
+            print("TODOS couldn't save \(own ? "my to-dos" : list): \(error.localizedDescription)")
         }
     }
 
@@ -417,6 +462,7 @@ extension AppModel {
         let loaded = library.loadAll()
         meetings = loaded.meetings
         unreadable = loaded.unreadable
+        ownTodo = library.readOwnTodo()
     }
 
     private func regroup() {

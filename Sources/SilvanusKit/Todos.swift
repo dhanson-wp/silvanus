@@ -124,6 +124,13 @@ public enum TodoBoard {
         public var text: String
         public var done: Bool
 
+        public init(meetingID: String, line: Int, text: String, done: Bool) {
+            self.meetingID = meetingID
+            self.line = line
+            self.text = text
+            self.done = done
+        }
+
         public var id: String { "\(meetingID)#\(line)" }
     }
 
@@ -168,6 +175,46 @@ public enum TodoBoard {
               let box = lines[line].range(of: parsed.done ? (lines[line].contains("[X]") ? "[X]" : "[x]") : "[ ]") else { return nil }
         lines[line].replaceSubrange(box, with: parsed.done ? "[ ]" : "[x]")
         return lines.joined(separator: "\n")
+    }
+
+    /// The id of the list that belongs to no meeting: to-dos added on the To-dos page itself.
+    public static let own = ""
+
+    /// `todo` with a new open to-do at the end. The "no to-dos" line goes once there is one.
+    /// Blank text adds nothing.
+    public static func added(_ todo: String, text: String) -> String {
+        let text = oneLine(text)
+        guard !text.isEmpty else { return todo }
+        var lines = todo.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { lines.removeLast() }
+        lines.removeAll { $0.trimmingCharacters(in: .whitespaces) == Todos.none }
+        lines.append("- [ ] \(text)")
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// `todo` with the words of the to-do on `line` changed, its box as it was. Blank text
+    /// removes the to-do. Nil when that line isn't a to-do.
+    public static func edited(_ todo: String, line: Int, text: String) -> String? {
+        let text = oneLine(text)
+        guard !text.isEmpty else { return removed(todo, line: line) }
+        var lines = todo.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.indices.contains(line), let parsed = parse(Substring(lines[line])) else { return nil }
+        lines[line] = "- [\(parsed.done ? "x" : " ")] \(text)"
+        return lines.joined(separator: "\n")
+    }
+
+    /// `todo` without the to-do on `line`; nil when that line isn't a to-do.
+    public static func removed(_ todo: String, line: Int) -> String? {
+        var lines = todo.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.indices.contains(line), parse(Substring(lines[line])) != nil else { return nil }
+        lines.remove(at: line)
+        let text = lines.joined(separator: "\n")
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : text
+    }
+
+    /// A to-do is one line: line breaks become spaces.
+    private static func oneLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
     }
 
     private static func parse(_ line: Substring) -> (text: String, done: Bool)? {

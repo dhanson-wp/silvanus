@@ -8,6 +8,7 @@ enum SeedData {
         guard ProcessInfo.processInfo.environment["APP_SEED"] == "1", Store.isScratch else { return }
         guard library.loadAll().meetings.isEmpty else { return }
         for meeting in meetings() { _ = try? library.save(meeting) }
+        try? library.saveOwnTodo("- [ ] Renew the domain\n- [x] Send the invoice\n")
         try? library.saveTranscript(kickoffTranscript, for: recordedID)
     }
 

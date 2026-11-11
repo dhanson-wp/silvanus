@@ -126,4 +126,27 @@ import Testing
         #expect(TodoBoard.toggled(todo, line: 2) == nil)
         #expect(TodoBoard.toggled("Plain\n", line: 0) == nil)
     }
+
+    @Test("A new to-do goes at the end, open, and replaces the no-to-dos line")
+    func added() {
+        #expect(TodoBoard.added("", text: "Call the venue") == "- [ ] Call the venue\n")
+        #expect(TodoBoard.added("- [x] One\n", text: " Two\nthree ") == "- [x] One\n- [ ] Two three\n")
+        #expect(TodoBoard.added(Todos.none + "\n", text: "One") == "- [ ] One\n")
+        #expect(TodoBoard.added("- [ ] One\n", text: "   ") == "- [ ] One\n")
+    }
+
+    @Test("Editing changes a to-do's words and keeps its box; blank words remove it")
+    func edited() {
+        let todo = "- [x] Sam: send the plan\n- [ ] Priya: book the room\n"
+        #expect(TodoBoard.edited(todo, line: 0, text: "Sam: send the final plan") == "- [x] Sam: send the final plan\n- [ ] Priya: book the room\n")
+        #expect(TodoBoard.edited(todo, line: 1, text: "") == "- [x] Sam: send the plan\n")
+        #expect(TodoBoard.edited(todo, line: 5, text: "x") == nil)
+    }
+
+    @Test("Removing the last to-do leaves an empty list")
+    func removed() {
+        #expect(TodoBoard.removed("- [ ] One\n- [ ] Two\n", line: 0) == "- [ ] Two\n")
+        #expect(TodoBoard.removed("- [ ] One\n", line: 0) == "")
+        #expect(TodoBoard.removed("Plain\n", line: 0) == nil)
+    }
 }

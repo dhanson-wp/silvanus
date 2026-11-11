@@ -217,6 +217,11 @@ struct MeetingCommands: Commands {
                 }
             }
             .disabled(noMeeting)
+            Button("New To-do") {
+                if let meeting { model.newTodo(in: meeting.id) }
+            }
+                .keyboardShortcut("t", modifiers: [.option, .command])
+                .disabled(noMeeting)
             Button("Write To-dos") {
                 if let meeting { model.writeTodos(for: meeting.id, asked: true); model.show(.summary) }
             }

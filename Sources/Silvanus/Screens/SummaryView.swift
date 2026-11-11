@@ -17,6 +17,8 @@ struct SummaryView: View {
     let header: AnyView
     /// What the page was read for (nil while the files are being read).
     @State private var loaded: Loaded?
+    /// Reaches the editor, to select a to-do just made with Meeting > New To-do.
+    @State private var link = EditorLink()
 
     private struct Loaded {
         var id: String
@@ -31,7 +33,7 @@ struct SummaryView: View {
                 if let page = loaded.page {
                     let layout = TodoPage(summary: loaded.summary)
                     MarkdownEditor(text: Binding(get: { page }, set: { save($0, layout: layout) }),
-                                   header: header, headerHeight: MeetingHeader.height,
+                                   link: link, header: header, headerHeight: MeetingHeader.height,
                                    accessibilityLabel: "Summary",
                                    locked: (layout.lockedPrefix, layout.lockedSuffix))
                 } else if loaded.summary.isEmpty {
@@ -53,7 +55,10 @@ struct SummaryView: View {
         }
         // A new meeting gets a fresh page (and a fresh header); so does a list that appears or goes.
         .id("\(meeting.id)-\(loaded?.page == nil ? "summary" : "todos")")
-        .task(id: "\(meeting.id)-\(model.todoRevision)") { load() }
+        .task(id: "\(meeting.id)-\(model.todoRevision)") {
+            load()
+            await selectNewTodo()
+        }
     }
 
     /// The line under the header when there's nothing to show yet.
@@ -70,6 +75,21 @@ struct SummaryView: View {
         let todo = model.library.readTodo(id: meeting.id) ?? meeting.todo
         let hasTodos = !todo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         loaded = Loaded(id: meeting.id, summary: summary, page: hasTodos ? TodoPage(summary: summary).text(todo: todo) : nil)
+    }
+
+    /// Meeting > New To-do: once the editor shows the list, select the new to-do's words
+    /// (the last "New to-do" before the summary) so typing replaces them.
+    private func selectNewTodo() async {
+        guard model.todoToSelect == meeting.id, let page = loaded?.page else { return }
+        model.todoToSelect = nil
+        for _ in 0..<20 where link.textView?.string != page { try? await Task.sleep(for: .milliseconds(50)) }
+        guard let view = link.textView, view.string == page else { return }
+        let listEnd = (page as NSString).length - TodoPage(summary: loaded?.summary ?? "").lockedSuffix
+        let range = (page as NSString).range(of: AppModel.newTodoText, options: .backwards, range: NSRange(location: 0, length: listEnd))
+        guard range.location != NSNotFound else { return }
+        view.window?.makeFirstResponder(view)
+        view.setSelectedRange(range)
+        view.scrollRangeToVisible(range)
     }
 
     /// The editor's text changed: keep it, and write the list part to `todo.md`.
