@@ -10,6 +10,7 @@
   <img alt="Swift 6.2 or later" src="https://img.shields.io/badge/Swift-6.2%2B-C8AA73?labelColor=17142C">
   <img alt="Runs on device, no cloud" src="https://img.shields.io/badge/on--device-no%20cloud-C8AA73?labelColor=17142C">
   <img alt="Status: early preview" src="https://img.shields.io/badge/status-early%20preview-C8AA73?labelColor=17142C">
+  <a href="https://github.com/dhanson-wp/silvanus/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/dhanson-wp/silvanus?label=release&color=C8AA73&labelColor=17142C"></a>
 </p>
 
 # Silvanus
@@ -18,10 +19,14 @@ I wanted a meeting notes app I could trust with every call: one that records bot
 
 The name comes from Silvanus, the scribe who wrote down Peter's letter. It also means "of the woods," which suits a guy who likes woodworking.
 
-> **Early preview.** Silvanus records and transcribes real calls today, but it's young. There's no signed download yet, so you build it yourself (it takes about a minute). See [what works today](#what-works-today) before you rely on it.
+> **Early preview.** Silvanus records and transcribes real calls today, and I use it for mine, but it's young. See [what works today](#what-works-today) before you rely on it.
+
+```sh
+curl -fsSL https://get-silvanus.space.fast/install.sh | sh
+```
 
 <p align="center">
-  <img src="Brand/readme/notes-light.png" alt="A meeting's notes in light mode, with a timestamp beside every line." width="49%">
+  <img src="Brand/readme/summary-light.png" alt="A meeting's summary in light mode, with its to-dos, overview, and decisions." width="49%">
   <img src="Brand/readme/transcript-dark.png" alt="A meeting's transcript in dark mode, with a player and speaker-labeled turns." width="49%">
 </p>
 
@@ -30,22 +35,45 @@ The name comes from Silvanus, the scribe who wrote down Peter's letter. It also 
 - **Records both sides of a call.** Your microphone and the call's audio go into two separate tracks, so the transcript knows who's you and who's them.
 - **Transcribes on your Mac.** Speech recognition runs on the Neural Engine with Parakeet. An hour-long call takes a few minutes, and nothing leaves your machine.
 - **Keeps your notes with the moment.** Type Markdown notes during the call; every line gets a quiet timestamp.
+- **Writes the summary and the to-dos.** After the call, a local Gemma 4 model writes a short summary and lists the to-dos. To-dos in the sidebar gathers every meeting's open ones in one place, next to your own.
+- **Knows what's on your calendar.** Connect your calendar and recordings take the event's title and attendees, the transcript names the people on the other side, and Home shows what's coming up with a Join button.
 - **Plays back from any word.** Click a line in the transcript to hear it.
 - **Notices when a call starts and ends.** Silvanus offers to record when a call app starts using the microphone, and it stops on its own when the call is over.
 - **Stays out of the way.** A small floating bar shows the recording state, a live level meter, Pause, and Stop.
 - **Writes plain files.** Every meeting is a folder of Markdown and JSON you can read, search, back up, or hand to an agent.
+- **Updates itself.** Silvanus checks for a new version once a day and asks before installing anything.
+
+<p align="center">
+  <img src="Brand/readme/home-light.png" alt="Home in light mode, showing today's and tomorrow's meetings with Join buttons." width="49%">
+  <img src="Brand/readme/todos-dark.png" alt="To-dos in dark mode, with your own to-dos and each meeting's, ready to tick off." width="49%">
+</p>
 
 ## Requirements
 
 - A Mac with Apple silicon
 - macOS 26 or later
-- Swift 6.2 or later, from Xcode or the Command Line Tools (`xcode-select --install`)
 - About 450 MB of disk space for the speech model
 - For to-dos and summaries (optional): 2.6 GB or 7.4 GB of disk space for the model, and 4 GB or 8 GB of memory while it writes
 
 ## Install
 
-There's no packaged download yet. Build it from source:
+Paste this into Terminal and press Return:
+
+```sh
+curl -fsSL https://get-silvanus.space.fast/install.sh | sh
+```
+
+It downloads the latest release, checks its size, checksum, and signature, puts Silvanus in your Applications folder, and opens it. There's a [download page](https://get-silvanus.space.fast) too, and every build is attached to [Releases](https://github.com/dhanson-wp/silvanus/releases). [INSTALL.md](INSTALL.md) has the full guide, including what each option does and a section for AI agents installing on someone's behalf.
+
+Silvanus isn't notarized by Apple yet, which is why the Terminal install is the smooth path; a browser download gets blocked by macOS.
+
+### Updates
+
+After the first install, Silvanus updates itself. It checks once a day, shows you what's new, and asks before installing anything. Silvanus > Check for Updates… checks right away, and Settings > General turns the daily check off. Running the install line again works too. Updating never touches your meetings.
+
+### Build from source
+
+You'll need Swift 6.2 or later, from Xcode or the Command Line Tools (`xcode-select --install`).
 
 ```sh
 git clone https://github.com/dhanson-wp/silvanus.git
@@ -54,9 +82,7 @@ cd silvanus
 open ~/Applications/Silvanus.app
 ```
 
-`./build.sh` alone builds a dev copy under `~/Library/Developer/Silvanus` and never touches the installed app. `--install` copies that build to `~/Applications/Silvanus.app`.
-
-### Signing
+`./build.sh` alone builds a dev copy under `~/Library/Developer/Silvanus` and never touches the installed app. `--install` copies that build to `~/Applications/Silvanus.app`. Builds from source don't update themselves; pull and build again instead.
 
 Without a signing identity, the build is signed ad hoc. That's fine on your own Mac, but macOS ties the microphone and system audio permissions to the signature, so it may ask again after each rebuild. To keep the permissions, create a code signing certificate in Keychain Access and name it in a gitignored `.env.local`:
 
@@ -81,6 +107,8 @@ Wearing headphones gives the cleanest transcript. Your microphone still hears a 
 | Start or stop recording | ⇧⌘R |
 | Pause or resume | ⇧⌘P |
 | New meeting | ⌘N |
+| Home | ⇧⌘H |
+| To-dos | ⇧⌘T |
 | Quick Note | ⌥⌘N |
 | Summary, My notes, Transcript | ⌘1, ⌘2, ⌘3 |
 | Show or hide the sidebar | ⌃⌘S |
@@ -108,7 +136,7 @@ These files are the source of truth. There's no database to export from, and del
 
 - Audio, notes, and transcripts never leave your Mac.
 - There's no account, no analytics, and no telemetry.
-- The only network requests are model downloads: the speech model, once, and the model for to-dos and summaries when you click Download.
+- The only network requests are model downloads (the speech model, once, and the model for to-dos and summaries when you click Download) and the daily update check, which fetches one small file from get-silvanus.space.fast and sends nothing about you or your meetings.
 
 Recording laws differ by place. Tell the people on your call that you're recording, and get their consent where it's required.
 
@@ -116,7 +144,7 @@ Recording laws differ by place. Tell the people on your call that you're recordi
 
 Working now: recording both tracks, pause and resume, notes with timestamps, after-call transcripts, echo cleanup, playback, folders, call detection, stopping when the call ends, recovery after a crash or a device change, and light and dark mode.
 
-After a call, a local model (Gemma 4, through llama.cpp, downloaded once from Home or Settings > Summaries) lists the to-dos on the Summary view, where you can tick, edit, and add to them, and To-dos in the sidebar is a light task manager: every meeting's open ones in one place, plus your own, to tick, reword, add, and delete; Settings > Summaries shows which model is in use, and takes a GGUF file of your own. It also writes a short summary. Connect your calendar and recordings take the event's title and attendees, and Home shows what's coming up today and tomorrow. Not built yet: search, naming individual speakers, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
+After a call, a local model (Gemma 4, through llama.cpp, downloaded once from Home or Settings > Summaries) lists the to-dos on the Summary view, where you can tick, edit, and add to them, and To-dos in the sidebar is a light task manager: every meeting's open ones in one place, plus your own, to tick, reword, add, and delete; Settings > Summaries shows which model is in use, and takes a GGUF file of your own. It also writes a short summary. Connect your calendar and recordings take the event's title and attendees, and Home shows what's coming up today and tomorrow. Until speakers can be told apart, the call side of a transcript is named after the meeting's other attendees. Not built yet: search, naming individual speakers, chat with a meeting, and the agent tools (a command line and an MCP server). The full list, with each story's status, is in [docs/STORIES.md](docs/STORIES.md).
 
 Transcripts are English only for now.
 
@@ -137,7 +165,7 @@ None of these touch your real meetings, the installed app, or the microphone. Th
 - `design/KIT.md` is the design kit: every measurement, color, and type role the views read.
 - `docs/GLOSSARY.md` lists every word on screen, and `docs/FIXLOG.md` records bugs worth remembering.
 
-It's a Swift package with one dependency. There's no Xcode project.
+It's a Swift package with three dependencies (FluidAudio, llama.cpp, and Sparkle). There's no Xcode project. [INSTALL.md](INSTALL.md) ends with how a release is built and published.
 
 ### For agents
 
@@ -167,6 +195,7 @@ Silvanus stands on other people's work, and I'm grateful for it:
 - [FluidAudio](https://github.com/FluidInference/FluidAudio) by FluidInference runs speech recognition on the Neural Engine (Apache 2.0).
 - [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) by NVIDIA is the speech model, in the [Core ML conversion](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml) by FluidInference (CC BY 4.0).
 - [Gemma 4](https://ai.google.dev/gemma) by Google writes the to-dos and summaries, in the GGUF conversions by [Unsloth](https://huggingface.co/unsloth) (Apache 2.0), run by [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT).
+- [Sparkle](https://sparkle-project.org) keeps Silvanus up to date (MIT).
 - [OpenOats](https://github.com/yazinsai/OpenOats) and its contributors showed the way on system audio capture; that part of Silvanus is adapted from it (MIT).
 
 The full license texts are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

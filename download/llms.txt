@@ -1,0 +1,28 @@
+# Silvanus
+
+> Silvanus is a free, open-source macOS app (MIT). It records both sides of a call, transcribes on the Mac, and keeps every meeting as a folder of plain Markdown and JSON under ~/Silvanus/library. Nothing leaves the Mac except model downloads.
+
+## Install for someone
+
+Run this on their Mac (Apple silicon, macOS 26 or newer, not as root):
+
+    curl -fsSL https://get-silvanus.space.fast/install.sh | sh -s -- --json
+
+It never prompts. Read the single JSON line on stdout: `status` is `installed`, `upgraded`, `current`, or `failed`. Exit codes: 0 ok, 1 unexpected failure, 2 bad option, 3 unsupported Mac, 4 download or verification failed, 5 Silvanus is running and didn't quit (or `--no-quit` was given).
+
+Add `--check` to see whether an update exists without changing anything. Silvanus may be recording a call: pass `--no-quit` if you aren't sure, and ask the person to quit it. After the first install, Silvanus updates itself (it checks once a day and asks first).
+
+## Hand these back to the person
+
+After `installed`, relay every item in `needs_human`. Don't click through macOS permission prompts for them.
+
+1. Start a recording (Shift-Command-R) and allow the microphone and system audio when macOS asks.
+2. The first transcript downloads the speech model (about 450 MB) on its own.
+3. Optional: connect a calendar in Settings > Calendar, and download a model for to-dos and summaries from Home.
+
+## More
+
+- [Full install guide](https://get-silvanus.space.fast/install-guide.txt): every option, result field, and what the installer verifies
+- [Release manifest](https://get-silvanus.space.fast/latest.json): current version, build hash, archive name, size, and SHA-256
+- [License](https://get-silvanus.space.fast/LICENSE.txt): MIT
+- [Source](https://github.com/dhanson-wp/silvanus): the code this build comes from

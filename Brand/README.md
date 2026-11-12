@@ -29,4 +29,4 @@ Put the files in `Brand/`, run `tools/brand.sh` then `./build.sh`, and check the
 
 ## README images
 
-`readme/` holds the images the top-level README shows: the banner, and two screenshots taken by `tools/snap.sh` from the made-up seed meetings. The app never reads them.
+`readme/` holds the images the top-level README shows: the banner, and four screenshots taken by `tools/snap.sh` from the made-up seed meetings. The app never reads them.

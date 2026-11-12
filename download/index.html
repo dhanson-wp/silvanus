@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install Silvanus: meeting notes and faithful transcripts, written on your Mac</title>
+<meta name="description" content="Silvanus is a free, open-source Mac app that records both sides of a call and writes the transcript, notes, and to-dos on your Mac. No account, no server, no bot.">
+<link rel="canonical" href="https://get-silvanus.space.fast/">
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+<meta property="og:title" content="Install Silvanus">
+<meta property="og:description" content="Meeting notes and faithful transcripts, written on your Mac.">
+<meta property="og:url" content="https://get-silvanus.space.fast/">
+<meta property="og:image" content="https://get-silvanus.space.fast/brand/icon-1024.png">
+<style>
+:root {
+  color-scheme: light dark;
+  --paper: #F5EDDF; --surface: #FFFBF5; --ink: #17142C; --gold: #8A6D2F; --muted: #6D6674;
+  --rule: #E6DAC5; --code-bg: #17142C; --code-ink: #F5EDDF; --button: #17142C; --on-button: #F5EDDF;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #17142C; --surface: #252039; --ink: #F5EDDF; --gold: #C8AA73; --muted: #BCB4C5;
+    --rule: #252039; --code-bg: #0E0C1C; --code-ink: #F5EDDF; --button: #C8AA73; --on-button: #17142C; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 1.0625rem/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--gold); text-underline-offset: 0.15em; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
+.skip { position: absolute; left: -999px; }
+.skip:focus { left: 1rem; top: 1rem; background: var(--paper); padding: 0.5rem 0.75rem; }
+header, main, footer { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }
+header { padding-top: clamp(1.5rem, 5vw, 3rem); display: flex; align-items: center; gap: 0.75rem; font: 700 1.4rem/1 Georgia, "Iowan Old Style", "Times New Roman", serif; }
+header img { width: 48px; height: 48px; }
+h1 { font: 700 clamp(2rem, 6vw, 3.1rem)/1.1 Georgia, "Iowan Old Style", "Times New Roman", serif; letter-spacing: -0.02em; margin: clamp(2rem, 7vw, 4rem) 0 1rem; max-width: 18ch; }
+h2 { font: 700 1.35rem/1.2 Georgia, "Iowan Old Style", "Times New Roman", serif; margin: 3rem 0 0.75rem; }
+p, li { max-width: 62ch; }
+.lede { font-size: 1.2rem; color: var(--muted); }
+.cmd { display: flex; gap: 0.5rem; align-items: stretch; margin: 1.5rem 0 0.5rem; }
+pre { margin: 0; flex: 1; min-width: 0; overflow-x: auto; background: var(--code-bg); color: var(--code-ink); padding: 0.95rem 1rem; border-radius: 8px; font: 0.95rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+button { font: inherit; font-weight: 600; cursor: pointer; border: 0; border-radius: 8px; padding: 0 1.1rem; background: var(--button); color: var(--on-button); min-height: 2.75rem; }
+.note { color: var(--muted); font-size: 0.95rem; }
+ol { padding-left: 1.25rem; }
+li { margin: 0.5rem 0; }
+code { font: 0.92em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface); padding: 0.1em 0.3em; border-radius: 4px; }
+pre code { background: none; padding: 0; font-size: 1em; }
+figure { margin: 2.5rem 0 0; }
+figure img { display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 1px 3px rgba(23,20,44,0.18), 0 12px 32px rgba(23,20,44,0.12); }
+.shot-dark { display: none; }
+@media (prefers-color-scheme: dark) { .shot-light { display: none; } .shot-dark { display: block; } }
+footer { border-top: 1px solid var(--rule); margin-top: 4rem; padding-top: 1.25rem; padding-bottom: 3rem; color: var(--muted); font-size: 0.95rem; }
+@media (max-width: 30rem) { .cmd { flex-direction: column; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <img src="/brand/icon-256.png" width="48" height="48" alt="">
+  <span>Silvanus</span>
+</header>
+<main id="main">
+  <h1>Meeting notes you can trust, written on your Mac.</h1>
+  <p class="lede">Silvanus records both sides of a call and writes a faithful transcript, your notes, and the to-dos. Everything stays on your Mac as plain files. No account, no server, and no bot joining your call.</p>
+
+  <h2>Install</h2>
+  <p>Paste this into Terminal and press Return:</p>
+  <div class="cmd">
+    <pre><code id="cmd">curl -fsSL https://get-silvanus.space.fast/install.sh | sh</code></pre>
+    <button type="button" id="copy" aria-live="polite">Copy</button>
+  </div>
+  <p class="note">It downloads the latest build, checks it, puts Silvanus in your Applications folder, and opens it. After that, Silvanus updates itself; it checks once a day and asks first. Needs a Mac with Apple silicon and macOS 26 or newer.</p>
+  <p class="note">Silvanus isn't notarized by Apple yet, so the Terminal install is the smooth path; a browser download would be blocked by macOS.</p>
+
+  <figure>
+    <img class="shot-light" src="/brand/summary-light.png" alt="A meeting's summary in Silvanus, with its to-dos, overview, and decisions.">
+    <img class="shot-dark" src="/brand/transcript-dark.png" alt="A meeting's transcript in Silvanus, in dark mode, with a player and speaker-labeled turns.">
+  </figure>
+
+  <h2>Then a few things only you can do</h2>
+  <ol>
+    <li><strong>Allow the microphone and system audio.</strong> Start a recording (&#8679;&#8984;R), and macOS asks for both. Silvanus asks the first time you record, never at launch.</li>
+    <li><strong>Let the speech model download.</strong> The first transcript fetches Parakeet (about 450 MB) on its own.</li>
+    <li><strong>If you like, add the extras.</strong> Connect a calendar in Settings so recordings take the event's title, and download a Gemma 4 model from Home for to-dos and summaries.</li>
+  </ol>
+
+  <h2>Installing with an AI agent</h2>
+  <p>The installer never asks a question, so an agent can run it for you. Point it at <a href="/install-guide.txt">the install guide</a>, or have it run:</p>
+  <div class="cmd">
+    <pre><code>curl -fsSL https://get-silvanus.space.fast/install.sh | sh -s -- --json</code></pre>
+  </div>
+  <p class="note">It prints one JSON line with the result and the steps to hand back to you. <a href="/llms.txt">llms.txt</a> has the short version for agents.</p>
+
+  <h2>What it's built on</h2>
+  <p>Silvanus transcribes with <a href="https://github.com/FluidInference/FluidAudio">FluidAudio</a> and NVIDIA's Parakeet, writes summaries with Google's Gemma 4 through <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a>, and updates itself with <a href="https://sparkle-project.org">Sparkle</a>. It's released under the <a href="/LICENSE.txt">MIT License</a>.</p>
+</main>
+<footer>
+  <p>Made by Derek Hanson. <a href="https://github.com/dhanson-wp/silvanus">Source on GitHub</a>.</p>
+</footer>
+<script>
+document.getElementById('copy').addEventListener('click', function () {
+  var b = this;
+  navigator.clipboard.writeText(document.getElementById('cmd').textContent).then(function () {
+    b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 2000);
+  });
+});
+</script>
+</body>
+</html>
