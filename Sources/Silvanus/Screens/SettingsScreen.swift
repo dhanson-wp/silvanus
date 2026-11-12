@@ -111,6 +111,7 @@ struct SettingsScreen: View {
     @ViewBuilder
     private func pane(_ pane: SettingsPane) -> some View {
         @Bindable var model = model
+        @Bindable var updates = Updates.shared
         VStack(alignment: .leading, spacing: 0) {
             switch pane {
             case .general:
@@ -125,6 +126,10 @@ struct SettingsScreen: View {
                                   isOn: $model.stopWhenCallEnds)
                 SettingRow.toggle("Open at login", description: "Start Silvanus when you log in.",
                                   isOn: .constant(false), isEnabled: false, help: "Coming soon")
+                SettingRow.toggle("Check for updates automatically",
+                                  description: "Look for a new version of Silvanus in the background.",
+                                  footnote: updates.footnote,
+                                  isOn: $updates.checksAutomatically, isEnabled: updates.isAvailable)
             case .appearance:
                 SettingRow(title: "Theme", description: "Follow your Mac, or always use light or dark.") {
                     HStack(spacing: Space.sm) {

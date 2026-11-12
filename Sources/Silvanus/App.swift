@@ -40,6 +40,7 @@ struct SilvanusApp: App {
             SidebarCommand(model: model)
             MeetingCommands(model: model)
             AboutCommand()
+            UpdatesCommand()
             SettingsCommand(model: model)
             // Edit > Find (⌘F), Find and Replace (⌥⌘F), and the rest, for the notes canvas.
             TextEditingCommands()
@@ -313,6 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         EditorSpike.openIfRequested()
+        Updates.shared.start()
     }
 
     /// ⌘Q while a meeting records asks first: "A meeting is recording. Stop and quit?"

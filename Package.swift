@@ -8,13 +8,16 @@ let package = Package(
         // Parakeet speech recognition on the Neural Engine. Pinned exactly:
         // FluidAudio has made source-breaking changes in patch releases.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.13.5"),
+        // In-app updates. Pinned to the version PressShot ships.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.0"),
     ],
     targets: [
         // Rules and data logic with no SwiftUI, so tests run without the app.
         .target(name: "SilvanusKit"),
         .executableTarget(
             name: "Silvanus",
-            dependencies: ["SilvanusKit", .product(name: "FluidAudio", package: "FluidAudio"), "llama"],
+            dependencies: ["SilvanusKit", .product(name: "FluidAudio", package: "FluidAudio"),
+                           .product(name: "Sparkle", package: "Sparkle"), "llama"],
             // App code runs on the main thread unless you say otherwise.
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
